@@ -1,0 +1,80 @@
+{
+  "name": "cdp-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A browser-native, instance-isolated React viewer for CDP browsers",
+  "license": "UNLICENSED",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/okou-ai/cdp-viewer.git"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint --type-aware --deny-warnings && eslint . --max-warnings 0",
+    "knip": "node scripts/check-dependencies.mjs",
+    "test:unit": "vitest run",
+    "test:browser": "playwright test",
+    "test:package": "node scripts/check-package.mjs"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.9.0",
+    "ccstate": "6.0.0",
+    "devtools-protocol": "0.0.1721602",
+    "lucide-react": "1.59.0",
+    "signal-timers": "1.0.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "ccstate-react": "6.0.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "happy-dom": "21.0.3",
+    "knip": "6.42.0",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "7.0.2004",
+    "prettier": "3.9.10",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.71.2",
+    "vite": "8.3.4",
+    "vitest": "^5.0.5"
+  }
+}
