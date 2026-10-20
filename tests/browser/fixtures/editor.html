@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic interaction fixture</title>
+    <style>
+      body {
+        margin: 40px;
+        min-height: 1800px;
+        background: white;
+        color: black;
+        font: 20px monospace;
+      }
+      input,
+      textarea,
+      [contenteditable] {
+        display: block;
+        width: 340px;
+        margin: 20px 0;
+        padding: 8px;
+        font: 20px monospace;
+      }
+      input {
+        height: 32px;
+      }
+      textarea {
+        height: 80px;
+      }
+      [contenteditable] {
+        min-height: 70px;
+        border: 1px solid black;
+      }
+      iframe {
+        display: block;
+        width: 340px;
+        height: 70px;
+      }
+    </style>
+  </head>
+  <body>
+    <form>
+      <label>Plain input <input id="plain" aria-label="Plain input" /></label>
+      <label
+        >Textarea <textarea id="multiline" aria-label="Textarea"></textarea>
+      </label>
+      <div
+        id="rich"
+        role="textbox"
+        aria-label="Rich editor"
+        contenteditable="true"
+      >
+        <b>Rich</b> editor
+      </div>
+      <button type="submit">Submit fixture</button>
+    </form>
+    <iframe
+      title="Unsupported focused frame"
+      srcdoc='<input aria-label="Frame input">'
+    ></iframe>
+    <div id="shadow" style="position: absolute; left: 460px; top: 50px"></div>
+    <output id="submits">0</output>
+    <output id="loads"></output>
+    <script>
+      document
+        .getElementById("shadow")
+        .attachShadow({ mode: "open" }).innerHTML =
+        '<input aria-label="Shadow input" style="width:220px;height:36px;font:20px monospace">';
+      document.querySelector("form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const output = document.getElementById("submits");
+        output.textContent = String(Number(output.textContent) + 1);
+      });
+      const loads = Number(sessionStorage.getItem("fixture-loads") || "0") + 1;
+      sessionStorage.setItem("fixture-loads", String(loads));
+      document.getElementById("loads").textContent = String(loads);
+    </script>
+  </body>
+</html>

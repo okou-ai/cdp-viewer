@@ -8,6 +8,8 @@ import {
   validateConfiguration,
 } from "../cdp/errors";
 import { TargetDirectory } from "../cdp/targets";
+import { InputSession } from "../input/session";
+import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
 import type { ViewerModel } from "./model";
 
@@ -16,6 +18,7 @@ interface Selection {
   sessionId: string | null;
   deadline: AbortController;
   painted: boolean;
+  input: InputSession | null;
 }
 
 interface ControllerOptions {
@@ -24,6 +27,9 @@ interface ControllerOptions {
   paused?: boolean;
   socketFactory?: SocketFactory;
   requestTimeout?: number;
+  interactive?: boolean;
+  onInputReset?: () => void;
+  onCaret?: (point: Point) => void;
 }
 
 /** Lifetime is one mounted connection, never an endpoint-keyed global. */
@@ -55,6 +61,13 @@ export class ViewerController {
     });
   }
 
+  get input(): InputSession | null {
+    const selection = this.selection;
+    return selection?.painted && this.isCurrent(selection)
+      ? selection.input
+      : null;
+  }
+
   select(targetId: string): void {
     if (
       this.disposed ||
@@ -68,6 +81,7 @@ export class ViewerController {
       selectedTargetId: targetId,
       error: null,
       status: this.paused ? "paused" : "connecting",
+      navigation: null,
     });
     if (this.paused) return;
     const selection: Selection = {
@@ -75,6 +89,7 @@ export class ViewerController {
       sessionId: null,
       deadline: new AbortController(),
       painted: false,
+      input: null,
     };
     this.selection = selection;
     void this.attach(selection).catch((error: unknown) => {
@@ -228,6 +243,35 @@ export class ViewerController {
     }
     await client.request("Page.enable", undefined, attached.sessionId);
     if (!this.isCurrent(selection)) return;
+    if (this.options.interactive) {
+      const input = new InputSession(
+        client,
+        attached.sessionId,
+        async () => {
+          if (!this.isCurrent(selection)) return false;
+          await this.directory!.assertMember(selection.targetId);
+          return this.isCurrent(selection);
+        },
+        (navigation) => {
+          if (this.isCurrent(selection)) this.model.update({ navigation });
+        },
+        () => this.options.onInputReset?.(),
+        (point) => {
+          if (!this.isCurrent(selection)) return;
+          this.options.onCaret?.(point);
+        },
+        (error) => {
+          if (
+            this.isCurrent(selection) &&
+            (error || this.model.getSnapshot().error?.kind === "input")
+          )
+            this.model.update({ error: error ? diagnostic(error) : null });
+        },
+      );
+      selection.input = input;
+      await input.start();
+      if (!this.isCurrent(selection)) return;
+    }
     await client.request(
       "Page.startScreencast",
       { format: "jpeg", quality: 70, maxWidth: 1920, maxHeight: 1080 },
@@ -264,7 +308,10 @@ export class ViewerController {
     const old = this.selection;
     this.selection = null;
     this.sink.reset();
+    if (this.model.getSnapshot().navigation)
+      this.model.update({ navigation: null });
     if (old) {
+      old.input?.dispose();
       old.deadline.abort();
       this.release(old);
     }
@@ -284,6 +331,7 @@ export class ViewerController {
 
   private readonly onEvent = (event: CdpEvent): void => {
     if (this.disposed) return;
+    this.selection?.input?.event(event);
     const params = event.params;
     if (event.method === "Page.screencastFrame") {
       const id = event.sessionId;

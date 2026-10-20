@@ -8,6 +8,7 @@ export function createViewerModel() {
       targets: Object.freeze([]),
       selectedTargetId: null,
       error: null,
+      navigation: null,
     }),
   );
   const store = createStore();

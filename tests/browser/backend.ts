@@ -8,6 +8,15 @@ export async function serveConsumer(dist: string, base = "/") {
   const server = createServer((request, response) => {
     const pathname = new URL(request.url ?? "/", "http://fixture.invalid")
       .pathname;
+    if (pathname === "/fixture/editor") {
+      void readFile(new URL("./fixtures/editor.html", import.meta.url))
+        .then((data) => {
+          response.setHeader("Content-Type", "text/html");
+          response.end(data);
+        })
+        .catch(() => response.writeHead(500).end());
+      return;
+    }
     if (pathname.startsWith("/fixture/")) {
       const color = pathname.endsWith("red")
         ? "rgb(232,32,48)"

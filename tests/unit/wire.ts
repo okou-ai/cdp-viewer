@@ -74,6 +74,8 @@ export class FakeBrowser {
   unsupportedWindows = false;
   unsupportedStream = false;
   holdAttach = false;
+  holdMethod: string | null = null;
+  readonly heldCommands: { command: WireCommand; socket: FakeSocket }[] = [];
   readonly held: {
     command: WireCommand;
     socket: FakeSocket;
@@ -100,7 +102,54 @@ export class FakeBrowser {
 
   private respond(command: WireCommand, socket: FakeSocket): void {
     queueMicrotask(() => {
+      if (command.method === this.holdMethod) {
+        this.heldCommands.push({ command, socket });
+        return;
+      }
       switch (command.method) {
+        case "Page.getFrameTree":
+          socket.reply(command, { frameTree: { frame: { id: "main" } } });
+          break;
+        case "Runtime.evaluate":
+          socket.reply(command, {
+            result: { type: "object", objectId: "focus-" + command.sessionId },
+          });
+          break;
+        case "Runtime.callFunctionOn":
+          socket.reply(command, {
+            result: {
+              type: "object",
+              value: {
+                editable: true,
+                supported: true,
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 600,
+                offsetX: 0,
+                offsetY: 0,
+              },
+            },
+          });
+          break;
+        case "Page.getLayoutMetrics":
+          socket.reply(command, {
+            cssVisualViewport: {
+              offsetX: 0,
+              offsetY: 0,
+              clientWidth: 800,
+              clientHeight: 600,
+            },
+          });
+          break;
+        case "Page.getNavigationHistory":
+          socket.reply(command, {
+            currentIndex: 0,
+            entries: [
+              { id: 1, url: "https://fixture.invalid/", title: "Fixture" },
+            ],
+          });
+          break;
         case "Target.getTargets":
           socket.reply(command, {
             targetInfos: this.targets.map((t) => ({

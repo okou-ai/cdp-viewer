@@ -1,4 +1,4 @@
-# View-only viewer validation
+# Viewer validation
 
 Observed on 2026-10-20 with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1,
 Debian Chromium 155.0.8059.79, React 19.2.0, and ccstate/ccstate-react 6.0.0.
@@ -102,13 +102,55 @@ rollout gate. The deployment workflow runs the same real-window scenarios
 against its actual URL and uploads only sanitized receipts, including any
 explicit local-network permission. See [the demo guide](demo.md).
 
+## Interaction validation
+
+On 2026-10-20, five focused interaction Playwright scenarios passed with Node
+24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium 155.0.8059.79.
+They use an independently installed public-source tarball consumer with scripts
+disabled, React 19.2.6 and Vite 8; this is supplementary local packaging evidence.
+Actual pushed full-SHA GitHub consumption remains a PR CI check.
+
+- Two real browser windows receive their own native text/emoji, Ctrl and Meta
+  selection intents, deletion, undo/redo, textarea Enter, button Space and Tab.
+  Local host/address fields retain their input, F8 releases remote keyboard
+  focus, and the surviving viewer stays usable after the other is unmounted.
+- Actual nested rich contenteditable and an open-shadow text control receive
+  committed text. Focused iframe input is rejected without writing the previous
+  top-document control.
+- Pointer drag/selection and wheel work with remote DPR 2, page scale 1.5,
+  contain-fit letterboxes and visual-viewport panning; a control remains usable
+  after the pan. Tests exposed and fixed missing held-button state on drag and
+  double-applied viewport offsets.
+- Address drafts remain local; HTTP(S) navigation, back, forward and reload are
+  explicit. JavaScript addresses are rejected. Blur and target replacement
+  discard unfinished local composition.
+  Address text such as reload/back/forward is rejected rather than interpreted
+  as a toolbar command; this regression was observed failing before the fix.
+- Synthetic composition cases cover final-input ordering before/after/no
+  trailing event, cancellation, repeated identical characters and IME/229 Enter.
+  Committed text arrives once and candidate confirmation does not submit the
+  remote form; a later ordinary Enter does. These are not genuine OS IME tests.
+
+Five focused input-lifecycle unit regressions cover pending focus guards across
+target/document replacement, an unacknowledged held-key release, accepted text
+followed by disconnect without retry, and unrelated frame/context changes versus
+main-context destruction. Relevant existing controller/component tests also
+passed during implementation. No full local Vitest suite or dev server was run.
+The consumer SSR fixture covers both read-only and interactive rendering with
+browser connections forbidden. Synthetic two-window UI screenshots were inspected.
+
+The current Run exposes no authorized VNC or SSH desktop hosts, so genuine
+macOS/Windows system-IME candidate placement and focus-transition receipts remain
+unverified. The acceptance gate is retained. See [the interaction support matrix](interaction.md).
+
 ## Remaining compatibility boundaries
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider
   Origin/TLS or hosted-client compatibility claim is made.
 - GitHub Pages: the new workflow still needs its first actual deployment/smoke
   receipt. Okou Origin compatibility is also not established by local fixtures.
-- Real Windows/macOS IME and clipboard: P2/P3, outside this view-only slice.
+- Real Windows/macOS system IMEs: require genuine OS receipts; synthetic browser
+  composition does not establish them. Clipboard transfer remains unimplemented.
 - Other client browsers and remote CDP versions: require their own recorded
   capability probes before being advertised as supported.
 - Two simultaneous streams of the same remote target: unverified; different
