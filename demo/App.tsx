@@ -117,11 +117,12 @@ function ConnectionPanel({
     const cdpUrl = endpoint.trim();
     try {
       const url = new URL(cdpUrl);
+      // URL.hash is also empty when the URL ends with a bare fragment marker.
       if (
         !["ws:", "wss:"].includes(url.protocol) ||
         url.username ||
         url.password ||
-        url.hash
+        url.href.includes("#")
       ) {
         setError("endpoint");
         return;

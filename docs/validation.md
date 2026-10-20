@@ -64,7 +64,7 @@ public-entry-aware analysis rather than excluding findings.
 
 ## Demo validation
 
-On 2026-10-20, the production demo build passed five focused Playwright
+On 2026-10-20, the production demo build passed six focused Playwright
 scenarios with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium
 155.0.8059.79. These consume public component/type/CSS exports at the
 `/cdp-viewer/` project-site path:
@@ -77,6 +77,11 @@ scenarios with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium
   supplied as a real scope, omission lists pages across windows, and selected
   tabs paint their actual pixels. Refresh clears configuration; no URL or
   local/session storage persistence is used.
+- Applying invalid URL or window drafts preserves the existing connection and
+  selection. Empty and nonempty fragments, fractional IDs and unsafe integers
+  produce field errors without replacing the live viewer, which continues to
+  paint newly changed remote pixels. The empty-fragment regression was observed
+  failing before the demo's validation fix.
 - A backend denying the frontend Origin produces fixed diagnostics. The page
   fits a 390px viewport and disconnected panels can be removed/added.
 - A separately labeled HTTPS-Origin fixture fulfills only static app assets

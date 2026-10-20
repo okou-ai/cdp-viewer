@@ -212,6 +212,71 @@ test("demo applies settings explicitly and isolates two real windows and cleanup
   }
 });
 
+test("invalid applied drafts preserve the active connection and live frames", async ({
+  page,
+}, info) => {
+  await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  let sockets = 0;
+  page.on("websocket", () => {
+    sockets++;
+  });
+  try {
+    const target = await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/red",
+      newWindow: true,
+    });
+    const scope = await backend.session.send("Browser.getWindowForTarget", {
+      targetId: target.targetId,
+    });
+    const a = panel(page, 1);
+    await configure(a, backend.endpoint, scope.windowId);
+    const view = a.getByRole("region", { name: "Remote browser viewer" });
+    await expectColor(view, [232, 32, 48]);
+    const opened = sockets;
+
+    for (const suffix of ["#", "#fragment"]) {
+      await a
+        .getByLabel("CDP URL", { exact: true })
+        .fill(backend.endpoint + suffix);
+      await a
+        .getByRole("button", { name: "Apply & connect", exact: true })
+        .click();
+      await expect(a.getByRole("alert")).toContainText(
+        "without userinfo or a fragment",
+      );
+      await expectColor(view, [232, 32, 48]);
+      expect(sockets).toBe(opened);
+    }
+    await a.getByLabel("CDP URL", { exact: true }).fill(backend.endpoint);
+    for (const value of ["0.5", "9007199254740992"]) {
+      await a.getByLabel(/^Window ID/).fill(value);
+      await a
+        .getByRole("button", { name: "Apply & connect", exact: true })
+        .click();
+      await expect(a.getByRole("alert")).toContainText("safe integer");
+      await expectColor(view, [232, 32, 48]);
+      expect(sockets).toBe(opened);
+    }
+
+    const remote = backend.context
+      .pages()
+      .find((p) => p.url() === server.origin + "/fixture/red");
+    if (!remote) throw new Error("The active remote fixture was closed.");
+    await remote.evaluate(() => {
+      document.body.style.background = "rgb(24,224,80)";
+    });
+    await expectColor(view, [24, 224, 80]);
+    await expect(view.getByRole("combobox")).toHaveValue(target.targetId);
+    expect(sockets).toBe(opened);
+  } finally {
+    await backend.close();
+  }
+});
+
 test("demo validates without navigation, preserves zero, and forgets settings on refresh", async ({
   page,
 }, info) => {
