@@ -8,9 +8,7 @@ GitHub Pages demo, and final consumer compatibility are tracked by [parent issue
 The package stays private and is distributed as source from GitHub. No npm
 registry publication is planned.
 
-The project uses the [Business Source License 1.1](./LICENSE), matching Okou's
-licensing terms. Each version changes to Apache License 2.0 four years after
-publication.
+Licensed under the [Apache License 2.0](./LICENSE).
 
 ## Install from GitHub
 
