@@ -1,9 +1,9 @@
 # cdp-viewer
 
 A browser-native React viewer for existing Chrome DevTools Protocol browsers.
-This first slice provides **view-only streaming, target selection, optional window
-filtering, and independent viewers**. Input/IME, clipboard, vendor adapters, the
-GitHub Pages demo, and final consumer compatibility are tracked by [parent issue #1](https://github.com/okou-ai/cdp-viewer/issues/1).
+It provides **view-only streaming, target selection, optional window filtering,
+and independent viewers**. Keyboard/IME input, clipboard and vendor adapters are
+not yet supported.
 
 The package stays private and is distributed as source from GitHub. No npm
 registry publication is planned.
@@ -89,7 +89,7 @@ and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
 Each instance has its own socket, request IDs, timers, controller, private ccstate
 store/context, Canvas queue, and cleanup. A host `ccstate-react` provider is
 independent. Views of the same remote page still share the page's real website
-state; **same-target simultaneous screencasts are not guaranteed by this slice**.
+state; **same-target simultaneous screencasts are not guaranteed**.
 The required same-browser/different-window case has independent ownership.
 
 The local image uses contain fitting. The viewer does not resize/emulate the
@@ -154,8 +154,8 @@ No browser provisioning service or development server is required for fixtures.
 
 Initial automation targets current desktop Chromium. Experimental remote CDP
 capabilities, provider Origin/TLS policy and other client browsers must be recorded
-before compatibility is claimed. In particular, this slice does not imply a
-successful Browser Use or GitHub Pages Origin probe; the hosted demo is P5.
+before compatibility is claimed. Browser Use connectivity and connections from
+GitHub Pages remain unverified.
 
 ## Contributing
 
