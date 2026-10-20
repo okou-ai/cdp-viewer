@@ -4,6 +4,7 @@ import type { Point } from "./geometry";
 import type { InputSession } from "./session";
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
+const buttonMasks = [1, 4, 2, 8, 16];
 const controlKeys = new Set([
   " ",
   "Enter",
@@ -40,6 +41,7 @@ export class NativeInput {
   private consumed = "";
   private readonly forwarded = new Set<string>();
   private pointerId: number | null = null;
+  private readonly pressedButtons = new Set<number>();
   private moveFrame: number | null = null;
   private latestMove: PointerEvent | null = null;
   private readonly lifetime = new AbortController();
@@ -53,6 +55,8 @@ export class NativeInput {
     const stage = canvas.parentElement;
     if (!stage) throw new Error("Input requires an owned stage.");
     stage.addEventListener("pointerdown", this.pointerDown, { signal });
+    stage.addEventListener("mousedown", this.mouseDown, { signal });
+    window.addEventListener("mouseup", this.mouseUp, { signal });
     stage.addEventListener("pointermove", this.pointerMove, { signal });
     stage.addEventListener("pointerup", this.pointerUp, { signal });
     stage.addEventListener("pointercancel", this.cancel, { signal });
@@ -60,6 +64,7 @@ export class NativeInput {
     stage.addEventListener("contextmenu", (e) => e.preventDefault(), {
       signal,
     });
+    stage.addEventListener("auxclick", (e) => e.preventDefault(), { signal });
     stage.addEventListener("wheel", this.wheel, { signal, passive: false });
     proxy.addEventListener(
       "focus",
@@ -100,6 +105,7 @@ export class NativeInput {
     this.moveFrame = null;
     const pointer = this.pointerId;
     this.pointerId = null;
+    this.pressedButtons.clear();
     if (
       pointer !== null &&
       this.canvas.parentElement?.hasPointerCapture(pointer)
@@ -135,18 +141,32 @@ export class NativeInput {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     const input = this.input();
     if (!point || !input || event.pointerType !== "mouse") return;
-    event.preventDefault();
-    input.blur();
-    this.reset();
+    if (this.composing) {
+      input.blur();
+      this.reset();
+    }
+    // Preserve queued gestures, held modifiers and the consumed composition
+    // boundary for another click in the same viewer. The serialized press
+    // changes remote focus after preceding committed input has completed.
     this.place(point);
     this.pointerId = event.pointerId;
     this.proxy.focus({ preventScroll: true });
     this.canvas.parentElement?.setPointerCapture(event.pointerId);
-    input.pointer("mousePressed", point, {
+  };
+
+  private readonly mouseDown = (event: MouseEvent) => {
+    if (this.pointerId === null) return;
+    const point = imagePoint(this.canvas, event.clientX, event.clientY);
+    if (!point) return;
+    // PointerEvent.detail is zero. The compatibility mouse event supplies the
+    // browser/OS click count, including native double/triple-click settings.
+    event.preventDefault();
+    this.pressedButtons.add(event.button);
+    this.input()?.pointer("mousePressed", point, {
       button: buttons[event.button] ?? "left",
-      buttons: event.buttons,
+      buttons: this.ownedButtons(event.buttons),
       modifiers: modifiers(event),
-      clickCount: event.detail || 1,
+      clickCount: event.detail,
     });
   };
 
@@ -163,6 +183,7 @@ export class NativeInput {
     const event = this.latestMove;
     this.latestMove = null;
     if (!event) return;
+    const held = this.ownedButtons(event.buttons);
     const point = imagePoint(
       this.canvas,
       event.clientX,
@@ -172,33 +193,41 @@ export class NativeInput {
     if (point)
       this.input()?.pointer("mouseMoved", point, {
         button:
-          event.buttons & 1
-            ? "left"
-            : event.buttons & 2
-              ? "right"
-              : event.buttons & 4
-                ? "middle"
-                : "none",
-        buttons: event.buttons,
+          held & 1 ? "left" : held & 2 ? "right" : held & 4 ? "middle" : "none",
+        buttons: held,
         modifiers: modifiers(event),
       });
   };
 
   private readonly pointerUp = (event: PointerEvent) => {
     if (event.pointerId !== this.pointerId) return;
-    event.preventDefault();
     this.flushMove();
-    const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     this.pointerId = null;
     if (this.canvas.parentElement?.hasPointerCapture(event.pointerId)) {
       this.canvas.parentElement.releasePointerCapture(event.pointerId);
     }
+  };
+
+  private ownedButtons(physical: number): number {
+    let owned = 0;
+    for (const button of this.pressedButtons) owned |= buttonMasks[button] ?? 0;
+    return physical & owned;
+  }
+
+  private readonly mouseUp = (event: MouseEvent) => {
+    // Mouseup occurs for every released button, including a chord's non-final
+    // button. The window listener also owns release outside the captured stage.
+    if (!this.pressedButtons.has(event.button)) return;
+    event.preventDefault();
+    this.flushMove();
+    this.pressedButtons.delete(event.button);
+    const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     if (point)
       this.input()?.pointer("mouseReleased", point, {
         button: buttons[event.button] ?? "left",
-        buttons: event.buttons,
+        buttons: this.ownedButtons(event.buttons),
         modifiers: modifiers(event),
-        clickCount: event.detail || 1,
+        clickCount: event.detail,
       });
   };
 

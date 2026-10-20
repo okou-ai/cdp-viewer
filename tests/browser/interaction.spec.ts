@@ -154,6 +154,24 @@ test("interactive public viewers route native text, editing shortcuts and local 
     await page.keyboard.insertText("🙂");
     await expect(first.remote.locator("#plain")).toHaveValue("hello🙂");
     await expect(second.locator("#plain")).toHaveValue("");
+    const plainBox = await first.remote.locator("#plain").boundingBox();
+    if (!plainBox) throw new Error("Owned input bounds missing.");
+    const word = await imagePosition(
+      a,
+      plainBox.x + 25,
+      plainBox.y + plainBox.height / 2,
+      first.remote,
+    );
+    await page.mouse.dblclick(word.x, word.y);
+    await expect
+      .poll(() =>
+        first.remote
+          .locator("#plain")
+          .evaluate((e: HTMLInputElement) =>
+            e.value.slice(e.selectionStart ?? 0, e.selectionEnd ?? 0),
+          ),
+      )
+      .toBe("hello");
     await page.keyboard.press("Control+a");
     await page.keyboard.press("Backspace");
     await expect(first.remote.locator("#plain")).toHaveValue("");
@@ -174,8 +192,9 @@ test("interactive public viewers route native text, editing shortcuts and local 
       "line one\nline two",
     );
     await clickRemote(page, a, first.remote, "button[type=submit]");
-    await page.keyboard.press("Space");
     await expect(first.remote.locator("#submits")).toHaveText("1");
+    await page.keyboard.press("Space");
+    await expect(first.remote.locator("#submits")).toHaveText("2");
     await clickRemote(page, a, first.remote, "#rich");
     await page.keyboard.press("Control+a");
     await page.keyboard.insertText("Rich 中文🙂");
@@ -245,6 +264,59 @@ test("pointer input respects contain fitting, remote DPR, page scale, drag and w
       .toBeGreaterThan(0);
     const canvasBox = await view.locator("canvas").boundingBox();
     if (!canvasBox) throw new Error("Owned canvas bounds missing.");
+    // Collapse the existing selection: dragging selected text starts native
+    // HTML drag-and-drop, whose dragend legitimately replaces mouseup.
+    await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(() =>
+        remote
+          .locator("#plain")
+          .evaluate(
+            (e: HTMLInputElement) => e.selectionStart === e.selectionEnd,
+          ),
+      )
+      .toBe(true);
+    await remote.evaluate(() => {
+      document.body.dataset.releases = "0";
+      document.body.dataset.drags = "0";
+      document.addEventListener("dragstart", () => {
+        document.body.dataset.drags = String(
+          Number(document.body.dataset.drags) + 1,
+        );
+      });
+      document.addEventListener("contextmenu", (event) =>
+        event.preventDefault(),
+      );
+      document.addEventListener("mouseup", (event) => {
+        document.body.dataset.releases = String(
+          Number(document.body.dataset.releases) + 1,
+        );
+        document.body.dataset.buttons = String(event.buttons);
+      });
+    });
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(canvasBox.x + canvasBox.width + 20, from.y);
+    await page.mouse.up();
+    await expect(remote.locator("body")).toHaveAttribute("data-releases", "1");
+    await expect(remote.locator("body")).toHaveAttribute("data-drags", "0");
+    await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(() =>
+        remote
+          .locator("#plain")
+          .evaluate(
+            (e: HTMLInputElement) => e.selectionStart === e.selectionEnd,
+          ),
+      )
+      .toBe(true);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.down({ button: "right" });
+    await page.mouse.up({ button: "left" });
+    await page.mouse.up({ button: "right" });
+    await expect(remote.locator("body")).toHaveAttribute("data-releases", "3");
+    await expect(remote.locator("body")).toHaveAttribute("data-buttons", "0");
     // The contained image leaves side letterboxes in this wide stage.
     const previousFocus = await remote
       .locator("#plain")
@@ -399,8 +471,9 @@ test("blur, target replacement and unsupported frame focus discard local composi
     await expect(second.remote.locator("#plain")).toHaveValue("new owner");
     await clickRemote(page, view, second.remote, "button[type=submit]");
     await expect(view.getByRole("alert")).toHaveCount(0);
-    await page.keyboard.press("Space");
     await expect(second.remote.locator("#submits")).toHaveText("1");
+    await page.keyboard.press("Space");
+    await expect(second.remote.locator("#submits")).toHaveText("2");
   } finally {
     await backend.close();
   }
@@ -481,6 +554,21 @@ test("composition commits once, cancels locally and keeps candidate Enter separa
     }
     await expect(remote.locator("#plain")).toHaveValue("中中中");
     await expect(remote.locator("#submits")).toHaveText("0");
+    await clickRemote(page, view, remote, "#multiline");
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      element.value = "中";
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertFromComposition",
+          data: "中",
+        }),
+      );
+    });
+    await expect(remote.locator("#multiline")).toHaveValue("");
+    await page.keyboard.insertText("new owner");
+    await expect(remote.locator("#multiline")).toHaveValue("new owner");
+    await clickRemote(page, view, remote, "#plain");
     await page.keyboard.insertText("中");
     await expect(remote.locator("#plain")).toHaveValue("中中中中");
     await proxy.evaluate((element: HTMLTextAreaElement) => {

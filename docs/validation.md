@@ -114,6 +114,8 @@ Actual pushed full-SHA GitHub consumption remains a PR CI check.
   selection intents, deletion, undo/redo, textarea Enter, button Space and Tab.
   Local host/address fields retain their input, F8 releases remote keyboard
   focus, and the surviving viewer stays usable after the other is unmounted.
+  Native double-click selects a remote word; its regression failed before
+  forwarding the browser's mouse click count and preserving same-viewer gestures.
 - Actual nested rich contenteditable and an open-shadow text control receive
   committed text. Focused iframe input is rejected without writing the previous
   top-document control.
@@ -121,6 +123,8 @@ Actual pushed full-SHA GitHub consumption remains a PR CI check.
   contain-fit letterboxes and visual-viewport panning; a control remains usable
   after the pan. Tests exposed and fixed missing held-button state on drag and
   double-applied viewport offsets.
+  Captured release outside the viewer and every button release in a mouse chord
+  reach the owning remote document without retaining a pressed button.
 - Address drafts remain local; HTTP(S) navigation, back, forward and reload are
   explicit. JavaScript addresses are rejected. Blur and target replacement
   discard unfinished local composition.
