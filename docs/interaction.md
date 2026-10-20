@@ -54,10 +54,15 @@ establish supported keyboard/composition routing into it.
 Unsent work is discarded on local blur, target/session replacement, observed
 document/context navigation, pause, disconnect and unmount. Async continuations
 check their original owner before sending. Owned key/button releases and late
-focus-object cleanup use their original connection. No input/navigation is
-automatically retried. CDP cannot atomically bind `Input.insertText` to a remote
+focus-object cleanup use their original connection. Queued input/navigation is
+never automatically replayed. CDP cannot atomically bind `Input.insertText` to a remote
 DOM element: a site can move focus between the guard and an already-sent command.
 Already accepted remote input cannot be cancelled or rolled back.
+
+Pressed keys remain owned until their `keyUp` response confirms release. A failed
+or interrupted release still permits best-effort release cleanup on the original
+session, which can send an additional `keyUp` when its outcome is unknown.
+Committed text and navigation are not replayed by this cleanup.
 
 The toolbar accepts absolute `http://` and `https://` addresses; it does not infer
 a scheme, run JavaScript URLs or perform endpoint discovery. Draft address edits

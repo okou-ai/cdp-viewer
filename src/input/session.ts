@@ -275,9 +275,12 @@ export class InputSession {
   key(key: Key): void {
     this.enqueue(async () => {
       await this.verifyFocus();
-      if (key.type === "keyUp") this.keys.delete(key.code ?? key.key ?? "");
-      else this.keys.set(key.code ?? key.key ?? "", key);
+      const id = key.code ?? key.key ?? "";
+      if (key.type !== "keyUp") this.keys.set(id, key);
       await this.request("Input.dispatchKeyEvent", key);
+      // Keep ownership until release is confirmed so failure/blur can still
+      // perform the original session's best-effort release cleanup.
+      if (key.type === "keyUp") this.keys.delete(id);
       if (key.key === "Tab" && key.type !== "keyUp") await this.readFocus();
       else if (
         key.type !== "keyUp" &&

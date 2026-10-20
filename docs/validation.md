@@ -147,10 +147,12 @@ source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
   Committed text arrives once and candidate confirmation does not submit the
   remote form; a later ordinary Enter does. These are not genuine OS IME tests.
 
-Five focused input-lifecycle unit regressions cover pending focus guards across
+Seven focused input-lifecycle unit cases cover pending focus guards across
 target/document replacement, an unacknowledged held-key release, accepted text
 followed by disconnect without retry, and unrelated frame/context changes versus
-main-context destruction. Relevant existing controller/component tests also
+main-context destruction. Rejected key-up and blur before key-up acknowledgement
+retain original-session release cleanup; the rejection regression failed before
+its fix. Relevant existing controller/component tests also
 passed during implementation. No full local Vitest suite or dev server was run.
 The consumer SSR fixture covers both read-only and interactive rendering with
 browser connections forbidden. Synthetic two-window UI screenshots were inspected.

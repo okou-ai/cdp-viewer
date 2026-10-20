@@ -131,6 +131,69 @@ describe("owned remote input", () => {
     held.socket.reply(held.command);
   });
 
+  it.each(["rejected", "pending on blur"] as const)(
+    "releases the owned key when its normal key-up is %s",
+    async (outcome) => {
+      const { browser, controller, model, socket } = await mount();
+      const input = controller.input!;
+      input.key({
+        type: "rawKeyDown",
+        key: "Shift",
+        code: "ShiftLeft",
+        modifiers: 8,
+      });
+      await vi.waitFor(() =>
+        expect(
+          socket.commands.filter(
+            (command) => command.method === "Input.dispatchKeyEvent",
+          ),
+        ).toHaveLength(1),
+      );
+      browser.holdMethod = "Input.dispatchKeyEvent";
+      input.key({
+        type: "keyUp",
+        key: "Shift",
+        code: "ShiftLeft",
+        modifiers: 0,
+      });
+      await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+      const held = browser.heldCommands[0]!;
+      browser.holdMethod = null;
+      if (outcome === "rejected") {
+        held.socket.reject(held.command, -32000);
+        await vi.waitFor(() =>
+          expect(model.getSnapshot().error?.kind).toBe("input"),
+        );
+      } else {
+        input.blur();
+        held.socket.reply(held.command);
+      }
+      expect(
+        socket.commands.filter(
+          (command) => command.method === "Input.dispatchKeyEvent",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          sessionId: input.sessionId,
+          params: expect.objectContaining({ type: "rawKeyDown" }),
+        }),
+        expect.objectContaining({
+          sessionId: input.sessionId,
+          params: expect.objectContaining({ type: "keyUp" }),
+        }),
+        expect.objectContaining({
+          sessionId: input.sessionId,
+          params: expect.objectContaining({
+            type: "keyUp",
+            key: "Shift",
+            code: "ShiftLeft",
+            modifiers: 0,
+          }),
+        }),
+      ]);
+    },
+  );
+
   it("does not retry an accepted text write when the owning socket disconnects", async () => {
     const { browser, controller, model, socket } = await mount();
     browser.holdMethod = "Input.insertText";
