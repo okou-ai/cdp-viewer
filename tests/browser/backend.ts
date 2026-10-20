@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export async function serveConsumer(dist: string) {
+export async function serveConsumer(dist: string, base = "/") {
   const server = createServer((request, response) => {
     const pathname = new URL(request.url ?? "/", "http://fixture.invalid")
       .pathname;
@@ -18,10 +18,11 @@ export async function serveConsumer(dist: string) {
       );
       return;
     }
-    const file = resolve(
-      dist,
-      pathname === "/" ? "index.html" : "." + pathname,
-    );
+    if (!pathname.startsWith(base)) {
+      response.writeHead(404).end();
+      return;
+    }
+    const file = resolve(dist, pathname.slice(base.length) || "index.html");
     if (!file.startsWith(resolve(dist) + sep)) {
       response.writeHead(403).end();
       return;

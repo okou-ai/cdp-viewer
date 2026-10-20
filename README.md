@@ -10,6 +10,19 @@ registry publication is planned.
 
 Licensed under the [Apache License 2.0](./LICENSE).
 
+## Try the demo
+
+[Open the browser demo](https://okou-ai.github.io/cdp-viewer/). Paste your own
+browser-level CDP WebSocket URL, optionally enter a window ID, then connect.
+Add independent panels to view different windows. Draft edits apply only when
+you choose **Apply & connect**; reconnect uses the last applied settings.
+
+The demo is view-only and connects directly to your endpoint. Connection details
+stay in page memory and are cleared on refresh. An HTTPS page normally needs a
+`wss://` endpoint whose server permits the page's Origin. See the
+[connection and deployment guide](docs/demo.md) for parameters, network
+requirements and compatibility evidence.
+
 ## Install from GitHub
 
 In a React 19 application with a TS/TSX-capable bundler, replace the placeholder
@@ -116,6 +129,7 @@ Canvas decode/paint does not cause a React update for every frame.
 pnpm install --frozen-lockfile
 pnpm css:check
 pnpm build
+pnpm build:demo
 pnpm format:check
 pnpm lint
 pnpm check-types
@@ -155,7 +169,8 @@ No browser provisioning service or development server is required for fixtures.
 Initial automation targets current desktop Chromium. Experimental remote CDP
 capabilities, provider Origin/TLS policy and other client browsers must be recorded
 before compatibility is claimed. Browser Use connectivity and connections from
-GitHub Pages remain unverified.
+GitHub Pages require their own deployed-Origin evidence; see the
+[demo guide](docs/demo.md).
 
 ## Contributing
 

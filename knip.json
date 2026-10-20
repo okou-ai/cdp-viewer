@@ -9,5 +9,10 @@
     "tests/consumer/vite.config.ts",
     "tests/browser/extension/worker.js"
   ],
-  "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}", "scripts/*.mjs"]
+  "project": [
+    "src/**/*.{ts,tsx,css}",
+    "demo/**/*.{ts,tsx,css}",
+    "tests/**/*.{ts,tsx}",
+    "scripts/*.mjs"
+  ]
 }

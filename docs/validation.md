@@ -62,11 +62,52 @@ Knip's optional raw-transfer AST buffer failed allocation in this sandbox. The
 dependency check uses Knip's supported non-raw parser, preserving the same
 public-entry-aware analysis rather than excluding findings.
 
+## Demo validation
+
+On 2026-10-20, the production demo build passed six focused Playwright
+scenarios with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium
+155.0.8059.79. These consume public component/type/CSS exports at the
+`/cdp-viewer/` project-site path:
+
+- Two real windows stream distinct pixels. Editing drafts leaves the existing
+  connection intact; reconnect uses committed settings, apply changes scope,
+  and disconnect/remove release only the owning viewer. The surviving viewer
+  paints newly changed remote pixels and the remote tabs remain open.
+- Invalid endpoint/integer inputs do not navigate or open sockets. Zero is
+  supplied as a real scope, omission lists pages across windows, and selected
+  tabs paint their actual pixels. Refresh clears configuration; no URL or
+  local/session storage persistence is used.
+- Applying invalid URL or window drafts preserves the existing connection and
+  selection. Empty and nonempty fragments, fractional IDs and unsafe integers
+  produce field errors without replacing the live viewer, which continues to
+  paint newly changed remote pixels. The empty-fragment regression was observed
+  failing before the demo's validation fix.
+- A backend denying the frontend Origin produces fixed diagnostics. The page
+  fits a 390px viewport and disconnected panels can be removed/added.
+- A separately labeled HTTPS-Origin fixture fulfills only static app assets
+  locally and uses a real native CDP WebSocket with explicit local-network
+  permission. This is not an actual GitHub Pages deployment or provider receipt.
+
+Desktop two-window and mobile screenshots were inspected using synthetic pages
+and masked test-owned endpoints. No development server or full local Vitest
+suite was run. Format, lint, strict types, CSS consistency, dependency analysis
+and library/demo production builds passed; broad units and real GitHub consumer
+checks remain in PR CI.
+
+Repository Pages is configured for workflow builds at
+`https://okou-ai.github.io/cdp-viewer/`, with HTTPS enforced. The first actual
+deployment and its source-bound Pages smoke receipt remain unverified before
+merge. A routed HTTPS fixture or local production receipt does not satisfy that
+rollout gate. The deployment workflow runs the same real-window scenarios
+against its actual URL and uploads only sanitized receipts, including any
+explicit local-network permission. See [the demo guide](demo.md).
+
 ## Remaining compatibility boundaries
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider
   Origin/TLS or hosted-client compatibility claim is made.
-- GitHub Pages and Okou Origins: not live deployment evidence; Pages is P5.
+- GitHub Pages: the new workflow still needs its first actual deployment/smoke
+  receipt. Okou Origin compatibility is also not established by local fixtures.
 - Real Windows/macOS IME and clipboard: P2/P3, outside this view-only slice.
 - Other client browsers and remote CDP versions: require their own recorded
   capability probes before being advertised as supported.
