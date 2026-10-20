@@ -71,7 +71,8 @@ in memory and may contain sensitive data; do not record them in snapshots/logs.
 | Top-document textarea                            | Text and ordinary Enter/newline                       | Control rectangle fallback                                                    |
 | Native contenteditable with nested rich markup   | Text replacement and Unicode                          | Collapsed selection range when exposed                                        |
 | Open shadow-root text input                      | Native text input through an actual open-root control | Closed roots are not supported                                                |
-| Focused iframe, including same-origin/OOPIF      | Explicit rejection without writing another control    | Frame-context input routing is not implemented                                |
+| Focused same-origin iframe                       | Explicit rejection without writing another control    | Frame-context input routing is not implemented                                |
+| Cross-origin / out-of-process iframe             | Not separately probed                                 | Outside the supported input boundary                                          |
 | Application editors such as ProseMirror/Lexical  | Not verified                                          | No application-specific editor compatibility claim                            |
 | macOS system IMEs                                | Pending genuine OS receipt                            | Candidate placement, confirmation/cancellation and focus transitions required |
 | Windows system IMEs                              | Pending genuine OS receipt                            | Same required native scenarios                                                |

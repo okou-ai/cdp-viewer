@@ -94,13 +94,17 @@ suite was run. Format, lint, strict types, CSS consistency, dependency analysis
 and library/demo production builds passed; broad units and real GitHub consumer
 checks remain in PR CI.
 
-Repository Pages is configured for workflow builds at
-`https://okou-ai.github.io/cdp-viewer/`, with HTTPS enforced. The first actual
-deployment and its source-bound Pages smoke receipt remain unverified before
-merge. A routed HTTPS fixture or local production receipt does not satisfy that
-rollout gate. The deployment workflow runs the same real-window scenarios
-against its actual URL and uploads only sanitized receipts, including any
-explicit local-network permission. See [the demo guide](demo.md).
+The view-only demo was subsequently deployed from
+`cdfe971fd14fb0e111590fa6a6ab95beccbc5987` at
+`https://okou-ai.github.io/cdp-viewer/`. The successful
+[deployment and smoke run](https://github.com/okou-ai/cdp-viewer/actions/runs/39421546854)
+produced an `actual-pages-deployment` receipt bound to that source and URL.
+Client/backend Chromium 156.0.8078.4 connected directly from the actual Pages
+Origin to owned Chromium, with local-network permission explicitly granted.
+The receipt verifies different windows, draft isolation, reconnect and independent
+cleanup. It contains no endpoint URLs or input content. This establishes the
+view-only rollout; interaction and other providers are not established by it.
+See [the demo guide](demo.md).
 
 ## Interaction validation
 
@@ -109,6 +113,12 @@ On 2026-10-20, five focused interaction Playwright scenarios passed with Node
 They use an independently installed public-source tarball consumer with scripts
 disabled, React 19.2.6 and Vite 8; this is supplementary local packaging evidence.
 Actual pushed full-SHA GitHub consumption remains a PR CI check.
+
+[CI for the interaction code](https://github.com/okou-ai/cdp-viewer/actions/runs/39448141488)
+at `fba091e42eaf7fb326e7427eff8dd0526d5cc7bb` passed 25 unit tests, 14 browser
+scenarios and actual GitHub consumer validation (pnpm 10.33.4, React 19.2.6,
+source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
+156.0.8078.4; this does not establish real macOS/Windows system IME behavior.
 
 - Two real browser windows receive their own native text/emoji, Ctrl and Meta
   selection intents, deletion, undo/redo, textarea Enter, button Space and Tab.
@@ -151,8 +161,8 @@ unverified. The acceptance gate is retained. See [the interaction support matrix
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider
   Origin/TLS or hosted-client compatibility claim is made.
-- GitHub Pages: the new workflow still needs its first actual deployment/smoke
-  receipt. Okou Origin compatibility is also not established by local fixtures.
+- GitHub Pages: the view-only receipt above does not establish an interactive
+  demo or system IME compatibility. Okou Origin compatibility is unverified.
 - Real Windows/macOS system IMEs: require genuine OS receipts; synthetic browser
   composition does not establish them. Clipboard transfer remains unimplemented.
 - Other client browsers and remote CDP versions: require their own recorded
