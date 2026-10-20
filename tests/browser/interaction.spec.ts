@@ -219,6 +219,89 @@ test("interactive public viewers route native text, editing shortcuts and local 
   }
 });
 
+test("same-document navigation releases owned keys and mouse buttons", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const a = await host(page, backend, windowId);
+    await remote.evaluate(() => {
+      document.body.dataset.keyReleases = "0";
+      document.body.dataset.mouseReleases = "0";
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Shift") document.body.dataset.keyHeld = "true";
+      });
+      document.addEventListener("keyup", (event) => {
+        if (event.key === "Shift") {
+          document.body.dataset.keyHeld = "false";
+          document.body.dataset.keyReleases = String(
+            Number(document.body.dataset.keyReleases) + 1,
+          );
+        }
+      });
+      document.addEventListener("mousedown", () => {
+        document.body.dataset.mouseHeld = "true";
+      });
+      document.addEventListener("mouseup", () => {
+        document.body.dataset.mouseHeld = "false";
+        document.body.dataset.mouseReleases = String(
+          Number(document.body.dataset.mouseReleases) + 1,
+        );
+      });
+    });
+    await clickRemote(page, a, remote, "#plain");
+    await page.keyboard.down("Shift");
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-key-held",
+      "true",
+    );
+    await remote.evaluate(() => {
+      location.hash = "section";
+    });
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-key-releases",
+      "1",
+    );
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-key-held",
+      "false",
+    );
+    await page.keyboard.up("Shift");
+    await expect(
+      a.getByRole("textbox", { name: "Remote browser input" }),
+    ).not.toBeFocused();
+
+    await clickRemote(page, a, remote, "#plain");
+    await remote.evaluate(() => {
+      document.body.dataset.mouseReleases = "0";
+    });
+    await page.mouse.down();
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-mouse-held",
+      "true",
+    );
+    await remote.evaluate(() => history.replaceState(null, "", "#replacement"));
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-mouse-releases",
+      "1",
+    );
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-mouse-held",
+      "false",
+    );
+    await page.mouse.up();
+    await clickRemote(page, a, remote, "#plain");
+    await page.keyboard.insertText("recovered");
+    await expect(remote.locator("#plain")).toHaveValue("recovered");
+  } finally {
+    await backend.close();
+  }
+});
+
 test("pointer input respects contain fitting, remote DPR, page scale, drag and wheel", async ({
   page,
 }, info) => {

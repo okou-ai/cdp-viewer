@@ -63,6 +63,9 @@ Pressed keys remain owned until their `keyUp` response confirms release. A faile
 or interrupted release still permits best-effort release cleanup on the original
 session, which can send an additional `keyUp` when its outcome is unknown.
 Committed text and navigation are not replayed by this cleanup.
+Hash and history changes that retain the document release owned keys/buttons
+before clearing input ownership. A loading-start event alone does not establish
+document loss; explicit navigation and context events do.
 
 The toolbar accepts absolute `http://` and `https://` addresses; it does not infer
 a scheme, run JavaScript URLs or perform endpoint discovery. Draft address edits

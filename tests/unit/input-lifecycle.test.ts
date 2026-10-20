@@ -210,6 +210,71 @@ describe("owned remote input", () => {
     expect(browser.sockets).toHaveLength(1);
   });
 
+  it("releases held input when navigation retains the same document", async () => {
+    const { controller, socket } = await mount();
+    const input = controller.input!;
+    input.key({
+      type: "rawKeyDown",
+      key: "Shift",
+      code: "ShiftLeft",
+      modifiers: 8,
+    });
+    input.pointer("mousePressed", { x: 0.25, y: 0.5 }, { button: "left" });
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter(
+          (command) => command.method === "Input.dispatchMouseEvent",
+        ),
+      ).toHaveLength(1),
+    );
+    socket.emit(
+      "Page.frameStartedLoading",
+      { frameId: "main" },
+      input.sessionId,
+    );
+    socket.emit(
+      "Page.navigatedWithinDocument",
+      { frameId: "main", url: "https://fixture.invalid/#section" },
+      input.sessionId,
+    );
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Input.dispatchKeyEvent",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ type: "rawKeyDown" }),
+      }),
+      expect.objectContaining({
+        sessionId: input.sessionId,
+        params: expect.objectContaining({
+          type: "keyUp",
+          code: "ShiftLeft",
+          modifiers: 0,
+        }),
+      }),
+    ]);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Input.dispatchMouseEvent",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ type: "mousePressed" }),
+      }),
+      expect.objectContaining({
+        sessionId: input.sessionId,
+        params: {
+          type: "mouseReleased",
+          x: 200,
+          y: 300,
+          button: "left",
+          buttons: 0,
+        },
+      }),
+    ]);
+  });
+
   it("keeps main-document text active while unrelated frames and isolated contexts change", async () => {
     const { browser, controller, socket } = await mount();
     const input = controller.input!;

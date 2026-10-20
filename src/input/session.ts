@@ -170,19 +170,24 @@ export class InputSession {
     )
       this.frameId = params.frame.id;
     const mainFrameEvent = params.frameId === this.frameId;
+    const mainNavigating =
+      mainFrameEvent && method === "Page.frameStartedNavigating";
+    const sameDocument =
+      (mainFrameEvent && method === "Page.navigatedWithinDocument") ||
+      (mainNavigating &&
+        (params.navigationType === "sameDocument" ||
+          params.navigationType === "historySameDocument"));
     if (
       mainNavigation ||
-      (mainFrameEvent &&
-        [
-          "Page.frameStartedNavigating",
-          "Page.frameStartedLoading",
-          "Page.navigatedWithinDocument",
-        ].includes(method)) ||
+      mainNavigating ||
+      sameDocument ||
       method === "Runtime.executionContextsCleared" ||
       (method === "Runtime.executionContextDestroyed" &&
         params.executionContextId === this.contextId)
     ) {
-      this.invalidate(false);
+      // Loading also precedes hash/history changes, so it cannot distinguish
+      // document loss. A retained document still needs its owned releases.
+      this.invalidate(sameDocument);
       this.changed(null);
       this.navigationKnown = false;
     }
