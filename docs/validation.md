@@ -57,6 +57,10 @@ or a local development server. They own the browser profiles and targets they
 mutate, and contain no real connection credentials or personal browser content.
 The sandbox's existing Chromium executable is selected with
 `CDP_VIEWER_CHROMIUM=/usr/bin/chromium`; CI installs its Playwright Chromium.
+Backend startup waits for the owned Chromium port file to publish both endpoint
+lines. Native file notifications are registered before reading; cancellation is
+bounded, and other filesystem errors remain visible. Five native-filesystem cases
+cover existing, later and partial publication, cancellation and IO errors.
 
 Knip's optional raw-transfer AST buffer failed allocation in this sandbox. The
 dependency check uses Knip's supported non-raw parser, preserving the same

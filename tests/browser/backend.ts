@@ -3,6 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { waitForDebuggerEndpoint } from "./debugger-endpoint";
 
 export async function serveConsumer(dist: string, base = "/") {
   const server = createServer((request, response) => {
@@ -84,20 +85,17 @@ export async function launchBackend(profile: string, origin: string) {
     ],
   });
   try {
-    const [port, path] = (
-      await readFile(resolve(profile, "DevToolsActivePort"), "utf8")
-    )
-      .trim()
-      .split("\n");
-    if (!port || !path)
-      throw new Error("Test Chromium did not expose a debugger endpoint.");
+    const endpoint = await waitForDebuggerEndpoint(
+      profile,
+      AbortSignal.timeout(5_000),
+    );
     const browser = context.browser();
     if (!browser) throw new Error("Test Chromium has no browser owner.");
     const session = await browser.newBrowserCDPSession();
     return {
       context,
       session,
-      endpoint: `ws://127.0.0.1:${port}${path}`,
+      endpoint,
       close: () => context.close(),
     };
   } catch (error) {
