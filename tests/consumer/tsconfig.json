@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["app.tsx", "api.ts"]
+  "include": ["app.tsx", "api.ts", "ssr.tsx", "vite.config.ts"]
 }

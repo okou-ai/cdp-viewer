@@ -3,23 +3,31 @@
 A browser-native React viewer for existing Chrome DevTools Protocol browsers.
 This first slice provides **view-only streaming, target selection, optional window
 filtering, and independent viewers**. Input/IME, clipboard, vendor adapters, the
-GitHub Pages demo, and publication are tracked by [parent issue #1](https://github.com/okou-ai/cdp-viewer/issues/1).
+GitHub Pages demo, and final consumer compatibility are tracked by [parent issue #1](https://github.com/okou-ai/cdp-viewer/issues/1).
 
-The package is currently private and unpublished. License, npm ownership and
-release authority must be settled before publication.
+The package stays private and is distributed as source from GitHub. No npm
+registry publication is planned. License/reuse terms remain a final adoption gate.
 
-## Try the packed library
+## Install from GitHub
 
-Use Node 22.12+ and the pnpm version pinned in `package.json` to build and pack:
+In a React 19 application with a TS/TSX-capable bundler, replace the placeholder
+with a verified full 40-character commit SHA from this repository:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm build
-pnpm pack
+pnpm add "github:okou-ai/cdp-viewer#<full-40-character-commit-sha>"
 ```
 
-Install the resulting tarball in a separate React 19 application. React and React
-DOM are peer dependencies. Consumers do not configure ccstate or Tailwind.
+Commit the dependency and resolved lockfile in the consuming application. Upgrade
+both in a reviewed change; roll back by restoring a previous verified SHA and
+matching lockfile. Use immutable commits rather than a moving branch.
+
+Public exports contain TS/TSX source and its types, plus a committed standalone
+stylesheet. React and React DOM are host-provided peers. Consumers do not run a
+viewer install-time build, install its development toolchain, or configure ccstate
+or Tailwind. The consumer checks use pnpm 10.33.4, React 19.2.6 and Vite 8.
+Plain Node cannot import an uncompiled TSX entry; use a supported source-capable
+bundler/runtime for SSR. Importing/rendering the viewer on the server opens no
+browser connection.
 
 ```tsx
 import { CdpViewer } from "cdp-viewer";
@@ -91,7 +99,7 @@ is discarded and closed. No connection credentials are persisted by the library.
 
 ## Styling
 
-Import `cdp-viewer/style.css` once. The package ships compiled prefixed Tailwind
+Import `cdp-viewer/style.css` once. The package includes committed compiled prefixed Tailwind
 utilities and scoped component selectors, without global Preflight. It works in
 plain hosts and alongside conflicting unprefixed utility names.
 
@@ -103,6 +111,8 @@ Canvas decode/paint does not cause a React update for every frame.
 ## Validation and compatibility
 
 ```sh
+pnpm install --frozen-lockfile
+pnpm css:check
 pnpm build
 pnpm format:check
 pnpm lint
@@ -111,16 +121,30 @@ pnpm knip
 pnpm test:package
 ```
 
-Build before type-aware lint: the independent consumer fixture imports the
-package's built public declarations, rather than source aliases.
+Run `pnpm css:write` after editing viewer styles/classes and commit
+`styles/viewer.css`. The consistency check regenerates CSS in memory and fails
+on drift. The library/declaration build is an internal validation artifact;
+consumers use source exports and do not need `dist/`.
 
 The PR pipeline additionally runs the full unit suite and real-browser fixtures.
 Follow repository/user guidance: no full local Vitest run or dev server unless
 explicitly requested. Targeted protocol tests may be used for focused debugging.
 
-`pnpm test:package` installs a tarball in a separate temporary consumer with React
-19.2, strict public-type checking, host ccstate, a production build and Node import.
-Browser tests use that public packed interface, not source aliases. They create
+`pnpm test:package` installs the current pushed Git commit from GitHub in a
+separate temporary consumer. It verifies source/CSS file inclusion, React peers,
+strict public types, a production build and bundled SSR without a connection.
+Installation disables lifecycle scripts and automatic peer installation; a fresh
+offline frozen reinstall must preserve the generated lockfile. The receipt under
+`test-results/package/` records the actual source and lockfile hash.
+
+`CDP_VIEWER_SOURCE_SHA` and `CDP_VIEWER_SOURCE_REPO` select an explicit immutable
+GitHub revision; CI uses the pushed PR source SHA/repository rather than its
+synthetic merge commit. Before pushing local changes, an explicit
+`CDP_VIEWER_CONSUMER_SOURCE=tarball` selects supplementary local-pack verification.
+It does not count as real GitHub distribution acceptance; the default never
+silently falls back to local files.
+
+Browser tests consume those same installed public exports. They create
 test-owned Chromium windows and a bounded fixture HTTP server; a test-only extension
 allows moving an actual tab between windows. Run browser fixtures with an installed
 Playwright Chromium, or set `CDP_VIEWER_CHROMIUM` to an existing Chromium executable.

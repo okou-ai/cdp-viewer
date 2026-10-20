@@ -16,6 +16,9 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CDP_VIEWER_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CDP_VIEWER_SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,6 +27,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm css:check
       - run: pnpm build
       - run: pnpm format:check
       - run: pnpm lint

@@ -40,7 +40,7 @@ async function expectColor(
     .toBeLessThanOrEqual(4);
 }
 
-test("packed viewers stream separate windows, detect a real moved tab, and isolate cleanup", async ({
+test("installed viewers stream separate windows, detect a real moved tab, and isolate cleanup", async ({
   page,
 }, info) => {
   const backend = await launchBackend(

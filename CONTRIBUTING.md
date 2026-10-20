@@ -2,8 +2,8 @@
 
 Use the pnpm version pinned in `package.json`, keep the lockfile committed, and
 include behavior tests and documentation in each independently reviewable PR.
-Public API, runtime exports, declarations and built stylesheet must agree in an
-independently installed consumer. Do not depend on private Okou workspaces.
+Public source/type exports, included files and committed stylesheet must agree in
+an independently GitHub-installed consumer. Do not depend on private Okou workspaces.
 
 Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
 
@@ -20,9 +20,19 @@ Use `feat` for features and `fix` for bug fixes. Other descriptive types such as
 or a `BREAKING CHANGE:` footer for incompatible changes. Keep repository artifacts
 in English; prefer consistent lowercase types and concise descriptions.
 
-Build the package before type-aware lint, because the consumer fixture imports
-the built public declarations. Run formatting, lint, strict types, package builds and isolated consumer checks
-for changes. The PR pipeline owns broad automated checks. Do not run a full local
+Run formatting, lint, strict types, CSS consistency, library validation builds
+and isolated consumer checks for changes. Source exports must install at a full
+GitHub SHA with scripts disabled under the consumer's pnpm 10.33.4 baseline. The
+fixture generates its lockfile and verifies frozen reinstall; actual consumers
+commit that lockfile in their own repository. Use the pushed source SHA, never a
+self-referential committed fixture lockfile or private source alias.
+
+After changing styles/classes, run `pnpm css:write` and commit
+`styles/viewer.css`; `pnpm css:check` verifies it without rewriting files. Keep
+React as a peer and include referenced source/type dependencies. Do not add a
+dependency prepare/postinstall build or npm publication workflow.
+
+The PR pipeline owns broad automated checks. Do not run a full local
 Vitest suite or start a dev server unless the user explicitly requests it.
 
 Never commit or upload CDP credentials, real browser traces, clipboard contents,

@@ -1,8 +1,31 @@
-# Initial viewer validation
+# View-only viewer validation
 
 Observed on 2026-10-20 with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1,
 Debian Chromium 155.0.8059.79, React 19.2.0, and ccstate/ccstate-react 6.0.0.
-The PR checks validate the submitted source SHA separately.
+The PR checks validate the submitted source SHA separately. The initial packed
+checks below establish viewer behavior; the source-consumption checks exercise
+the revised GitHub distribution contract.
+
+## Source-consumption checks
+
+- The default consumer installs the actual pushed full-SHA GitHub dependency
+  with pnpm 10.33.4, React 19.2.6 and Vite 8. Installation disables dependency
+  lifecycle scripts and automatic peer installation.
+- It removes node_modules and reinstalls offline with a frozen lockfile, verifies
+  the lockfile is unchanged, and checks installed source/type/CSS entries and
+  host-provided React peers. No untracked dist or source alias is used.
+- It compiles public types, builds the React host without Tailwind setup, then
+  bundles/imports/renders the public source for SSR with WebSocket creation
+  forbidden. Plain-Node import of raw TSX is not a compatibility claim.
+- Browser scenarios run through these installed exports with a host ccstate
+  provider. The package receipt records GitHub versus explicit local-tarball
+  source, exact dependency specifier, package manager and lockfile hash.
+- The standalone CSS is committed; css:check compares an in-memory generation
+  against it. Consumers do not invoke Tailwind or a viewer install-time build.
+
+Before pushing, the explicit tarball mode verifies local changes through the same
+source export contract. Only the default real-GitHub mode is distribution
+acceptance evidence; no fallback is automatic.
 
 ## Local evidence
 

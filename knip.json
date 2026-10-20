@@ -1,11 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip/schema.json",
   "entry": [
-    "src/index.ts",
     "scripts/*.mjs",
     "tests/unit/**/*.test.{ts,tsx}",
     "tests/browser/**/*.spec.ts",
     "tests/consumer/app.tsx",
+    "tests/consumer/ssr.tsx",
+    "tests/consumer/vite.config.ts",
     "tests/browser/extension/worker.js"
   ],
   "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}", "scripts/*.mjs"]
