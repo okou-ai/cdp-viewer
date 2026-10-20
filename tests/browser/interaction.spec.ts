@@ -276,9 +276,12 @@ test("same-document navigation releases owned keys and mouse buttons", async ({
     ).not.toBeFocused();
 
     await clickRemote(page, a, remote, "#plain");
-    await remote.evaluate(() => {
-      document.body.dataset.mouseReleases = "0";
-    });
+    // Remote focus is already on this input. Wait for both focus-click releases
+    // before starting a held gesture; local focus alone does not acknowledge CDP.
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-mouse-releases",
+      "2",
+    );
     await page.mouse.down();
     await expect(remote.locator("body")).toHaveAttribute(
       "data-mouse-held",
@@ -287,7 +290,7 @@ test("same-document navigation releases owned keys and mouse buttons", async ({
     await remote.evaluate(() => history.replaceState(null, "", "#replacement"));
     await expect(remote.locator("body")).toHaveAttribute(
       "data-mouse-releases",
-      "1",
+      "3",
     );
     await expect(remote.locator("body")).toHaveAttribute(
       "data-mouse-held",
