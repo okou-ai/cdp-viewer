@@ -426,6 +426,7 @@ test("blur, target replacement and unsupported frame focus discard local composi
       e.value = "unfinished";
     };
     const end = (e: HTMLTextAreaElement) => {
+      e.value = "must not arrive";
       e.dispatchEvent(
         new CompositionEvent("compositionend", {
           bubbles: true,
@@ -433,7 +434,11 @@ test("blur, target replacement and unsupported frame focus discard local composi
         }),
       );
       e.dispatchEvent(
-        new InputEvent("input", { bubbles: true, data: "must not arrive" }),
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+          data: "must not arrive",
+        }),
       );
     };
     await proxy.evaluate(start);
@@ -443,12 +448,33 @@ test("blur, target replacement and unsupported frame focus discard local composi
     await proxy.evaluate(end);
     await expect(first.remote.locator("#plain")).toHaveValue("");
     await clickRemote(page, view, first.remote, "#plain");
+    await page.keyboard.type("after blur");
+    await expect(first.remote.locator("#plain")).toHaveValue("after blur");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Backspace");
+    await expect(first.remote.locator("#plain")).toHaveValue("");
     await proxy.evaluate(start);
     await view.getByRole("combobox").selectOption(second.targetId);
     await expect(view).toHaveAttribute("data-status", "streaming");
-    await proxy.evaluate(end);
-    await expect(second.remote.locator("#plain")).toHaveValue("");
     await clickRemote(page, view, second.remote, "#plain");
+    await proxy.evaluate(end);
+    await proxy.evaluate((e: HTMLTextAreaElement) => {
+      e.value = "orphan preedit";
+      e.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          isComposing: true,
+          inputType: "insertCompositionText",
+        }),
+      );
+      e.value = "orphan commit";
+      e.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+        }),
+      );
+    });
     await page.keyboard.type("new owner");
     await expect(second.remote.locator("#plain")).toHaveValue("new owner");
     const frame = second.remote

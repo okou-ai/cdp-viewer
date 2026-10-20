@@ -81,7 +81,7 @@ export class NativeInput {
     proxy.addEventListener(
       "compositionstart",
       () => {
-        this.composing = true;
+        this.composing = document.activeElement === this.proxy;
         this.consumed = "";
         // Leave the native value alone while an OS composition is starting.
       },
@@ -249,22 +249,34 @@ export class NativeInput {
   };
 
   private readonly compositionEnd = (event: CompositionEvent) => {
-    if (!this.composing || document.activeElement !== this.proxy) return;
+    const focused = document.activeElement === this.proxy;
+    const owned = this.composing && focused;
     this.composing = false;
     // Preserve the consumed value until the browser's final input event. Reading
-    // the value delta also preserves a subsequent identical character.
-    this.consumed = event.data;
-    this.proxy.value = event.data;
-    this.proxy.setSelectionRange(event.data.length, event.data.length);
-    if (event.data) this.input()?.text(event.data);
+    // the value delta also preserves a subsequent identical character. A late
+    // end after refocus consumes its trailing value without committing it.
+    this.consumed = focused ? event.data : "";
+    this.proxy.value = this.consumed;
+    if (focused)
+      this.proxy.setSelectionRange(this.consumed.length, this.consumed.length);
+    if (owned && event.data) this.input()?.text(event.data);
   };
 
   private readonly text = (event: Event) => {
+    const compositionInput =
+      event instanceof InputEvent &&
+      (event.isComposing || event.inputType.includes("Composition"));
     if (
-      this.composing ||
-      (event instanceof InputEvent && event.isComposing) ||
-      document.activeElement !== this.proxy
-    )
+      document.activeElement !== this.proxy ||
+      (!this.composing && !this.consumed && compositionInput)
+    ) {
+      // Discard late values from a cancelled composition, including events that
+      // arrive after this stable textarea has been focused by its next owner.
+      this.consumed = "";
+      this.proxy.value = "";
+      return;
+    }
+    if (this.composing || (event instanceof InputEvent && event.isComposing))
       return;
     const value = this.proxy.value;
     const text =

@@ -33,6 +33,8 @@ ordering is consumed as a value boundary so a trailing final input does not
 duplicate committed text or suppress a subsequent identical character.
 Cancellation sends no text. IME/229/composing Enter is kept separate from a later
 ordinary Enter, which can submit the remote form or insert a newline.
+Late composition values after blur or target replacement are discarded, including
+events arriving after the native proxy has been refocused for another control.
 
 For ordinary contenteditable selections, a collapsed DOM range supplies the
 candidate anchor where available. Native input/textarea controls do not expose a

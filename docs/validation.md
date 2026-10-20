@@ -138,6 +138,8 @@ source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
 - Address drafts remain local; HTTP(S) navigation, back, forward and reload are
   explicit. JavaScript addresses are rejected. Blur and target replacement
   discard unfinished local composition.
+  Late composition values are tested both while blurred and after refocusing a
+  replacement target; the stale-value regression failed before its fix.
   Address text such as reload/back/forward is rejected rather than interpreted
   as a toolbar command; this regression was observed failing before the fix.
 - Synthetic composition cases cover final-input ordering before/after/no
