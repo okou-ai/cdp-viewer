@@ -22,6 +22,9 @@ assumed remote OS shortcut mapping; Ctrl+Y also requests redo. Other forwarded
 shortcuts retain their modifier bits and depend on the remote platform/site.
 Clipboard transfer is not implemented: copy/cut/paste gestures are suppressed
 on the proxy so its temporary text is not mistaken for a remote selection.
+The proxy stays disabled while connecting, paused, unavailable, disconnected or
+errored, so local Tab navigation can pass through the inactive viewer. It keeps
+the same textarea node and becomes focusable again when streaming resumes.
 
 ## Composition and candidate placement
 

@@ -108,7 +108,7 @@ See [the demo guide](demo.md).
 
 ## Interaction validation
 
-On 2026-10-20/21, six focused interaction Playwright scenarios passed with Node
+On 2026-10-20/21, seven focused interaction Playwright scenarios passed with Node
 24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium 155.0.8059.79.
 They use an independently installed public-source tarball consumer with scripts
 disabled, React 19.2.6 and Vite 8; this is supplementary local packaging evidence.
@@ -149,6 +149,9 @@ source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
 - Hash and history changes release held Shift and mouse input in the retained
   document and allow input recovery. The missing key-up was reproduced in owned
   Chromium before repair; loading-start alone must not discard that ownership.
+- Local Tab navigation skips the inactive proxy while paused or after an error;
+  resuming streaming keeps the same textarea and restores remote typing. The
+  pause regression failed in owned Chromium before repair.
 
 Eight focused input-lifecycle unit cases cover pending focus guards across
 target/document replacement, an unacknowledged held-key release, accepted text
@@ -160,6 +163,9 @@ ambiguous loading-start event; it failed before repair. Relevant existing contro
 passed during implementation. No full local Vitest suite or dev server was run.
 The consumer SSR fixture covers both read-only and interactive rendering with
 browser connections forbidden. Synthetic two-window UI screenshots were inspected.
+Seven focused component cases include local keyboard traversal during connection,
+pause, error and disconnect. All four inactive-state cases failed before the
+proxy's availability fix.
 
 The current Run exposes no authorized VNC or SSH desktop hosts, so genuine
 macOS/Windows system-IME candidate placement and focus-transition receipts remain

@@ -4,6 +4,7 @@ export interface FixtureSettings {
   windowB?: number;
   second?: boolean;
   interactive?: boolean;
+  paused?: boolean;
 }
 
 declare global {

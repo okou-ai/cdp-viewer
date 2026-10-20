@@ -219,6 +219,75 @@ test("interactive public viewers route native text, editing shortcuts and local 
   }
 });
 
+test("inactive input leaves local Tab navigation usable and resumes remote typing", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    const proxy = view.getByRole("textbox", { name: "Remote browser input" });
+    const original = await proxy.elementHandle();
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.insertText("before pause");
+    await expect(remote.locator("#plain")).toHaveValue("before pause");
+    const settings = {
+      cdpUrl: backend.endpoint,
+      windowA: windowId,
+      interactive: true,
+      second: false,
+    };
+    await page.evaluate(
+      async (value) => window.configureViewers!({ ...value, paused: true }),
+      settings,
+    );
+    await expect(view).toHaveAttribute("data-status", "paused");
+    const after = page.getByRole("textbox", { name: "After viewers" });
+    await view.getByRole("textbox", { name: "Remote page address" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(after).toBeFocused();
+    await after.fill("local while paused");
+    await expect(remote.locator("#plain")).toHaveValue("before pause");
+
+    await page.evaluate(
+      async (value) => window.configureViewers!({ ...value, paused: false }),
+      settings,
+    );
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    expect(
+      await original?.evaluate(
+        (element) =>
+          element === document.querySelector("#viewer-a .cdpv-input-proxy"),
+      ),
+    ).toBe(true);
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.insertText("resumed");
+    await expect(remote.locator("#plain")).toHaveValue("resumed");
+
+    await page.evaluate(async () =>
+      window.configureViewers!({
+        cdpUrl: "invalid",
+        interactive: true,
+        second: false,
+      }),
+    );
+    await expect(view).toHaveAttribute("data-status", "error");
+    await view.getByRole("textbox", { name: "Remote page address" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(after).toBeFocused();
+    await after.fill("local after error");
+    await expect(remote.locator("#plain")).toHaveValue("resumed");
+    expect(remote.isClosed()).toBe(false);
+    await original?.dispose();
+  } finally {
+    await backend.close();
+  }
+});
+
 test("same-document navigation releases owned keys and mouse buttons", async ({
   page,
 }, info) => {

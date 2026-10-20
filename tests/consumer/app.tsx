@@ -50,6 +50,7 @@ function App() {
     ? {
         cdpUrl: settings.cdpUrl,
         interactive: settings.interactive ?? false,
+        paused: settings.paused ?? false,
         style: { "--cdpv-radius": "3px" },
       }
     : null;
@@ -98,6 +99,9 @@ function App() {
           </>
         )}
       </div>
+      <label>
+        After viewers <input aria-label="After viewers" />
+      </label>
     </StoreProvider>
   );
 }

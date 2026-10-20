@@ -93,3 +93,40 @@ it("keeps imports and server rendering free of browser connections", () => {
   ).toContain("Remote browser viewer");
   expect(socket).not.toHaveBeenCalled();
 });
+
+it.each(["connecting", "paused", "error", "disconnected"] as const)(
+  "keeps local Tab navigation usable while remote input is %s",
+  async (status) => {
+    const fake = browser();
+    fake.holdAttach = status === "connecting";
+    fake.unsupportedStream = status === "error";
+    render(
+      <>
+        <CdpViewer
+          cdpUrl="wss://fixture.invalid"
+          interactive
+          paused={status === "paused"}
+        />
+        <input aria-label="After viewer" />
+      </>,
+    );
+    if (status === "disconnected") {
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-status="streaming"]'),
+        ).toBeInTheDocument(),
+      );
+      act(() => fake.sockets[0]!.close());
+    }
+    await waitFor(() =>
+      expect(
+        document.querySelector(`[data-status="${status}"]`),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("textbox", { name: "Remote page address" }),
+    );
+    await userEvent.tab();
+    expect(screen.getByRole("textbox", { name: "After viewer" })).toHaveFocus();
+  },
+);

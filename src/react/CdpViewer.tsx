@@ -189,6 +189,7 @@ function ViewerSurface({
             ref={proxy}
             className="cdpv-input-proxy"
             aria-label="Remote browser input"
+            disabled={snapshot.status !== "streaming"}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="none"
