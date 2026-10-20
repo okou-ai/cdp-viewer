@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "A browser-native, instance-isolated React viewer for CDP browsers",
-  "license": "UNLICENSED",
+  "license": "BUSL-1.1",
   "type": "module",
   "packageManager": "pnpm@12.14.0",
   "engines": {
@@ -16,6 +16,7 @@
   "files": [
     "src",
     "styles",
+    "LICENSE",
     "README.md"
   ],
   "main": "./src/index.ts",
