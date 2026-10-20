@@ -17,6 +17,7 @@ export class FakeSocket extends EventTarget {
     super();
   }
   open() {
+    if (this.readyState !== 0) return;
     this.readyState = 1;
     this.dispatchEvent(new Event("open"));
   }
@@ -130,6 +131,8 @@ export class FakeBrowser {
             break;
           }
           socket.reply(command);
+          // Deliver before the awaiting startup continuation: frames may race
+          // the start response, and must not become a cancelled-timer error.
           if (command.sessionId) this.frame(socket, command.sessionId);
           break;
         default:

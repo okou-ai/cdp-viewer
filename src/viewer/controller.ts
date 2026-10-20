@@ -233,7 +233,7 @@ export class ViewerController {
       { format: "jpeg", quality: 70, maxWidth: 1920, maxHeight: 1080 },
       attached.sessionId,
     );
-    if (!this.isCurrent(selection)) return;
+    if (!this.isCurrent(selection) || selection.painted) return;
     timeout(
       () => {
         if (this.isCurrent(selection) && !selection.painted)

@@ -179,7 +179,9 @@ describe("viewer lifecycle", () => {
     const browser = new FakeBrowser();
     browser.holdAttach = true;
     const { model } = mount(browser, undefined, 50);
-    await vi.waitFor(() => expect(browser.held).toHaveLength(1));
+    // Finish opening/discovery without waitFor advancing to the RPC deadline.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(browser.held).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(50);
     expect(model.getSnapshot().status).toBe("error");
     const held = browser.held[0]!;

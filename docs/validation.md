@@ -9,6 +9,9 @@ The PR checks validate the submitted source SHA separately.
 - Focused `tests/unit/client.test.ts`: 5 passing protocol tests covering reordered
   replies, event/session routing, request timeout/late attach ownership, bounded
   expired requests, disconnect and redacted diagnostics.
+- Focused lifecycle regressions: 7 passing controller cases and 1 passing
+  Strict Mode component case, including an early first frame, scoped movement,
+  late attachment cleanup, per-instance teardown, and cancelled socket opening.
 - Independent packed consumer: installs the tarball outside this repository,
   compiles strict public types, builds without Tailwind configuration and imports
   the ESM package on Node without opening a browser connection.
