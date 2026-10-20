@@ -60,6 +60,9 @@ export async function launchBackend(profile: string, origin: string) {
   const extension = fileURLToPath(new URL("./extension", import.meta.url));
   const context = await chromium.launchPersistentContext(profile, {
     headless: true,
+    // Extension support requires Chromium's new headless mode, not headless shell.
+    // https://playwright.dev/docs/chrome-extensions
+    channel: "chromium",
     ...(process.env.CDP_VIEWER_CHROMIUM
       ? { executablePath: process.env.CDP_VIEWER_CHROMIUM }
       : {}),
