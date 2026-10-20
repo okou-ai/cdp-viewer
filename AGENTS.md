@@ -20,7 +20,9 @@ adding extensions; ordinary CDP must remain usable independently.
 - `src/viewer/`: controller/session lifecycle, ccstate model and public types.
 - `src/react/`: React component and private context/subscription bridge.
 - `src/render/`: Canvas decoding, frame queue and painting.
-- `src/input/`: native textarea proxy, image/CSS geometry and owned CDP input queue.
+- `src/input/`: DOM adapter, native composition model, lifecycle transition/pressed
+  input state, owner-bound CDP queue and image/CSS geometry. Read
+  `docs/input-lifecycle.md` before changing input ownership or cleanup.
 - `src/styles.css`: source styles; `styles/viewer.css`: committed compiled CSS.
 - `scripts/`: CSS generation/checks and independent consumer verification.
 - `tests/unit/`: Vitest, Testing Library and a fake external CDP wire.

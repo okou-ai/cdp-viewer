@@ -38,6 +38,115 @@ async function mount() {
 }
 
 describe("owned remote input", () => {
+  it.each([
+    "blur",
+    "navigation-start",
+    "document-loss",
+    "target-replacement",
+    "pause-resume",
+  ] as const)(
+    "rejects a captured old owner after %s while allowing current input",
+    async (reason) => {
+      const { controller, socket } = await mount();
+      const previous = controller.input!;
+      const owner = previous.owner!;
+      if (reason === "blur") previous.blur();
+      else if (reason === "navigation-start")
+        socket.emit(
+          "Page.frameStartedNavigating",
+          { frameId: "main", navigationType: "differentDocument" },
+          previous.sessionId,
+        );
+      else if (reason === "document-loss")
+        socket.emit(
+          "Page.frameNavigated",
+          { frame: { id: "main" } },
+          previous.sessionId,
+        );
+      else if (reason === "target-replacement") controller.select("page-b");
+      else {
+        controller.setPaused(true);
+        controller.setPaused(false);
+      }
+      await vi.waitFor(() => expect(controller.input).not.toBeNull());
+      const current = controller.input!;
+      current.focus();
+      current.text("must not reach the replacement", owner);
+      current.text("current owner");
+      await vi.waitFor(() =>
+        expect(
+          socket.commands.filter((c) => c.method === "Input.insertText"),
+        ).toHaveLength(1),
+      );
+      expect(
+        socket.commands.find((c) => c.method === "Input.insertText"),
+      ).toMatchObject({
+        sessionId: current.sessionId,
+        params: { text: "current owner" },
+      });
+    },
+  );
+
+  it("discards a saturated queue and recovers without sending its stale keys", async () => {
+    const { browser, controller, socket, model } = await mount();
+    browser.holdMethod = "Runtime.callFunctionOn";
+    const input = controller.input!;
+    input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    for (let index = 0; index < 65; index++)
+      input.key({ type: "rawKeyDown", key: "ArrowRight", code: "ArrowRight" });
+    expect(model.getSnapshot().error?.kind).toBe("input");
+    const held = browser.heldCommands[0]!;
+    browser.holdMethod = null;
+    held.socket.reply(held.command, { result: { value: {} } });
+    input.focus();
+    input.text("recovered queue");
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(1),
+    );
+    expect(
+      socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
+    ).toEqual([]);
+    expect(
+      socket.commands.find((c) => c.method === "Input.insertText")?.params
+        ?.text,
+    ).toBe("recovered queue");
+  });
+
+  it("releases a late focus object through its original session before current input", async () => {
+    const { browser, controller, socket } = await mount();
+    browser.holdMethod = "Runtime.evaluate";
+    const input = controller.input!;
+    input.focus();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.blur();
+    const held = browser.heldCommands[0]!;
+    browser.holdMethod = null;
+    held.socket.reply(held.command, {
+      result: { type: "object", objectId: "late-owned-focus" },
+    });
+    input.focus();
+    input.text("current focus");
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(1),
+    );
+    expect(
+      socket.commands.filter(
+        (c) =>
+          c.method === "Runtime.releaseObject" &&
+          c.params?.objectId === "late-owned-focus",
+      ),
+    ).toEqual([expect.objectContaining({ sessionId: held.command.sessionId })]);
+    expect(
+      socket.commands.find((c) => c.method === "Input.insertText")?.params
+        ?.text,
+    ).toBe("current focus");
+  });
+
   it("drops text waiting on a focus guard when the selected target is replaced", async () => {
     const { browser, controller, socket } = await mount();
     browser.holdMethod = "Runtime.callFunctionOn";
@@ -210,70 +319,81 @@ describe("owned remote input", () => {
     expect(browser.sockets).toHaveLength(1);
   });
 
-  it("releases held input when navigation retains the same document", async () => {
-    const { controller, socket } = await mount();
-    const input = controller.input!;
-    input.key({
-      type: "rawKeyDown",
-      key: "Shift",
-      code: "ShiftLeft",
-      modifiers: 8,
-    });
-    input.pointer("mousePressed", { x: 0.25, y: 0.5 }, { button: "left" });
-    await vi.waitFor(() =>
+  it.each(["same-document", "differentDocument", "historyDifferentDocument"])(
+    "releases held input during %s navigation",
+    async (navigationType) => {
+      const { controller, socket } = await mount();
+      const input = controller.input!;
+      input.key({
+        type: "rawKeyDown",
+        key: "Shift",
+        code: "ShiftLeft",
+        modifiers: 8,
+      });
+      input.pointer("mousePressed", { x: 0.25, y: 0.5 }, { button: "left" });
+      await vi.waitFor(() =>
+        expect(
+          socket.commands.filter(
+            (command) => command.method === "Input.dispatchMouseEvent",
+          ),
+        ).toHaveLength(1),
+      );
+      socket.emit(
+        "Page.frameStartedLoading",
+        { frameId: "main" },
+        input.sessionId,
+      );
+      if (navigationType === "same-document") {
+        socket.emit(
+          "Page.navigatedWithinDocument",
+          { frameId: "main", url: "https://fixture.invalid/#section" },
+          input.sessionId,
+        );
+      } else {
+        socket.emit(
+          "Page.frameStartedNavigating",
+          { frameId: "main", navigationType },
+          input.sessionId,
+        );
+      }
+      expect(
+        socket.commands.filter(
+          (command) => command.method === "Input.dispatchKeyEvent",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          params: expect.objectContaining({ type: "rawKeyDown" }),
+        }),
+        expect.objectContaining({
+          sessionId: input.sessionId,
+          params: expect.objectContaining({
+            type: "keyUp",
+            code: "ShiftLeft",
+            modifiers: 0,
+          }),
+        }),
+      ]);
       expect(
         socket.commands.filter(
           (command) => command.method === "Input.dispatchMouseEvent",
         ),
-      ).toHaveLength(1),
-    );
-    socket.emit(
-      "Page.frameStartedLoading",
-      { frameId: "main" },
-      input.sessionId,
-    );
-    socket.emit(
-      "Page.navigatedWithinDocument",
-      { frameId: "main", url: "https://fixture.invalid/#section" },
-      input.sessionId,
-    );
-    expect(
-      socket.commands.filter(
-        (command) => command.method === "Input.dispatchKeyEvent",
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        params: expect.objectContaining({ type: "rawKeyDown" }),
-      }),
-      expect.objectContaining({
-        sessionId: input.sessionId,
-        params: expect.objectContaining({
-          type: "keyUp",
-          code: "ShiftLeft",
-          modifiers: 0,
+      ).toEqual([
+        expect.objectContaining({
+          params: expect.objectContaining({ type: "mousePressed" }),
         }),
-      }),
-    ]);
-    expect(
-      socket.commands.filter(
-        (command) => command.method === "Input.dispatchMouseEvent",
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        params: expect.objectContaining({ type: "mousePressed" }),
-      }),
-      expect.objectContaining({
-        sessionId: input.sessionId,
-        params: {
-          type: "mouseReleased",
-          x: 200,
-          y: 300,
-          button: "left",
-          buttons: 0,
-        },
-      }),
-    ]);
-  });
+        expect.objectContaining({
+          sessionId: input.sessionId,
+          params: {
+            type: "mouseReleased",
+            x: 200,
+            y: 300,
+            button: "left",
+            buttons: 0,
+          },
+        }),
+      ]);
+    },
+  );
 
   it("keeps main-document text active while unrelated frames and isolated contexts change", async () => {
     const { browser, controller, socket } = await mount();

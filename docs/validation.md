@@ -112,7 +112,7 @@ See [the demo guide](demo.md).
 
 ## Interaction validation
 
-On 2026-10-20/21, seven focused interaction Playwright scenarios passed with Node
+On 2026-10-20/21, eight focused interaction Playwright scenarios passed with Node
 24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium 155.0.8059.79.
 They use an independently installed public-source tarball consumer with scripts
 disabled, React 19.2.6 and Vite 8; this is supplementary local packaging evidence.
@@ -153,27 +153,37 @@ source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
 - Hash and history changes release held Shift and mouse input in the retained
   document and allow input recovery. The missing key-up was reproduced in owned
   Chromium before repair; loading-start alone must not discard that ownership.
+- Navigation returning HTTP 204 retains the original document and releases held
+  Shift and mouse input. Its key-up regression failed before repair. Recovery
+  uses real input; the fixture reads the retained execution context because
+  locator navigation auto-wait would wait for a commit that 204 forbids.
 - Local Tab navigation skips the inactive proxy while paused or after an error;
   resuming streaming keeps the same textarea and restores remote typing. The
   pause regression failed in owned Chromium before repair.
 
-Eight focused input-lifecycle unit cases cover pending focus guards across
+Seventeen focused input-lifecycle unit cases cover pending focus guards across
 target/document replacement, an unacknowledged held-key release, accepted text
 followed by disconnect without retry, and unrelated frame/context changes versus
 main-context destruction. Rejected key-up and blur before key-up acknowledgement
 retain original-session release cleanup; the rejection regression failed before
 its fix. Same-document navigation also covers owned key/button release after an
-ambiguous loading-start event; it failed before repair. Relevant existing controller/component tests also
-passed during implementation. No full local Vitest suite or dev server was run.
+ambiguous loading-start event; it failed before repair. Cross-document/history
+navigation starts, captured old owners, queue saturation/recovery and late focus
+objects are also covered. Twenty-five state cases cover transition policy,
+cross-session token isolation, stale acknowledgements, composition ordering and
+cancellation; one case explores all 81 four-event press/acknowledge/cancel
+sequences. The four focused lifecycle/state/component/controller files passed
+58 cases after the refactor. No full local Vitest suite or dev server was run.
 The consumer SSR fixture covers both read-only and interactive rendering with
 browser connections forbidden. Synthetic two-window UI screenshots were inspected.
 Seven focused component cases include local keyboard traversal during connection,
 pause, error and disconnect. All four inactive-state cases failed before the
 proxy's availability fix.
 
-The current Run exposes no authorized VNC or SSH desktop hosts, so genuine
-macOS/Windows system-IME candidate placement and focus-transition receipts remain
-unverified. The acceptance gate is retained. See [the interaction support matrix](interaction.md).
+The initial delivery recorded no authorized VNC or SSH desktop hosts. This
+refactor did not perform physical OS validation; genuine macOS/Windows system-IME
+candidate placement and focus-transition receipts remain unverified. The
+acceptance gate is retained. See [the interaction support matrix](interaction.md).
 
 ## Remaining compatibility boundaries
 

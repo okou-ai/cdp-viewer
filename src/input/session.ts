@@ -1,19 +1,15 @@
 import type { Protocol } from "devtools-protocol";
-import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import type { CdpClient, CdpEvent } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
 import type { Point } from "./geometry";
+import { InputLifecycle } from "./lifecycle";
+import type { InputOwner, InputStop, InputTransition } from "./lifecycle";
+import { InputQueue } from "./queue";
+import type { InputJob } from "./queue";
 
 type Mouse = Protocol.Input.DispatchMouseEventRequest;
 type Key = Protocol.Input.DispatchKeyEventRequest;
-interface Job {
-  epoch: number;
-  run: (job: Job) => Promise<void>;
-  move: boolean;
-  text?: string;
-}
-
 const focusedElement = `(() => {
   let e = document.activeElement;
   while (e?.shadowRoot?.activeElement) e = e.shadowRoot.activeElement;
@@ -47,16 +43,9 @@ const focusDetails = `function () {
 
 /** One selected session owns a bounded, non-retrying input queue. */
 export class InputSession {
-  private epoch = 0;
-  private disposed = false;
-  private running = false;
-  private executingEpoch = 0;
-  private readonly jobs: Job[] = [];
-  private focusObject: string | null = null;
-  private readonly keys = new Map<string, Key>();
-  private readonly buttons = new Set<NonNullable<Mouse["button"]>>();
-  private lastPoint = { x: 0, y: 0 };
-  private historyEpoch = -1;
+  private readonly lifecycle: InputLifecycle;
+  private readonly queue: InputQueue;
+  private historyOwner: InputOwner | null = null;
   private navigationKnown = false;
   private frameId: string | null = null;
   private contextId: number | null = null;
@@ -64,12 +53,25 @@ export class InputSession {
   constructor(
     private readonly client: CdpClient,
     readonly sessionId: string,
-    private readonly owner: () => Promise<boolean>,
+    owner: () => Promise<boolean>,
     private readonly changed: (value: ViewerNavigation | null) => void,
     private readonly resetLocal: () => void,
     private readonly caret: (point: Point) => void,
     private readonly setError: (error: CdpFault | null) => void,
-  ) {}
+  ) {
+    this.lifecycle = new InputLifecycle(sessionId);
+    this.queue = new InputQueue(client, this.lifecycle, owner, (error) =>
+      this.reportFailure(error),
+    );
+  }
+
+  get available(): boolean {
+    return this.lifecycle.available;
+  }
+
+  get owner(): InputOwner | null {
+    return this.available ? this.lifecycle.owner : null;
+  }
 
   async start(): Promise<void> {
     const tree = await this.client.request(
@@ -77,73 +79,60 @@ export class InputSession {
       undefined,
       this.sessionId,
     );
-    if (this.disposed) return;
+    if (!this.available) return;
     this.frameId = tree.frameTree.frame.id;
     await this.client.request("Runtime.enable", undefined, this.sessionId);
-    if (!this.disposed) this.updateHistory();
+    if (this.available) this.updateHistory();
   }
 
   focus(): void {
-    this.enqueue(async () => {
-      await this.readFocus();
+    this.queue.enqueue(async (job) => {
+      await this.readFocus(job);
       if (!this.navigationKnown) this.updateHistory();
     });
   }
 
   blur(): void {
-    this.invalidate(true);
+    this.transition("blur");
   }
 
-  private clearFocus(): void {
-    if (this.focusObject) {
+  private beginFocus(job: InputJob): void {
+    this.releaseObject(this.lifecycle.beginFocus(job.owner));
+  }
+
+  private releaseObject(objectId: string | null): void {
+    if (objectId)
+      this.client.notify("Runtime.releaseObject", { objectId }, this.sessionId);
+  }
+
+  private transition(reason: InputTransition): void {
+    const cleanup = this.lifecycle.transition(reason);
+    if (!cleanup) return;
+    this.queue.clear();
+    this.releaseObject(cleanup.objectId);
+    for (const key of cleanup.keys)
       this.client.notify(
-        "Runtime.releaseObject",
-        { objectId: this.focusObject },
-        this.sessionId,
+        "Input.dispatchKeyEvent",
+        { ...key, type: "keyUp", modifiers: 0 },
+        cleanup.owner.sessionId,
       );
-      this.focusObject = null;
-    }
-  }
-
-  private invalidate(release: boolean): void {
-    this.epoch++;
-    this.jobs.length = 0;
-    this.clearFocus();
-    if (release) {
-      for (const key of this.keys.values()) {
-        this.client.notify(
-          "Input.dispatchKeyEvent",
-          { ...key, type: "keyUp", modifiers: 0 },
-          this.sessionId,
-        );
-      }
-      for (const button of this.buttons) {
-        this.client.notify(
-          "Input.dispatchMouseEvent",
-          {
-            type: "mouseReleased",
-            ...this.lastPoint,
-            button,
-            buttons: 0,
-          },
-          this.sessionId,
-        );
-      }
-    }
-    this.keys.clear();
-    this.buttons.clear();
+    for (const button of cleanup.buttons)
+      this.client.notify(
+        "Input.dispatchMouseEvent",
+        { type: "mouseReleased", ...cleanup.point, button, buttons: 0 },
+        cleanup.owner.sessionId,
+      );
     this.resetLocal();
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.invalidate(true);
-    this.disposed = true;
+  dispose(reason: InputStop = "disposed"): void {
+    if (!this.available) return;
+    this.transition(reason);
     this.changed(null);
   }
 
   event(event: CdpEvent): void {
-    if (this.disposed || event.sessionId !== this.sessionId) return;
+    if (!this.available || event.sessionId !== this.sessionId) return;
     const { method, params } = event;
     if (
       method === "Runtime.executionContextCreated" &&
@@ -173,10 +162,7 @@ export class InputSession {
     const mainNavigating =
       mainFrameEvent && method === "Page.frameStartedNavigating";
     const sameDocument =
-      (mainFrameEvent && method === "Page.navigatedWithinDocument") ||
-      (mainNavigating &&
-        (params.navigationType === "sameDocument" ||
-          params.navigationType === "historySameDocument"));
+      mainFrameEvent && method === "Page.navigatedWithinDocument";
     if (
       mainNavigation ||
       mainNavigating ||
@@ -185,9 +171,13 @@ export class InputSession {
       (method === "Runtime.executionContextDestroyed" &&
         params.executionContextId === this.contextId)
     ) {
-      // Loading also precedes hash/history changes, so it cannot distinguish
-      // document loss. A retained document still needs its owned releases.
-      this.invalidate(sameDocument);
+      this.transition(
+        mainNavigating
+          ? "navigation-started"
+          : sameDocument
+            ? "same-document"
+            : "document-lost",
+      );
       this.changed(null);
       this.navigationKnown = false;
     }
@@ -210,8 +200,8 @@ export class InputSession {
       "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
     >,
   ): void {
-    this.enqueue(async () => {
-      const viewport = (await this.request("Page.getLayoutMetrics", undefined))
+    this.queue.enqueue(async (job) => {
+      const viewport = (await job.request("Page.getLayoutMetrics", undefined))
         .cssVisualViewport;
       if (
         ![viewport.clientWidth, viewport.clientHeight].every(
@@ -223,75 +213,59 @@ export class InputSession {
           "The remote viewport is unavailable for input.",
         );
       }
-      this.lastPoint = {
+      const pointInViewport = {
         // Input coordinates are relative to the visible CSS viewport. Adding
         // its layout offset would apply pinch-pan translation a second time.
         x: point.x * viewport.clientWidth,
         y: point.y * viewport.clientHeight,
       };
-      if (type === "mousePressed") this.clearFocus();
-      if (type === "mousePressed" && details.button)
-        this.buttons.add(details.button);
-      await this.request("Input.dispatchMouseEvent", {
+      if (type === "mousePressed") this.beginFocus(job);
+      this.lifecycle.pointer(
+        job.owner,
+        pointInViewport,
+        type === "mousePressed" ? details.button : undefined,
+      );
+      await job.request("Input.dispatchMouseEvent", {
         type,
-        ...this.lastPoint,
+        ...pointInViewport,
         ...details,
       });
       if (type === "mouseReleased" && details.button) {
-        this.buttons.delete(details.button);
-        await this.readFocus();
+        this.lifecycle.releaseButton(job.owner, details.button);
+        await this.readFocus(job);
         if (!this.navigationKnown) this.updateHistory();
       }
     }, type === "mouseMoved");
   }
 
-  text(text: string): void {
-    if (!text) return;
-    if (text.length > 64 * 1024) {
-      this.reportFailure();
-      return;
-    }
-    const tail = this.jobs.at(-1);
-    if (
-      tail?.text !== undefined &&
-      tail.epoch === this.epoch &&
-      tail.text.length + text.length <= 64 * 1024
-    ) {
-      tail.text += text;
-      return;
-    }
-    this.enqueue(
-      async (job) => {
-        const details = await this.verifyFocus();
-        if (!details.editable) {
-          throw new CdpFault(
-            "input",
-            "Focus a supported remote text control before typing.",
-          );
-        }
-        await this.request("Input.insertText", { text: job.text! });
-        if (details.range) await this.readCaret();
-      },
-      false,
-      text,
-    );
+  text(text: string, owner: InputOwner = this.lifecycle.owner): void {
+    if (!this.lifecycle.owns(owner)) return;
+    this.queue.text(text, async (job) => {
+      const details = await this.verifyFocus(job);
+      if (!details.editable)
+        throw new CdpFault(
+          "input",
+          "Focus a supported remote text control before typing.",
+        );
+      await job.request("Input.insertText", { text: job.text! });
+      if (details.range) await this.readCaret(job);
+    });
   }
 
   key(key: Key): void {
-    this.enqueue(async () => {
-      await this.verifyFocus();
-      const id = key.code ?? key.key ?? "";
-      if (key.type !== "keyUp") this.keys.set(id, key);
-      await this.request("Input.dispatchKeyEvent", key);
+    this.queue.enqueue(async (job) => {
+      await this.verifyFocus(job);
+      if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
+      await job.request("Input.dispatchKeyEvent", key);
       // Keep ownership until release is confirmed so failure/blur can still
       // perform the original session's best-effort release cleanup.
-      if (key.type === "keyUp") this.keys.delete(id);
-      if (key.key === "Tab" && key.type !== "keyUp") await this.readFocus();
+      if (key.type === "keyUp") this.lifecycle.releaseKey(job.owner, key);
+      if (key.key === "Tab" && key.type !== "keyUp") await this.readFocus(job);
       else if (
         key.type !== "keyUp" &&
         !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
       )
-        await this.readCaret();
+        await this.readCaret(job);
     });
   }
 
@@ -312,22 +286,22 @@ export class InputSession {
         return;
       }
     }
-    this.invalidate(true);
-    this.enqueue(async () => {
-      if (action === "reload") await this.request("Page.reload", undefined);
+    this.transition("navigation-started");
+    this.queue.enqueue(async (job) => {
+      if (action === "reload") await job.request("Page.reload", undefined);
       else if (action === "back" || action === "forward") {
-        const history = await this.request(
+        const history = await job.request(
           "Page.getNavigationHistory",
           undefined,
         );
         const entry =
           history.entries[history.currentIndex + (action === "back" ? -1 : 1)];
         if (entry)
-          await this.request("Page.navigateToHistoryEntry", {
+          await job.request("Page.navigateToHistoryEntry", {
             entryId: entry.id,
           });
       } else {
-        const result = await this.request("Page.navigate", { url });
+        const result = await job.request("Page.navigate", { url });
         if (result.errorText)
           throw new CdpFault(
             "input",
@@ -337,18 +311,19 @@ export class InputSession {
     });
   }
 
-  private async verifyFocus(): Promise<{
+  private async verifyFocus(job: InputJob): Promise<{
     editable: boolean;
     range: boolean;
     point: Point;
   }> {
-    if (!this.focusObject)
+    const objectId = this.lifecycle.focusedObject(job.owner);
+    if (!objectId)
       throw new CdpFault(
         "input",
         "Click the remote page to establish input focus.",
       );
-    const result = await this.request("Runtime.callFunctionOn", {
-      objectId: this.focusObject,
+    const result = await job.request("Runtime.callFunctionOn", {
+      objectId,
       functionDeclaration: focusDetails,
       returnByValue: true,
     });
@@ -383,32 +358,31 @@ export class InputSession {
     };
   }
 
-  private async readFocus(): Promise<void> {
-    this.clearFocus();
-    const response = await this.request("Runtime.evaluate", {
+  private async readFocus(job: InputJob): Promise<void> {
+    this.beginFocus(job);
+    const response = await job.request("Runtime.evaluate", {
       expression: focusedElement,
       objectGroup: "cdpv-input",
       returnByValue: false,
     });
     if (response.exceptionDetails || !response.result.objectId) return;
-    this.focusObject = response.result.objectId;
-    await this.readCaret();
+    this.lifecycle.acceptFocus(job.owner, response.result.objectId);
+    await this.readCaret(job);
   }
 
-  private async readCaret(): Promise<void> {
-    if (!this.focusObject) return;
-    const detail = await this.verifyFocus();
-    if (!detail.editable) return;
-    this.caret(detail.point);
+  private async readCaret(job: InputJob): Promise<void> {
+    if (!this.lifecycle.focusedObject(job.owner)) return;
+    const detail = await this.verifyFocus(job);
+    if (detail.editable) this.caret(detail.point);
   }
 
   private updateHistory(): void {
-    const epoch = this.epoch;
-    if (this.historyEpoch === epoch) return;
-    this.historyEpoch = epoch;
-    this.enqueue(async () => {
+    const owner = this.lifecycle.owner;
+    if (this.historyOwner === owner) return;
+    this.historyOwner = owner;
+    this.queue.enqueue(async (job) => {
       try {
-        const history = await this.request(
+        const history = await job.request(
           "Page.getNavigationHistory",
           undefined,
         );
@@ -424,64 +398,13 @@ export class InputSession {
           );
         }
       } finally {
-        if (this.historyEpoch === epoch) this.historyEpoch = -1;
+        if (this.historyOwner === owner) this.historyOwner = null;
       }
     });
-  }
-
-  private enqueue(run: Job["run"], move = false, text?: string): void {
-    if (this.disposed) return;
-    const last = this.jobs.at(-1);
-    if (move && last?.move) this.jobs.pop();
-    if (this.jobs.length >= 64) {
-      this.reportFailure();
-      return;
-    }
-    this.jobs.push({
-      epoch: this.epoch,
-      run,
-      move,
-      ...(text === undefined ? {} : { text }),
-    });
-    if (!this.running) void this.drain();
-  }
-
-  private async request<M extends keyof ProtocolMapping.Commands>(
-    method: M,
-    params: ProtocolMapping.Commands[M]["paramsType"][0],
-  ): Promise<ProtocolMapping.Commands[M]["returnType"]> {
-    const epoch = this.executingEpoch;
-    if (this.disposed || epoch !== this.epoch)
-      throw new Error("Input cancelled");
-    const releaseResult = (result: unknown) => {
-      if (
-        isRecord(result) &&
-        isRecord(result.result) &&
-        typeof result.result.objectId === "string"
-      ) {
-        this.client.notify(
-          "Runtime.releaseObject",
-          { objectId: result.result.objectId },
-          this.sessionId,
-        );
-      }
-    };
-    const result = await this.client.request(
-      method,
-      params,
-      this.sessionId,
-      method === "Runtime.evaluate" ? releaseResult : undefined,
-    );
-    if (this.disposed || epoch !== this.epoch) {
-      // A focus lookup can resolve after its local owner has already gone away.
-      releaseResult(result);
-      throw new Error("Input cancelled");
-    }
-    return result;
   }
 
   private reportFailure(error?: unknown): void {
-    this.invalidate(true);
+    this.transition("failed");
     this.setError(
       error instanceof CdpFault && error.kind === "input"
         ? error
@@ -490,30 +413,5 @@ export class InputSession {
             "Remote input could not be completed. Unsent input was discarded; it will not be replayed.",
           ),
     );
-  }
-
-  private async drain(): Promise<void> {
-    this.running = true;
-    try {
-      while (this.jobs.length && !this.disposed) {
-        const job = this.jobs.shift()!;
-        if (job.epoch !== this.epoch) continue;
-        try {
-          if (
-            (await this.owner()) &&
-            !this.disposed &&
-            job.epoch === this.epoch
-          ) {
-            this.executingEpoch = job.epoch;
-            await job.run(job);
-          }
-        } catch (error) {
-          if (!this.disposed && job.epoch === this.epoch)
-            this.reportFailure(error);
-        }
-      }
-    } finally {
-      this.running = false;
-    }
   }
 }

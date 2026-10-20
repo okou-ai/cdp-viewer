@@ -9,6 +9,10 @@ export async function serveConsumer(dist: string, base = "/") {
   const server = createServer((request, response) => {
     const pathname = new URL(request.url ?? "/", "http://fixture.invalid")
       .pathname;
+    if (pathname === "/fixture/no-content") {
+      response.writeHead(204).end();
+      return;
+    }
     if (pathname === "/fixture/editor") {
       void readFile(new URL("./fixtures/editor.html", import.meta.url))
         .then((data) => {

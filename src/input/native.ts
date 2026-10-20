@@ -1,4 +1,5 @@
 import type { Protocol } from "devtools-protocol";
+import { NativeComposition } from "./composition";
 import { imagePoint, localPoint } from "./geometry";
 import type { Point } from "./geometry";
 import type { InputSession } from "./session";
@@ -37,8 +38,8 @@ function modifiers(event: MouseEvent | KeyboardEvent): number {
 
 /** DOM listeners belong to this surface only; the textarea stays uncontrolled. */
 export class NativeInput {
-  private composing = false;
-  private consumed = "";
+  private readonly composition = new NativeComposition();
+  private resetting = false;
   private readonly forwarded = new Set<string>();
   private pointerId: number | null = null;
   private readonly pressedButtons = new Set<number>();
@@ -81,8 +82,11 @@ export class NativeInput {
     proxy.addEventListener(
       "compositionstart",
       () => {
-        this.composing = document.activeElement === this.proxy;
-        this.consumed = "";
+        this.composition.start(
+          document.activeElement === this.proxy
+            ? (this.input()?.owner ?? null)
+            : null,
+        );
         // Leave the native value alone while an OS composition is starting.
       },
       { signal },
@@ -96,29 +100,34 @@ export class NativeInput {
   }
 
   reset(): void {
-    this.composing = false;
-    this.consumed = "";
-    this.proxy.value = "";
-    this.forwarded.clear();
-    this.latestMove = null;
-    if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
-    this.moveFrame = null;
-    const pointer = this.pointerId;
-    this.pointerId = null;
-    this.pressedButtons.clear();
-    if (
-      pointer !== null &&
-      this.canvas.parentElement?.hasPointerCapture(pointer)
-    ) {
-      this.canvas.parentElement.releasePointerCapture(pointer);
+    if (this.resetting) return;
+    this.resetting = true;
+    try {
+      this.composition.reset();
+      this.proxy.value = "";
+      this.forwarded.clear();
+      this.latestMove = null;
+      if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
+      this.moveFrame = null;
+      const pointer = this.pointerId;
+      this.pointerId = null;
+      this.pressedButtons.clear();
+      if (
+        pointer !== null &&
+        this.canvas.parentElement?.hasPointerCapture(pointer)
+      ) {
+        this.canvas.parentElement.releasePointerCapture(pointer);
+      }
+      this.proxy.blur();
+    } finally {
+      this.resetting = false;
     }
-    this.proxy.blur();
   }
 
   dispose(): void {
+    this.lifetime.abort();
     this.input()?.blur();
     this.reset();
-    this.lifetime.abort();
   }
 
   place(point: Point): void {
@@ -129,6 +138,7 @@ export class NativeInput {
   }
 
   private readonly cancel = () => {
+    if (this.resetting) return;
     this.input()?.blur();
     this.reset();
   };
@@ -141,7 +151,7 @@ export class NativeInput {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     const input = this.input();
     if (!point || !input || event.pointerType !== "mouse") return;
-    if (this.composing) {
+    if (this.composition.composing) {
       input.blur();
       this.reset();
     }
@@ -249,48 +259,35 @@ export class NativeInput {
   };
 
   private readonly compositionEnd = (event: CompositionEvent) => {
-    const focused = document.activeElement === this.proxy;
-    const owned = this.composing && focused;
-    this.composing = false;
-    // Preserve the consumed value until the browser's final input event. Reading
-    // the value delta also preserves a subsequent identical character. A late
-    // end after refocus consumes its trailing value without committing it.
-    this.consumed = focused ? event.data : "";
-    this.proxy.value = this.consumed;
-    if (focused)
-      this.proxy.setSelectionRange(this.consumed.length, this.consumed.length);
-    if (owned && event.data) this.input()?.text(event.data);
+    const input = this.input();
+    const owner =
+      document.activeElement === this.proxy ? (input?.owner ?? null) : null;
+    const result = this.composition.end(event.data, owner);
+    this.proxy.value = result.value;
+    if (owner)
+      this.proxy.setSelectionRange(result.value.length, result.value.length);
+    if (result.text && owner) input?.text(result.text, owner);
   };
 
   private readonly text = (event: Event) => {
-    const compositionInput =
+    const input = this.input();
+    const owner =
+      document.activeElement === this.proxy ? (input?.owner ?? null) : null;
+    const result = this.composition.input(
+      this.proxy.value,
+      owner,
       event instanceof InputEvent &&
-      (event.isComposing || event.inputType.includes("Composition"));
-    if (
-      document.activeElement !== this.proxy ||
-      (!this.composing && !this.consumed && compositionInput)
-    ) {
-      // Discard late values from a cancelled composition, including events that
-      // arrive after this stable textarea has been focused by its next owner.
-      this.consumed = "";
-      this.proxy.value = "";
-      return;
-    }
-    if (this.composing || (event instanceof InputEvent && event.isComposing))
-      return;
-    const value = this.proxy.value;
-    const text =
-      this.consumed && value.startsWith(this.consumed)
-        ? value.slice(this.consumed.length)
-        : value;
-    this.consumed = "";
+        (event.isComposing || event.inputType.includes("Composition")),
+      event instanceof InputEvent && event.isComposing,
+    );
+    if (result.keep) return;
     this.proxy.value = "";
-    if (text) this.input()?.text(text);
+    if (result.text && owner) input?.text(result.text, owner);
   };
 
   private readonly keyDown = (event: KeyboardEvent) => {
     if (
-      this.composing ||
+      this.composition.composing ||
       event.isComposing ||
       event.keyCode === 229 ||
       ["Dead", "Process", "Unidentified"].includes(event.key)

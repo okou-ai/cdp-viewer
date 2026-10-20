@@ -9,6 +9,7 @@ import {
 } from "../cdp/errors";
 import { TargetDirectory } from "../cdp/targets";
 import { InputSession } from "../input/session";
+import type { InputStop } from "../input/lifecycle";
 import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
 import type { ViewerModel } from "./model";
@@ -63,7 +64,9 @@ export class ViewerController {
 
   get input(): InputSession | null {
     const selection = this.selection;
-    return selection?.painted && this.isCurrent(selection)
+    return selection?.painted &&
+      selection.input?.available &&
+      this.isCurrent(selection)
       ? selection.input
       : null;
   }
@@ -102,7 +105,7 @@ export class ViewerController {
     this.paused = paused;
     if (!this.connected) return;
     if (paused) {
-      this.stopSelection();
+      this.stopSelection("paused");
       if (this.model.getSnapshot().selectedTargetId) {
         this.model.update({ status: "paused", error: null });
       }
@@ -117,7 +120,7 @@ export class ViewerController {
     if (this.disposed) return;
     this.disposed = true;
     this.lifetime.abort();
-    this.stopSelection();
+    this.stopSelection("disposed");
     this.sink.dispose();
     this.client?.close();
     this.ownedSessions.clear();
@@ -137,7 +140,7 @@ export class ViewerController {
       if (this.disposed) return;
       this.connected = false;
       this.lifetime.abort();
-      this.stopSelection();
+      this.stopSelection("disconnected");
       this.model.update({ status: "disconnected", error: diagnostic(error) });
     });
     await client.opened;
@@ -304,14 +307,14 @@ export class ViewerController {
     );
   }
 
-  private stopSelection(): void {
+  private stopSelection(reason: InputStop = "target-replaced"): void {
     const old = this.selection;
     this.selection = null;
     this.sink.reset();
     if (this.model.getSnapshot().navigation)
       this.model.update({ navigation: null });
     if (old) {
-      old.input?.dispose();
+      old.input?.dispose(reason);
       old.deadline.abort();
       this.release(old);
     }

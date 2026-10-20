@@ -6,6 +6,10 @@ Each instance owns its native textarea, focus, pressed keys/buttons, bounded
 command queue and selected-target CDP session. No endpoint-keyed global input
 owner or document-wide keyboard handler is installed.
 
+Lifecycle transitions and cleanup use one coordinator, with separate native
+composition state and an owner-bound serial executor. See the
+[input lifecycle contract](input-lifecycle.md) for ownership and release rules.
+
 Click the displayed page to establish remote focus and focus the local proxy.
 Pointer coordinates follow the contained image and remote CSS visual viewport,
 including page scale and panning; JPEG size and client DPR are not coordinates
@@ -67,8 +71,10 @@ or interrupted release still permits best-effort release cleanup on the original
 session, which can send an additional `keyUp` when its outcome is unknown.
 Committed text and navigation are not replayed by this cleanup.
 Hash and history changes that retain the document release owned keys/buttons
-before clearing input ownership. A loading-start event alone does not establish
-document loss; explicit navigation and context events do.
+before clearing input ownership. Navigation start also releases held input:
+cancellation or HTTP 204 can retain the original document. A loading-start event
+alone does not establish document loss; explicit navigation/context facts drive
+the lifecycle transition table.
 
 The toolbar accepts absolute `http://` and `https://` addresses; it does not infer
 a scheme, run JavaScript URLs or perform endpoint discovery. Draft address edits

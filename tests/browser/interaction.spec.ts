@@ -374,6 +374,120 @@ test("same-document navigation releases owned keys and mouse buttons", async ({
   }
 });
 
+test("uncommitted navigation releases held input in the retained document", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    const bounds = await remote.locator("#plain").boundingBox();
+    if (!bounds) throw new Error("Owned input bounds missing.");
+    const recoveryPoint = await imagePosition(
+      view,
+      bounds.x + 20,
+      bounds.y + bounds.height / 2,
+      remote,
+    );
+    const observer = await backend.context.newCDPSession(remote);
+    await observer.send("Page.enable");
+    let starts = 0;
+    let commits = 0;
+    observer.on("Page.frameStartedNavigating", () => starts++);
+    observer.on("Page.frameNavigated", () => commits++);
+    await remote.evaluate(() => {
+      document.body.dataset.keyReleases = "0";
+      document.body.dataset.mouseReleases = "0";
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Shift") document.body.dataset.keyHeld = "true";
+      });
+      document.addEventListener("keyup", (event) => {
+        if (event.key === "Shift") {
+          document.body.dataset.keyHeld = "false";
+          document.body.dataset.keyReleases = String(
+            Number(document.body.dataset.keyReleases) + 1,
+          );
+        }
+      });
+      document.addEventListener("mousedown", () => {
+        document.body.dataset.mouseHeld = "true";
+      });
+      document.addEventListener("mouseup", () => {
+        document.body.dataset.mouseHeld = "false";
+        document.body.dataset.mouseReleases = String(
+          Number(document.body.dataset.mouseReleases) + 1,
+        );
+      });
+    });
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.down("Shift");
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-key-held",
+      "true",
+    );
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-mouse-releases",
+      "1",
+    );
+    await page.mouse.down();
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-mouse-held",
+      "true",
+    );
+    const noContent = server.origin + "/fixture/no-content";
+    const response = remote.waitForResponse(noContent);
+    await remote.evaluate((url) => {
+      location.href = url;
+    }, noContent);
+    expect((await response).status()).toBe(204);
+    await expect.poll(() => starts).toBe(1);
+    // A 204 keeps the current execution context. Read that context directly:
+    // locator auto-wait can treat its uncommitted navigation as still pending.
+    await expect
+      .poll(() =>
+        remote.evaluate(() => ({
+          held: document.body.dataset.keyHeld,
+          releases: document.body.dataset.keyReleases,
+          mouseHeld: document.body.dataset.mouseHeld,
+          mouseReleases: document.body.dataset.mouseReleases,
+        })),
+      )
+      .toEqual({
+        held: "false",
+        releases: "1",
+        mouseHeld: "false",
+        mouseReleases: "2",
+      });
+    expect(commits).toBe(0);
+    expect(remote.url()).toBe(server.origin + "/fixture/editor");
+    await page.keyboard.up("Shift");
+    await page.mouse.up();
+    // Reuse pre-navigation geometry and inspect the retained execution context;
+    // Playwright locator actions otherwise wait for a commit that 204 forbids.
+    await page.mouse.click(recoveryPoint.x, recoveryPoint.y);
+    await expect(
+      view.getByRole("textbox", { name: "Remote browser input" }),
+    ).toBeFocused();
+    await expect
+      .poll(() => remote.evaluate(() => document.activeElement?.id))
+      .toBe("plain");
+    await page.keyboard.insertText("recovered after 204");
+    await expect
+      .poll(() =>
+        remote.evaluate(
+          () => document.querySelector<HTMLInputElement>("#plain")?.value,
+        ),
+      )
+      .toBe("recovered after 204");
+    await observer.detach();
+  } finally {
+    await backend.close();
+  }
+});
+
 test("pointer input respects contain fitting, remote DPR, page scale, drag and wheel", async ({
   page,
 }, info) => {
