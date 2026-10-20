@@ -23,6 +23,8 @@ adding extensions; ordinary CDP must remain usable independently.
 - `tests/unit/`: Vitest, Testing Library and a fake external CDP wire.
 - `tests/browser/`: Playwright fixtures with test-owned Chromium windows.
 - `tests/consumer/`: separately installed React/Vite host and SSR fixtures.
+- `demo/`: view-only connection forms and independent panels using public exports.
+- `vite.demo.config.ts`: production demo build with the `/cdp-viewer/` Pages base.
 
 ## Toolchain and Checks
 
@@ -37,6 +39,7 @@ Run commands from the repository root:
 pnpm install --frozen-lockfile
 pnpm css:check
 pnpm build
+pnpm build:demo
 pnpm format:check
 pnpm lint
 pnpm check-types

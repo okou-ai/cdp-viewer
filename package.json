@@ -37,6 +37,7 @@
   },
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "css:write": "node scripts/stylesheet.mjs --write",
     "css:check": "node scripts/stylesheet.mjs --check",
     "check-types": "tsc --noEmit",
