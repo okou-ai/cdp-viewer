@@ -8,17 +8,105 @@ const navigation = (url: string) => ({
   canGoForward: false,
 });
 
+it("keeps action eligibility independent across scope, stream errors and pending work", () => {
+  const first = createViewerModel();
+  const second = createViewerModel();
+  first.run(first.configure$, { interactive: true, scoped: false });
+  second.run(second.configure$, { interactive: true, scoped: true });
+  for (const model of [first, second]) {
+    model.run(model.setConnected$, true);
+    model.transition({ type: "target-lost", error: null });
+  }
+  expect(first.read(first.controls$)).toMatchObject({
+    canCreate: true,
+    showEmptyCreate: true,
+  });
+  expect(second.read(second.controls$)).toMatchObject({
+    canCreate: false,
+    emptyScoped: true,
+    showEmptyCreate: false,
+  });
+  first.run(first.setTabAction$, { type: "create" });
+  expect(first.read(first.controls$).canMutateTabs).toBe(false);
+  expect(second.read(second.controls$).canMutateTabs).toBe(true);
+  first.run(first.setTabAction$, null);
+  first.transition({
+    type: "failed",
+    error: { kind: "frame", message: "Synthetic stream failure" },
+  });
+  expect(first.read(first.controls$)).toMatchObject({
+    canMutateTabs: true,
+    canCreate: false,
+    recovery: true,
+    showEmptyCreate: false,
+  });
+  first.run(first.configure$, { interactive: false, scoped: false });
+  first.transition({ type: "streaming" });
+  expect(first.read(first.controls$).canMutateTabs).toBe(false);
+  expect(first.read(first.controls$).canCreate).toBe(false);
+  expect(second.read(second.controls$).canMutateTabs).toBe(true);
+});
+
+it("distinguishes retained selection, external loss and disconnected transport", () => {
+  const model = createViewerModel();
+  model.run(model.configure$, { interactive: true, scoped: false });
+  model.run(model.setConnected$, true);
+  const targets = [{ id: "page-a", title: "A" }];
+  model.update({ targets });
+  model.transition({ type: "select", targetId: "page-a", paused: false });
+  model.update({ navigation: navigation("https://one.invalid/") });
+  model.transition({ type: "streaming" });
+  model.transition({ type: "paused" });
+  expect(model.getSnapshot()).toMatchObject({
+    status: "paused",
+    selectedTargetId: "page-a",
+    navigation: null,
+  });
+  model.transition({
+    type: "target-lost",
+    error: { kind: "target-unavailable", message: "Synthetic target loss" },
+  });
+  expect(model.getSnapshot()).toMatchObject({
+    selectedTargetId: null,
+    status: "unavailable",
+    targets,
+    navigation: null,
+  });
+  expect(model.read(model.controls$).canCreate).toBe(false);
+  model.transition({ type: "select", targetId: "page-a", paused: false });
+  model.transition({
+    type: "disconnected",
+    established: true,
+    error: { kind: "connection", message: "Synthetic disconnect" },
+  });
+  expect(model.getSnapshot()).toMatchObject({
+    selectedTargetId: "page-a",
+    status: "disconnected",
+  });
+  expect(model.read(model.controls$).canMutateTabs).toBe(false);
+  model.run(model.setTabAction$, { type: "close", targetId: "page-a" });
+  model.transition({ type: "reset" });
+  expect(model.getSnapshot()).toMatchObject({
+    status: "connecting",
+    targets: [],
+    selectedTargetId: null,
+    error: null,
+    navigation: null,
+  });
+  expect(model.read(model.tabAction$)).toBeNull();
+});
+
 it("isolates viewer commands, drafts and reconnects, including stale runtime cleanup", () => {
   const first = createViewerModel();
   const second = createViewerModel();
   first.update({
     navigation: navigation("https://one.invalid/"),
-    status: "streaming",
   });
+  first.transition({ type: "streaming" });
   second.update({
     navigation: navigation("https://two.invalid/"),
-    status: "streaming",
   });
+  second.transition({ type: "streaming" });
   const actions = () => ({
     select: vi.fn(),
     navigate: vi.fn(),

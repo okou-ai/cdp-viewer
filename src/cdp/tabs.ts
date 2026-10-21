@@ -1,5 +1,6 @@
 import type { CdpClient } from "./client";
 import { CdpFault, isRecord } from "./errors";
+import { releaseRuntimeObjects } from "./runtime-objects";
 import type { TargetDirectory } from "./targets";
 
 /** One explicit create, with cleanup bound to the original transport/session. */
@@ -47,22 +48,8 @@ export async function openTab(
       (byte) => byte.toString(16).padStart(2, "0"),
     ).join("");
     const marker = `about:blank#cdpv-${token}`;
-    const release = (value: unknown) => {
-      if (!isRecord(value)) return;
-      for (const remote of [
-        value.result,
-        isRecord(value.exceptionDetails)
-          ? value.exceptionDetails.exception
-          : null,
-      ]) {
-        if (isRecord(remote) && typeof remote.objectId === "string")
-          client.notify(
-            "Runtime.releaseObject",
-            { objectId: remote.objectId },
-            source.sessionId,
-          );
-      }
-    };
+    const release = (value: unknown) =>
+      releaseRuntimeObjects(client, source.sessionId, value);
     const result = await client.request(
       "Runtime.evaluate",
       {

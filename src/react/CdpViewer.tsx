@@ -27,7 +27,6 @@ export function CdpViewer(props: CdpViewerProps) {
 
 function ViewerSurface({
   interactive = false,
-  windowId,
   colorScheme,
   className,
   style,
@@ -39,25 +38,10 @@ function ViewerSurface({
   const createTab = viewerScope.useCommand(model.createTab$);
   const closeTab = viewerScope.useCommand(model.closeTab$);
   const pending = viewerScope.useValue(model.tabAction$);
-  const connected = viewerScope.useValue(model.connected$);
+  const controls = viewerScope.useValue(model.controls$);
   const { canvas, proxy, tabs } = useViewerElements();
   const selectId = viewerScope.useIdentity();
 
-  const empty =
-    snapshot.status === "unavailable" &&
-    !snapshot.targets.length &&
-    (!snapshot.error || snapshot.error.kind === "target-unavailable");
-  const canCreate =
-    interactive &&
-    connected &&
-    !pending &&
-    (snapshot.status === "streaming" || (empty && windowId === undefined));
-  const recovery =
-    snapshot.status === "error" ||
-    snapshot.status === "disconnected" ||
-    (snapshot.status === "unavailable" &&
-      snapshot.error?.kind !== "target-unavailable" &&
-      !!snapshot.error);
   return (
     <Tabs.Root
       render={<section />}
@@ -91,7 +75,7 @@ function ViewerSurface({
                 className="cdpv-tab"
                 value={target.id}
                 title={target.title}
-                disabled={snapshot.status === "disconnected"}
+                disabled={controls.tabsDisabled}
                 data-target-id={target.id}
               >
                 <Globe size={14} aria-hidden="true" />
@@ -107,7 +91,7 @@ function ViewerSurface({
                   aria-busy={
                     pending?.type === "close" && pending.targetId === target.id
                   }
-                  disabled={!connected || !!pending}
+                  disabled={!controls.canMutateTabs}
                   onClick={() => closeTab(target.id)}
                 >
                   {pending?.type === "close" &&
@@ -132,7 +116,7 @@ function ViewerSurface({
             aria-label="New tab"
             aria-busy={pending?.type === "create"}
             title="New tab"
-            disabled={!canCreate}
+            disabled={!controls.canCreate}
             onClick={() => createTab()}
           >
             {pending?.type === "create" ? (
@@ -153,10 +137,10 @@ function ViewerSurface({
       {interactive && (
         <NavigationToolbar
           navigation={snapshot.navigation ?? null}
-          disabled={snapshot.status !== "streaming"}
+          disabled={!controls.streaming}
         />
       )}
-      {snapshot.error && snapshot.status === "streaming" && (
+      {snapshot.error && controls.streaming && (
         <div className="cdpv-error" role="alert">
           <CircleAlert size={16} aria-hidden="true" />
           <span>{snapshot.error.message}</span>
@@ -177,7 +161,7 @@ function ViewerSurface({
             id={`${selectId}-input`}
             className="cdpv-input-proxy"
             aria-label="Remote browser input"
-            disabled={snapshot.status !== "streaming"}
+            disabled={!controls.streaming}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="none"
@@ -186,48 +170,32 @@ function ViewerSurface({
             wrap="off"
           />
         )}
-        {snapshot.status !== "streaming" && (
+        {!controls.streaming && (
           <div className="cdpv-placeholder">
-            {recovery ? (
+            {controls.recovery ? (
               <CircleAlert size={28} aria-hidden="true" />
             ) : (
               <Monitor size={28} aria-hidden="true" />
             )}
-            <strong>
-              {snapshot.status === "disconnected"
-                ? "Browser disconnected"
-                : snapshot.status === "error"
-                  ? snapshot.error?.kind === "connection"
-                    ? "Unable to connect"
-                    : "Unable to show browser"
-                  : empty
-                    ? "No tabs open"
-                    : snapshot.status === "paused"
-                      ? "Viewing paused"
-                      : snapshot.status === "connecting"
-                        ? "Connecting to browser…"
-                        : recovery
-                          ? "Browser view unavailable"
-                          : "Choose a tab to continue"}
-            </strong>
+            <strong>{controls.placeholderTitle}</strong>
             {snapshot.error && (
               <span className="cdpv-placeholder-message" role="alert">
                 {snapshot.error.message}
               </span>
             )}
-            {empty && windowId !== undefined && (
+            {controls.emptyScoped && (
               <span className="cdpv-placeholder-message">
                 Open a page in this window, or reconnect after updating the
                 window scope.
               </span>
             )}
-            {(recovery || empty) && (
+            {controls.showRecovery && (
               <div className="cdpv-recovery-actions">
-                {empty && interactive && windowId === undefined && (
+                {controls.showEmptyCreate && (
                   <Button
                     type="button"
                     className="cdpv-button cdpv-primary"
-                    disabled={!canCreate}
+                    disabled={!controls.canCreate}
                     onClick={() => createTab()}
                   >
                     <Plus size={16} aria-hidden="true" />

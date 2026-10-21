@@ -14,6 +14,7 @@ import type { InputStop } from "../input/lifecycle";
 import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
 import type { TabAction, ViewerModel } from "./model";
+import type { ViewerError } from "./types";
 
 interface Selection {
   targetId: string;
@@ -51,7 +52,6 @@ export class ViewerController {
   private refreshWanted = false;
   private targetRevision = 0;
   private selectionRevision = 0;
-  private mutatingTab = false;
   private paused: boolean;
 
   constructor(
@@ -63,6 +63,10 @@ export class ViewerController {
   }
 
   start(): void {
+    this.model.run(this.model.configure$, {
+      interactive: this.options.interactive ?? false,
+      scoped: this.options.windowId !== undefined,
+    });
     this.connect().catch((error: unknown) => {
       if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
     });
@@ -88,11 +92,10 @@ export class ViewerController {
     this.chosenOnce = true;
     this.selectionRevision++;
     this.stopSelection();
-    this.model.update({
-      selectedTargetId: targetId,
-      error: null,
-      status: this.paused ? "paused" : "connecting",
-      navigation: null,
+    this.model.transition({
+      type: "select",
+      targetId,
+      paused: this.paused,
     });
     if (this.paused) return;
     const selection: Selection = {
@@ -115,9 +118,7 @@ export class ViewerController {
     if (!this.connected) return;
     if (paused) {
       this.stopSelection("paused");
-      if (this.model.getSnapshot().selectedTargetId) {
-        this.model.update({ status: "paused", error: null });
-      }
+      this.model.transition({ type: "paused" });
     } else {
       const id = this.model.getSnapshot().selectedTargetId;
       if (id) this.select(id);
@@ -129,15 +130,11 @@ export class ViewerController {
     const source = this.selection;
     const owner = source?.input?.owner;
     const revision = this.selectionRevision;
-    const snapshot = this.model.getSnapshot();
     if (
       !this.canMutateTab() ||
       (source
         ? !source.sessionId || !owner
-        : this.options.windowId !== undefined ||
-          snapshot.targets.length > 0 ||
-          snapshot.status !== "unavailable" ||
-          (!!snapshot.error && snapshot.error.kind !== "target-unavailable"))
+        : !this.model.read(this.model.controls$).emptyUnscoped)
     )
       return;
     const client = this.client!;
@@ -222,12 +219,7 @@ export class ViewerController {
       );
       this.model.update({ targets, error: null });
       if (this.model.getSnapshot().selectedTargetId === targetId) {
-        this.stopSelection();
-        this.model.update({
-          selectedTargetId: null,
-          status: "unavailable",
-          navigation: null,
-        });
+        this.loseSelection(null);
       }
       if (selected && revision === this.selectionRevision) {
         // Discovery can remove preceding tabs while closure is pending.
@@ -237,14 +229,7 @@ export class ViewerController {
         const next =
           targets.find((target) => !preceding.has(target.id)) ?? targets.at(-1);
         if (next) this.select(next.id);
-        else {
-          this.stopSelection();
-          this.model.update({
-            selectedTargetId: null,
-            status: "unavailable",
-            navigation: null,
-          });
-        }
+        else this.loseSelection(null);
       }
       this.refresh();
     });
@@ -252,10 +237,9 @@ export class ViewerController {
 
   private canMutateTab(): boolean {
     return (
-      !!this.options.interactive &&
       this.connected &&
       !this.disposed &&
-      !this.mutatingTab
+      this.model.read(this.model.controls$).canMutateTabs
     );
   }
 
@@ -264,7 +248,6 @@ export class ViewerController {
     task: () => Promise<void>,
     report: () => boolean = () => true,
   ): void {
-    this.mutatingTab = true;
     this.model.run(this.model.setTabAction$, action);
     this.model.update({ error: null });
     task()
@@ -283,7 +266,6 @@ export class ViewerController {
           });
       })
       .finally(() => {
-        this.mutatingTab = false;
         if (!this.disposed) this.model.run(this.model.setTabAction$, null);
       });
   }
@@ -313,11 +295,11 @@ export class ViewerController {
       if (this.disposed) return;
       const established = this.connected;
       this.connected = false;
-      this.model.run(this.model.setConnected$, false);
       this.lifetime.abort();
       this.stopSelection("disconnected");
-      this.model.update({
-        status: established ? "disconnected" : "error",
+      this.model.transition({
+        type: "disconnected",
+        established,
         error: diagnostic(error),
       });
     });
@@ -368,22 +350,19 @@ export class ViewerController {
         const selected = this.model.getSnapshot().selectedTargetId;
         this.model.update({ targets });
         if (selected && !targets.some((t) => t.id === selected)) {
-          this.stopSelection();
-          this.model.update({
-            selectedTargetId: null,
-            status: "unavailable",
-            error: diagnostic(
+          this.loseSelection(
+            diagnostic(
               new CdpFault(
                 "target-unavailable",
                 "The selected target is no longer available in this scope.",
               ),
             ),
-          });
+          );
         } else if (!selected && !this.chosenOnce && targets[0]) {
           this.select(targets[0].id);
         } else if (!selected) {
-          this.model.update({
-            status: "unavailable",
+          this.model.transition({
+            type: "target-lost",
             error: diagnostic(
               new CdpFault(
                 "target-unavailable",
@@ -401,10 +380,8 @@ export class ViewerController {
             continue;
           }
           this.stopSelection();
-          this.model.update({
-            targets: Object.freeze([]),
-            selectedTargetId: null,
-            status: "unavailable",
+          this.model.transition({
+            type: "discovery-failed",
             error: diagnostic(error),
           });
         }
@@ -520,15 +497,19 @@ export class ViewerController {
 
   private streaming(selection: Selection): void {
     if (this.isCurrent(selection) && selection.painted && selection.inputReady)
-      this.model.update({ status: "streaming", error: null });
+      this.model.transition({ type: "streaming" });
+  }
+
+  private loseSelection(error: ViewerError | null): void {
+    this.stopSelection();
+    this.model.transition({ type: "target-lost", error });
   }
 
   private stopSelection(reason: InputStop = "target-replaced"): void {
     const old = this.selection;
     this.selection = null;
     this.sink.reset();
-    if (this.model.getSnapshot().navigation)
-      this.model.update({ navigation: null });
+    this.model.transition({ type: "stopped" });
     if (old) {
       old.input?.dispose(reason);
       old.deadline.abort();
@@ -545,7 +526,7 @@ export class ViewerController {
 
   private fail(error: unknown): void {
     this.stopSelection();
-    this.model.update({ status: "error", error: diagnostic(error) });
+    this.model.transition({ type: "failed", error: diagnostic(error) });
   }
 
   private readonly onEvent = (event: CdpEvent): void => {
@@ -593,14 +574,11 @@ export class ViewerController {
       if (typeof id !== "string") return;
       this.ownedSessions.delete(id);
       if (this.selection?.sessionId === id) {
-        this.stopSelection();
-        this.model.update({
-          selectedTargetId: null,
-          status: "unavailable",
-          error: diagnostic(
+        this.loseSelection(
+          diagnostic(
             new CdpFault("target-unavailable", "The selected target detached."),
           ),
-        });
+        );
       }
     } else if (
       [
@@ -614,14 +592,11 @@ export class ViewerController {
         event.method === "Target.targetDestroyed" &&
         params.targetId === this.model.getSnapshot().selectedTargetId
       ) {
-        this.stopSelection();
-        this.model.update({
-          selectedTargetId: null,
-          status: "unavailable",
-          error: diagnostic(
+        this.loseSelection(
+          diagnostic(
             new CdpFault("target-unavailable", "The selected target closed."),
           ),
-        });
+        );
       }
       this.refresh();
     }

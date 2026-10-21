@@ -284,7 +284,7 @@ it("forwards printable keys natively and commits composition once through text",
   const proxy = document.createElement("textarea");
   stage.append(canvas, proxy);
   document.body.append(stage);
-  adapters.push(new NativeInput(canvas, proxy, () => input));
+  adapters.push(new NativeInput(canvas, proxy, () => input, vi.fn()));
   proxy.focus();
   expect(
     proxy.dispatchEvent(
@@ -407,7 +407,7 @@ it("supersedes a pending hover move at the press position while retaining drag m
   stage.hasPointerCapture = vi.fn(() => false);
   stage.append(canvas, proxy);
   document.body.append(stage);
-  const adapter = new NativeInput(canvas, proxy, () => input);
+  const adapter = new NativeInput(canvas, proxy, () => input, vi.fn());
   adapters.push(adapter);
   const pointer = vi.spyOn(input, "pointer");
   const event = { bubbles: true, pointerType: "mouse", pointerId: 1 };
