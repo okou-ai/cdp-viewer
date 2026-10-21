@@ -431,6 +431,7 @@ async function tabSurfacePixels(viewer: Locator) {
   const sample = await viewer.evaluate((root) => {
     const row = root.querySelector(".cdpv-toolbar")!.getBoundingClientRect();
     const navigation = root.querySelector(".cdpv-navigation");
+    const strip = root.querySelector(".cdpv-tabs")!.getBoundingClientRect();
     const selected = root
       .querySelector('[role="tab"][aria-selected="true"]')!
       .parentElement!.getBoundingClientRect();
@@ -443,7 +444,10 @@ async function tabSurfacePixels(viewer: Locator) {
         selected.top + 4 - row.top,
       ],
       [
-        inactive.left + inactive.width / 2 - row.left,
+        (Math.max(inactive.left, strip.left) +
+          Math.min(inactive.right, strip.right)) /
+          2 -
+          row.left,
         inactive.top + 4 - row.top,
       ],
       [selected.left - 2 - row.left, selected.bottom - 1 - row.top],
@@ -513,58 +517,66 @@ for (const colorScheme of ["light", "dark"] as const) {
             "960px";
         });
         const tabs = viewer.getByRole("tab");
-        for (const selected of [0, 1]) {
-          await tabs.nth(selected).click();
-          await expect(tabs.nth(selected)).toHaveAttribute(
-            "aria-selected",
-            "true",
-          );
-          await expect(viewer).toHaveAttribute("data-status", "streaming");
-          await tabs.nth(selected).blur();
-          await page.mouse.move(0, 0);
-          const idle = await tabSurfacePixels(viewer);
-          expect(idle[0]).not.toEqual(idle[4]);
-          if (interactive)
+        for (const width of [960, 320]) {
+          await viewer.evaluate((root, value) => {
+            root.style.width = `${value}px`;
+          }, width);
+          for (const selected of [0, 1]) {
+            const prefix = `${width === 960 ? "" : "320-"}${selected}`;
+            await tabs.nth(selected).click();
+            await expect(tabs.nth(selected)).toHaveAttribute(
+              "aria-selected",
+              "true",
+            );
+            await expect(viewer).toHaveAttribute("data-status", "streaming");
+            await tabs.nth(selected).blur();
+            await page.mouse.move(0, 0);
+            const idle = await tabSurfacePixels(viewer);
+            expect(idle[0]).not.toEqual(idle[4]);
+            if (interactive)
+              expect(
+                idle[0],
+                "Selected surface connects into navigation",
+              ).toEqual(idle[5]);
+            expect(idle[1]).toEqual(idle[4]);
             expect(
-              idle[0],
-              "Selected surface connects into navigation",
-            ).toEqual(idle[5]);
-          expect(idle[1]).toEqual(idle[4]);
-          expect(
-            idle[2],
-            "Selected left curve remains visible at strip edges",
-          ).toEqual(idle[0]);
-          expect(
-            idle[3],
-            "Selected right curve remains visible at strip edges",
-          ).toEqual(idle[0]);
-          await viewer.screenshot({
-            path: info.outputPath(`${selected}-idle.png`),
-          });
-          await tabs.nth(selected).hover();
-          expect(await tabSurfacePixels(viewer)).toEqual(idle);
-          await tabs.nth(1 - selected).hover();
-          const hovered = await tabSurfacePixels(viewer);
-          expect(hovered[0]).toEqual(idle[0]);
-          expect(hovered[1]).not.toEqual(idle[1]);
-          expect(hovered[1]).not.toEqual(idle[0]);
-          expect(hovered[2]).toEqual(idle[2]);
-          expect(hovered[3]).toEqual(idle[3]);
-          await viewer.screenshot({
-            path: info.outputPath(`${selected}-inactive-hover.png`),
-          });
-          if (interactive) {
-            await viewer
-              .getByRole("button", {
-                name: `Close ${selected === 0 ? "Workspace" : "Product notes"}`,
-                exact: true,
-              })
-              .hover();
+              idle[2],
+              "Selected left curve remains visible at strip edges",
+            ).toEqual(idle[0]);
+            expect(
+              idle[3],
+              "Selected right curve remains visible at strip edges",
+            ).toEqual(idle[0]);
             await viewer.screenshot({
-              path: info.outputPath(`${selected}-close-hover.png`),
+              path: info.outputPath(`${prefix}-idle.png`),
             });
+            await tabs.nth(selected).hover();
+            expect(await tabSurfacePixels(viewer)).toEqual(idle);
+            if (width === 960) {
+              await tabs.nth(1 - selected).hover();
+              const hovered = await tabSurfacePixels(viewer);
+              expect(hovered[0]).toEqual(idle[0]);
+              expect(hovered[1]).not.toEqual(idle[1]);
+              expect(hovered[1]).not.toEqual(idle[0]);
+              expect(hovered[2]).toEqual(idle[2]);
+              expect(hovered[3]).toEqual(idle[3]);
+              await viewer.screenshot({
+                path: info.outputPath(`${prefix}-inactive-hover.png`),
+              });
+            }
+            if (interactive) {
+              await viewer
+                .getByRole("button", {
+                  name: `Close ${selected === 0 ? "Workspace" : "Product notes"}`,
+                  exact: true,
+                })
+                .hover();
+              await viewer.screenshot({
+                path: info.outputPath(`${prefix}-close-hover.png`),
+              });
+            }
+            await expectTabBarAlignment(viewer);
           }
-          await expectTabBarAlignment(viewer);
         }
       } finally {
         await backend.close();

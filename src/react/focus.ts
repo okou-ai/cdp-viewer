@@ -88,8 +88,10 @@ export class ToolbarFocus {
     if (!list) return;
     const item = tab.parentElement!.getBoundingClientRect();
     const strip = list.getBoundingClientRect();
-    if (item.left < strip.left) list.scrollLeft += item.left - strip.left;
-    else if (item.right > strip.right)
-      list.scrollLeft += item.right - strip.right;
+    const padding = getComputedStyle(list);
+    const left = strip.left + parseFloat(padding.paddingLeft);
+    const right = strip.right - parseFloat(padding.paddingRight);
+    if (item.left < left) list.scrollLeft += item.left - left;
+    else if (item.right > right) list.scrollLeft += item.right - right;
   }
 }
