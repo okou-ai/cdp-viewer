@@ -88,8 +88,7 @@
 }
 .cdpv-root .cdpv-tabs {
   min-height: var(--cdpv-tab-height);
-  scrollbar-width: thin;
-  scrollbar-color: var(--cdpv-border) transparent;
+  scrollbar-width: none;
   flex: 0 auto;
   gap: 3px;
   min-width: 0;

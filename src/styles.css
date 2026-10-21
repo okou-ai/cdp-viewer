@@ -84,8 +84,7 @@
   min-width: 0;
   gap: 3px;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--cdpv-border) transparent;
+  scrollbar-width: none;
 }
 .cdpv-root .cdpv-tab-item {
   display: flex;
