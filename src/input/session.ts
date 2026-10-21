@@ -11,43 +11,42 @@ import type { InputJob } from "./queue";
 
 type Mouse = Protocol.Input.DispatchMouseEventRequest;
 type Key = Protocol.Input.DispatchKeyEventRequest;
-interface FocusDetails {
-  editable: boolean;
-  range: boolean;
-  point: Point;
-}
-const focusedElement = `(() => {
-  let e = document.activeElement;
-  while (e?.shadowRoot?.activeElement) e = e.shadowRoot.activeElement;
-  return e;
+const caretPosition = `(() => {
+  let doc = document, ox = 0, oy = 0;
+  for (let depth = 0; depth < 8; depth++) {
+    let e = doc.activeElement;
+    while (e?.shadowRoot?.activeElement) e = e.shadowRoot.activeElement;
+    if (!e) return null;
+    if (['iframe','frame'].includes(e.localName)) {
+      let inner;
+      try { inner = e.contentDocument; } catch { return null; }
+      if (!inner) return null;
+      const rect = e.getBoundingClientRect();
+      ox += rect.left + e.clientLeft; oy += rect.top + e.clientTop;
+      doc = inner;
+      continue;
+    }
+    if (e.disabled || e.readOnly || !(e.isContentEditable || e.localName === 'textarea' ||
+        (e.localName === 'input' &&
+         ['text','search','email','url','tel','password','number'].includes(e.type)))) return null;
+    const rect = e.getBoundingClientRect();
+    let x = rect.left + 4, y = rect.top + Math.min(rect.height, 20);
+    const selection = doc.getSelection();
+    if (e.isContentEditable && selection?.rangeCount && e.contains(selection.anchorNode)) {
+      const range = selection.getRangeAt(0).cloneRange();
+      range.collapse(false);
+      const caret = range.getBoundingClientRect();
+      if (caret.height) { x = caret.left; y = caret.bottom; }
+    }
+    const viewport = window.visualViewport;
+    return { x: x + ox, y: y + oy,
+      width: viewport?.width ?? innerWidth, height: viewport?.height ?? innerHeight,
+      offsetX: viewport?.offsetLeft ?? 0, offsetY: viewport?.offsetTop ?? 0 };
+  }
+  return null;
 })()`;
 
-const focusDetails = `function () {
-  let active = document.activeElement;
-  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-  if (active !== this || !this.isConnected) return null;
-  const editable = !this.disabled && !this.readOnly &&
-    (this.isContentEditable || this.localName === 'textarea' ||
-      (this.localName === 'input' &&
-       ['text','search','email','url','tel','password','number'].includes(this.type)));
-  const rect = this.getBoundingClientRect();
-  let x = rect.left + 4, y = rect.top + Math.min(rect.height, 20);
-  const selection = getSelection();
-  if (this.isContentEditable && selection?.rangeCount &&
-      this.contains(selection.anchorNode)) {
-    const range = selection.getRangeAt(0).cloneRange();
-    range.collapse(false);
-    const caret = range.getBoundingClientRect();
-    if (caret.height) { x = caret.left; y = caret.bottom; }
-  }
-  const viewport = window.visualViewport;
-  return { editable, range: !!this.isContentEditable,
-    supported: !['iframe','frame'].includes(this.localName), x, y,
-    width: viewport?.width ?? innerWidth, height: viewport?.height ?? innerHeight,
-    offsetX: viewport?.offsetLeft ?? 0, offsetY: viewport?.offsetTop ?? 0 };
-}`;
-
-/** One selected session owns a bounded, non-retrying input queue. */
+/** Native focus belongs to Chromium; each selected session owns its input work. */
 export class InputSession {
   private viewport: Viewport | null = null;
   private viewportVersion = 0;
@@ -97,24 +96,11 @@ export class InputSession {
   }
 
   focus(): void {
-    this.queue.enqueue(async (job) => {
-      await this.readFocus(job);
-      if (!this.navigationKnown) this.updateHistory();
-    });
+    this.refreshCaret(this.queue.capture());
   }
 
   blur(): void {
     this.transition("blur");
-  }
-
-  private beginFocus(job: InputJob): void {
-    this.invalidateCaret();
-    this.releaseObject(this.lifecycle.beginFocus(job.owner));
-  }
-
-  private releaseObject(objectId: string | null): void {
-    if (objectId)
-      this.client.notify("Runtime.releaseObject", { objectId }, this.sessionId);
   }
 
   private transition(reason: InputTransition): void {
@@ -123,7 +109,6 @@ export class InputSession {
     if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
     this.invalidateCaret();
     this.queue.clear();
-    this.releaseObject(cleanup.objectId);
     for (const key of cleanup.keys)
       this.client.notify(
         "Input.dispatchKeyEvent",
@@ -265,23 +250,33 @@ export class InputSession {
         x: point.x * viewport.width,
         y: point.y * viewport.height,
       };
-      if (type === "mousePressed") this.beginFocus(job);
+      if (type === "mousePressed") this.invalidateCaret();
       this.lifecycle.pointer(
         job.owner,
         pointInViewport,
         type === "mousePressed" ? details.button : undefined,
       );
-      await job.request("Input.dispatchMouseEvent", {
-        type,
-        ...pointInViewport,
-        ...details,
-        ...(job.wheel
-          ? { deltaX: job.wheel.deltaX, deltaY: job.wheel.deltaY }
-          : {}),
-      });
+      const button = type === "mouseReleased" ? details.button : undefined;
+      const pressed = button
+        ? this.lifecycle.pressedButton(job.owner, button)
+        : undefined;
+      this.setError(null);
+      job.dispatch(
+        "Input.dispatchMouseEvent",
+        {
+          type,
+          ...pointInViewport,
+          ...details,
+          ...(job.wheel
+            ? { deltaX: job.wheel.deltaX, deltaY: job.wheel.deltaY }
+            : {}),
+        },
+        () => {
+          if (button) this.lifecycle.releaseButton(job.owner, button, pressed);
+        },
+      );
       if (type === "mouseReleased" && details.button) {
-        this.lifecycle.releaseButton(job.owner, details.button);
-        await this.readFocus(job);
+        this.refreshCaret(job);
         if (!this.navigationKnown) this.updateHistory();
       }
     };
@@ -301,47 +296,28 @@ export class InputSession {
 
   text(text: string, owner: InputOwner = this.lifecycle.owner): void {
     if (!this.lifecycle.owns(owner)) return;
-    let details: FocusDetails | null = null;
-    this.queue.text(
-      text,
-      async (job) => {
-        if (!details?.editable)
-          throw new CdpFault(
-            "input",
-            "Focus a supported remote text control before typing.",
-          );
-        this.setError(null);
-        await job.request("Input.insertText", { text: job.text! });
-        if (details.range) this.refreshCaret(job);
-      },
-      async (job) => {
-        details = await this.readFocusDetails(job);
-      },
-    );
+    this.queue.text(text, (job) => {
+      this.setError(null);
+      job.dispatch("Input.insertText", { text: job.text! });
+      this.refreshCaret(job);
+    });
   }
 
   key(key: Key): void {
-    this.queue.enqueue(
-      async (job) => {
-        this.setError(null);
-        if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
-        await job.request("Input.dispatchKeyEvent", key);
-        // Keep ownership until release is confirmed so failure/blur can still
-        // perform the original session's best-effort release cleanup.
-        if (key.type === "keyUp") this.lifecycle.releaseKey(job.owner, key);
-        if (key.key === "Tab" && key.type !== "keyUp")
-          await this.readFocus(job);
-        else if (
-          key.type !== "keyUp" &&
-          !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
-        )
-          this.refreshCaret(job);
-      },
-      false,
-      async (job) => {
-        await this.readFocusDetails(job);
-      },
-    );
+    this.queue.enqueue((job) => {
+      this.setError(null);
+      const pressed = this.lifecycle.pressedKey(job.owner, key);
+      if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
+      job.dispatch("Input.dispatchKeyEvent", key, () => {
+        if (key.type === "keyUp")
+          this.lifecycle.releaseKey(job.owner, key, pressed);
+      });
+      if (
+        key.type !== "keyUp" &&
+        !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
+      )
+        this.refreshCaret(job);
+    });
   }
 
   navigate(action: "back" | "forward" | "reload" | { url: string }): void {
@@ -362,7 +338,7 @@ export class InputSession {
       }
     }
     this.transition("navigation-started");
-    this.queue.enqueue(async (job) => {
+    this.queue.barrier(async (job) => {
       if (action === "reload") await job.request("Page.reload", undefined);
       else if (action === "back" || action === "forward") {
         const history = await job.request(
@@ -386,30 +362,15 @@ export class InputSession {
     });
   }
 
-  private async verifyFocus(job: InputJob) {
-    const detail = await this.readFocusDetails(job);
-    this.setError(null);
-    return detail;
-  }
-
-  private async readFocusDetails(job: InputJob): Promise<FocusDetails> {
-    const objectId = this.lifecycle.focusedObject(job.owner);
-    if (!objectId)
-      throw new CdpFault(
-        "input",
-        "Click the remote page to establish input focus.",
-      );
-    const result = await job.request("Runtime.callFunctionOn", {
-      objectId,
-      functionDeclaration: focusDetails,
+  private async readCaret(job: InputJob): Promise<Point | null> {
+    const result = await job.request("Runtime.evaluate", {
+      expression: caretPosition,
       returnByValue: true,
     });
     const value: unknown = result.result.value;
     if (
       result.exceptionDetails ||
       !isRecord(value) ||
-      !value.supported ||
-      typeof value.editable !== "boolean" ||
       typeof value.x !== "number" ||
       typeof value.y !== "number" ||
       typeof value.width !== "number" ||
@@ -417,39 +378,21 @@ export class InputSession {
       typeof value.height !== "number" ||
       value.height <= 0 ||
       typeof value.offsetX !== "number" ||
-      typeof value.offsetY !== "number"
-    ) {
-      throw new CdpFault(
-        "input",
-        "Remote focus changed or the focused frame is unsupported. Click a supported control again.",
-      );
-    }
+      typeof value.offsetY !== "number" ||
+      ![
+        value.x,
+        value.y,
+        value.width,
+        value.height,
+        value.offsetX,
+        value.offsetY,
+      ].every(Number.isFinite)
+    )
+      return null;
     return {
-      editable: value.editable,
-      range: value.range === true,
-      point: {
-        x: Math.max(0, Math.min(1, (value.x - value.offsetX) / value.width)),
-        y: Math.max(0, Math.min(1, (value.y - value.offsetY) / value.height)),
-      },
+      x: Math.max(0, Math.min(1, (value.x - value.offsetX) / value.width)),
+      y: Math.max(0, Math.min(1, (value.y - value.offsetY) / value.height)),
     };
-  }
-
-  private async readFocus(job: InputJob): Promise<void> {
-    this.beginFocus(job);
-    const response = await job.request("Runtime.evaluate", {
-      expression: focusedElement,
-      objectGroup: "cdpv-input",
-      returnByValue: false,
-    });
-    if (response.exceptionDetails || !response.result.objectId) return;
-    this.lifecycle.acceptFocus(job.owner, response.result.objectId);
-    await this.readCaret(job);
-  }
-
-  private async readCaret(job: InputJob): Promise<void> {
-    if (!this.lifecycle.focusedObject(job.owner)) return;
-    const detail = await this.verifyFocus(job);
-    if (detail.editable) this.caret(detail.point);
   }
 
   private invalidateCaret(): void {
@@ -472,20 +415,17 @@ export class InputSession {
       while (this.caretJob && this.available) {
         const job = this.caretJob;
         const version = this.caretVersion;
-        const objectId = this.lifecycle.focusedObject(job.owner);
         this.caretJob = null;
-        if (!objectId) continue;
         try {
-          const detail = await this.readFocusDetails(job);
+          const point = await this.readCaret(job);
           if (
             version === this.caretVersion &&
-            objectId === this.lifecycle.focusedObject(job.owner) &&
-            detail.editable
+            this.lifecycle.owns(job.owner) &&
+            point
           )
-            this.caret(detail.point);
+            this.caret(point);
         } catch {
-          // Optional geometry never authorizes a write. The next write still
-          // verifies focus; stale/failed reads cannot cancel or clear its error.
+          // Optional metadata never authorizes input or changes its error state.
         }
       }
     } finally {

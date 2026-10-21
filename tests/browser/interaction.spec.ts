@@ -123,7 +123,7 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
-test("batches queued native wheel distance while a real dispatch response is held", async ({
+test("forwards new wheel distance while an earlier dispatch response is held", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -188,10 +188,11 @@ test("batches queued native wheel distance while a real dispatch response is hel
     await wheel(1);
     await expect.poll(() => typeof release).toBe("function");
     await wheel(20);
-    expect(wheels).toEqual([12]);
-    release!();
     await expect(remote.locator("body")).toHaveAttribute("data-wheel", "252");
-    expect(wheels).toEqual([12, 240]);
+    expect(wheels.reduce((total, delta) => total + delta, 0)).toBe(252);
+    expect(wheels[0]).toBe(12);
+    expect(wheels.length).toBeGreaterThan(1);
+    release!();
   } finally {
     await backend.close();
   }
@@ -410,41 +411,34 @@ test("inactive input leaves local Tab navigation usable and resumes remote typin
 });
 
 for (const scoped of [false, true]) {
-  test(`native text collects during a delayed focus guard (${scoped ? "window scoped" : "unscoped"})`, async ({
+  test(`native text proceeds while optional caret metadata is held (${scoped ? "window scoped" : "unscoped"})`, async ({
     page,
   }, info) => {
     const backend = await launchBackend(
       info.outputPath("backend"),
       server.origin,
     );
-    let releaseGuard: (() => void) | undefined;
+    let releaseMetadata: (() => void) | undefined;
     try {
       const { remote, windowId, targetId } = await editor(backend);
       const writes: string[] = [];
       let armed = false;
-      let guardId: number | undefined;
-      let focusReady!: () => void;
-      let guardHeld!: () => void;
-      const initialFocus = new Promise<void>((resolve) => {
-        focusReady = resolve;
-      });
+      let metadataId: number | undefined;
+      let metadataHeld!: () => void;
       const held = new Promise<void>((resolve) => {
-        guardHeld = resolve;
+        metadataHeld = resolve;
       });
       await page.routeWebSocket(backend.endpoint, (socket) => {
         const upstream = socket.connectToServer();
-        const focusRequests = new Set<number>();
         socket.onMessage((message) => {
           const command = JSON.parse(String(message)) as {
             id: number;
             method: string;
             params?: { text?: string };
           };
-          if (command.method === "Runtime.callFunctionOn") {
-            if (armed) {
-              armed = false;
-              guardId = command.id;
-            } else focusRequests.add(command.id);
+          if (armed && command.method === "Runtime.evaluate") {
+            armed = false;
+            metadataId = command.id;
           }
           if (
             command.method === "Input.insertText" &&
@@ -455,15 +449,11 @@ for (const scoped of [false, true]) {
         });
         upstream.onMessage((message) => {
           const response = JSON.parse(String(message)) as { id?: number };
-          if (guardId !== undefined && response.id === guardId) {
-            releaseGuard = () => socket.send(message);
-            guardId = undefined;
-            guardHeld();
-          } else {
-            socket.send(message);
-            if (response.id !== undefined && focusRequests.has(response.id))
-              focusReady();
-          }
+          if (metadataId !== undefined && response.id === metadataId) {
+            releaseMetadata = () => socket.send(message);
+            metadataId = undefined;
+            metadataHeld();
+          } else socket.send(message);
         });
       });
       const view = await host(page, backend, scoped ? windowId : undefined);
@@ -471,21 +461,216 @@ for (const scoped of [false, true]) {
         await view.getByRole("combobox").selectOption(targetId);
         await expect(view).toHaveAttribute("data-status", "streaming");
       }
-      await clickRemote(page, view, remote, "#plain");
-      await initialFocus;
       armed = true;
-      await page.keyboard.insertText("a");
+      await clickRemote(page, view, remote, "#plain");
       await held;
+      await page.keyboard.insertText("a");
       await page.keyboard.insertText("bc");
-      releaseGuard!();
-      releaseGuard = undefined;
       await expect(remote.locator("#plain")).toHaveValue("abc");
-      expect(writes).toEqual(["abc"]);
+      expect(writes.join("")).toBe("abc");
+      releaseMetadata!();
+      releaseMetadata = undefined;
       await page.keyboard.press("Backspace");
-      await page.keyboard.insertText("Z");
+      await page.keyboard.type("Z");
       await expect(remote.locator("#plain")).toHaveValue("abZ");
     } finally {
-      releaseGuard?.();
+      releaseMetadata?.();
+      await backend.close();
+    }
+  });
+}
+
+test("native keyboard input follows automatic focus handoff and replaced controls", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.evaluate(() => {
+      const first = document.querySelector<HTMLInputElement>("#plain")!;
+      const second = document.createElement("input");
+      second.id = "next-code";
+      first.maxLength = 1;
+      first.after(second);
+      first.addEventListener("input", () => second.focus());
+    });
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.type("12");
+    await expect(remote.locator("#plain")).toHaveValue("1");
+    await expect(remote.locator("#next-code")).toHaveValue("2");
+    await remote.evaluate(() => {
+      const control = document.querySelector<HTMLInputElement>("#next-code")!;
+      control.value = "";
+      control.addEventListener(
+        "input",
+        () => {
+          const replacement = control.cloneNode() as HTMLInputElement;
+          replacement.value = control.value;
+          control.replaceWith(replacement);
+          replacement.focus();
+          replacement.setSelectionRange(
+            replacement.value.length,
+            replacement.value.length,
+          );
+        },
+        { once: true },
+      );
+    });
+    await clickRemote(page, view, remote, "#next-code");
+    await page.keyboard.type("ab");
+    await expect(remote.locator("#next-code")).toHaveValue("ab");
+    await expect(view.getByRole("alert")).toHaveCount(0);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("native text commits retain focus handoff across a delayed window check", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const releases: (() => void)[] = [];
+  let armed = false;
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.evaluate(() => {
+      const first = document.querySelector<HTMLInputElement>("#plain")!;
+      const second = document.createElement("input");
+      second.id = "next-code";
+      first.maxLength = 1;
+      first.after(second);
+      first.addEventListener("input", () => second.focus());
+    });
+    const writes: string[] = [];
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      const windows = new Set<number>();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+          params?: { text?: string };
+        };
+        if (armed && command.method === "Browser.getWindowForTarget")
+          windows.add(command.id);
+        if (command.method === "Input.insertText")
+          writes.push(command.params?.text ?? "");
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        const windowReply =
+          response.id !== undefined && windows.delete(response.id);
+        if (armed && windowReply) releases.push(() => socket.send(message));
+        else socket.send(message);
+      });
+    });
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    armed = true;
+    await page.keyboard.insertText("1");
+    await expect.poll(() => releases.length).toBeGreaterThan(0);
+    await page.keyboard.insertText("2");
+    expect(writes).toEqual([]);
+    armed = false;
+    for (const release of releases.splice(0)) release();
+    await expect(remote.locator("#plain")).toHaveValue("1");
+    await expect(remote.locator("#next-code")).toHaveValue("2");
+    expect(writes).toEqual(["1", "2"]);
+  } finally {
+    armed = false;
+    for (const release of releases) release();
+    await backend.close();
+  }
+});
+
+for (const crossOrigin of [false, true]) {
+  test(`native key and text input reach ${crossOrigin ? "cross-origin OOPIF" : "same-origin iframe"} controls`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      const { remote, windowId } = await editor(backend);
+      const frameUrl = "http://frame.fixture.invalid/fields";
+      const html = `<!doctype html><style>
+        input, textarea, [contenteditable] {display:block; width:260px; margin:10px; font:20px monospace}
+        input {height:30px} textarea {height:50px} [contenteditable] {min-height:40px}
+        </style><input aria-label="Frame input"><textarea aria-label="Frame textarea"></textarea>
+        <div role="textbox" aria-label="Frame rich editor" contenteditable="true" tabindex="0">Rich</div>`;
+      if (crossOrigin)
+        await backend.context.route(frameUrl, (route) =>
+          route.fulfill({ contentType: "text/html", body: html }),
+        );
+      await remote.locator("iframe").evaluate(
+        (frame: HTMLIFrameElement, settings) => {
+          frame.style.cssText =
+            "position:absolute;left:40px;top:150px;width:400px;height:300px";
+          if (settings.crossOrigin) {
+            frame.removeAttribute("srcdoc");
+            frame.src = settings.url;
+          } else frame.srcdoc = settings.html;
+        },
+        { crossOrigin, url: frameUrl, html },
+      );
+      const frame = remote.frameLocator("iframe");
+      const field = frame.getByRole("textbox", {
+        name: "Frame input",
+        exact: true,
+      });
+      await expect(field).toBeVisible();
+      if (crossOrigin)
+        await expect
+          .poll(async () =>
+            (await backend.session.send("Target.getTargets")).targetInfos.some(
+              (target) => target.type === "iframe" && target.url === frameUrl,
+            ),
+          )
+          .toBe(true);
+      const view = await host(page, backend, windowId);
+      const box = await field.boundingBox();
+      if (!box) throw new Error("Owned frame input bounds missing.");
+      const position = await imagePosition(
+        view,
+        box.x + 20,
+        box.y + 15,
+        remote,
+      );
+      await page.mouse.click(position.x, position.y);
+      await expect(field).toBeFocused();
+      await page.keyboard.type("ab");
+      await page.keyboard.insertText("中🙂");
+      await expect(field).toHaveValue("ab中🙂");
+      await page.keyboard.press("Tab");
+      const multiline = frame.getByRole("textbox", {
+        name: "Frame textarea",
+        exact: true,
+      });
+      await expect(multiline).toBeFocused();
+      await page.keyboard.type("line");
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("two");
+      await expect(multiline).toHaveValue("line\ntwo");
+      await page.keyboard.press("Tab");
+      const rich = frame.getByRole("textbox", {
+        name: "Frame rich editor",
+        exact: true,
+      });
+      await expect(rich).toBeFocused();
+      await page.keyboard.press("Control+a");
+      await page.keyboard.insertText("富文本🙂");
+      await expect(rich).toHaveText("富文本🙂");
+      await expect(view.getByRole("alert")).toHaveCount(0);
+    } finally {
       await backend.close();
     }
   });
@@ -913,7 +1098,7 @@ test("interaction mode changes discard an unfinished address and resume native i
   }
 });
 
-test("blur, target replacement and unsupported frame focus discard local composition", async ({
+test("blur and target replacement discard composition while frame input stays native", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -998,11 +1183,9 @@ test("blur, target replacement and unsupported frame focus discard local composi
       second.remote,
     );
     await page.mouse.click(point.x, point.y);
-    await page.keyboard.type("blocked");
-    await expect(view.getByRole("alert")).toContainText(
-      "focused frame is unsupported",
-    );
-    await expect(frame).toHaveValue("");
+    await page.keyboard.type("frame input");
+    await expect(view.getByRole("alert")).toHaveCount(0);
+    await expect(frame).toHaveValue("frame input");
     await expect(second.remote.locator("#plain")).toHaveValue("new owner");
     await clickRemote(page, view, second.remote, "button[type=submit]");
     await expect(view.getByRole("alert")).toHaveCount(0);

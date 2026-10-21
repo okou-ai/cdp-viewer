@@ -35,13 +35,18 @@ owns; disposing one instance must not affect a sibling or its host.
 
 ## Concurrency and bounded work
 
-Serialize writes that act on the same ordered external resource. Independent
+Order preparation and sends that act on the same external resource. Independent
 read-only preparation may overlap, but join it before any write that depends on
-its results. Revalidate ownership after the join.
+its results. Revalidate ownership after the join. Wait for acknowledgements only
+at boundaries that depend on completion; track other replies separately from
+the ordered send lane.
 
-Bound pending work and make overflow behavior explicit. Coalescing must preserve
-ordering and observable intent. A dispatched payload is immutable; later work
-must not change a request that is already awaiting acknowledgement.
+Bound queued and in-flight work together and make overflow behavior explicit.
+Match release acknowledgements to their original acquisition generation so a
+late reply cannot clear a newer acquisition of the same external resource.
+Coalescing must preserve ordering and observable intent. A dispatched payload is
+immutable; later work must not change a request that is already awaiting
+acknowledgement.
 
 Optional background work must have a captured owner, bounded concurrency and a
 way to discard stale results. It must not authorize a write or overwrite newer

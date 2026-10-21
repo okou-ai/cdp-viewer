@@ -37,16 +37,12 @@ const policy = {
   { release: boolean; documentLost: boolean; terminal: boolean }
 >;
 
-type Focus =
-  { kind: "idle" } | { kind: "pending" } | { kind: "active"; objectId: string };
-
 /** State and cleanup decisions only: no DOM, sockets, callbacks or timers. */
 export class InputLifecycle {
   private current: InputOwner;
   private closed = false;
-  private focus: Focus = { kind: "idle" };
   private readonly keys = new Map<string, Key>();
-  private readonly buttons = new Set<Button>();
+  private readonly buttons = new Map<Button, Point>();
   private point: Point = { x: 0, y: 0 };
 
   constructor(sessionId: string) {
@@ -65,40 +61,38 @@ export class InputLifecycle {
     return !this.closed && owner === this.current;
   }
 
-  beginFocus(owner: InputOwner): string | null {
-    if (!this.owns(owner)) return null;
-    const previous = this.focus.kind === "active" ? this.focus.objectId : null;
-    this.focus = { kind: "pending" };
-    return previous;
-  }
-
-  acceptFocus(owner: InputOwner, objectId: string): void {
-    if (this.owns(owner) && this.focus.kind === "pending")
-      this.focus = { kind: "active", objectId };
-  }
-
-  focusedObject(owner: InputOwner): string | null {
-    return this.owns(owner) && this.focus.kind === "active"
-      ? this.focus.objectId
-      : null;
-  }
-
   pressKey(owner: InputOwner, key: Key): void {
-    if (this.owns(owner)) this.keys.set(key.code ?? key.key ?? "", key);
+    if (this.owns(owner)) this.keys.set(key.code || key.key || "", { ...key });
   }
 
-  releaseKey(owner: InputOwner, key: Key): void {
-    if (this.owns(owner)) this.keys.delete(key.code ?? key.key ?? "");
+  pressedKey(owner: InputOwner, key: Key): Key | undefined {
+    return this.owns(owner)
+      ? this.keys.get(key.code || key.key || "")
+      : undefined;
+  }
+
+  releaseKey(owner: InputOwner, key: Key, pressed: Key | undefined): void {
+    const id = key.code || key.key || "";
+    if (this.owns(owner) && this.keys.get(id) === pressed) this.keys.delete(id);
   }
 
   pointer(owner: InputOwner, point: Point, pressed?: Button): void {
     if (!this.owns(owner)) return;
     this.point = point;
-    if (pressed) this.buttons.add(pressed);
+    if (pressed) this.buttons.set(pressed, { ...point });
   }
 
-  releaseButton(owner: InputOwner, button: Button): void {
-    if (this.owns(owner)) this.buttons.delete(button);
+  pressedButton(owner: InputOwner, button: Button): Point | undefined {
+    return this.owns(owner) ? this.buttons.get(button) : undefined;
+  }
+
+  releaseButton(
+    owner: InputOwner,
+    button: Button,
+    pressed: Point | undefined,
+  ): void {
+    if (this.owns(owner) && this.buttons.get(button) === pressed)
+      this.buttons.delete(button);
   }
 
   transition(reason: InputTransition) {
@@ -106,9 +100,8 @@ export class InputLifecycle {
     const rule = policy[reason];
     const cleanup = {
       owner: this.current,
-      objectId: this.focus.kind === "active" ? this.focus.objectId : null,
       keys: rule.release ? [...this.keys.values()] : [],
-      buttons: rule.release ? [...this.buttons] : [],
+      buttons: rule.release ? [...this.buttons.keys()] : [],
       point: this.point,
     };
     // Publish the new owner before running any effects, including DOM blur.
@@ -118,7 +111,6 @@ export class InputLifecycle {
       focus: this.current.focus + 1,
     });
     this.closed = rule.terminal;
-    this.focus = { kind: "idle" };
     this.keys.clear();
     this.buttons.clear();
     return cleanup;

@@ -11,27 +11,37 @@ interface Wheel {
   deltaY: number;
 }
 
+type InputMethod =
+  "Input.dispatchKeyEvent" | "Input.dispatchMouseEvent" | "Input.insertText";
+
 export interface InputJob {
   readonly owner: InputOwner;
-  text?: string;
+  readonly text?: string;
   wheel?: Wheel;
   request<M extends keyof ProtocolMapping.Commands>(
     method: M,
     params: ProtocolMapping.Commands[M]["paramsType"][0],
   ): Promise<ProtocolMapping.Commands[M]["returnType"]>;
+  dispatch<M extends InputMethod>(
+    method: M,
+    params: ProtocolMapping.Commands[M]["paramsType"][0],
+    acknowledged?: () => void,
+  ): void;
 }
 
 interface QueuedJob extends InputJob {
-  run: (job: InputJob) => Promise<void>;
+  run: (job: InputJob) => void | Promise<void>;
   move: boolean;
   prepare?: (job: InputJob) => Promise<void>;
+  barrier?: boolean;
 }
 
-/** One serial lane; each request closes over its job's immutable owner. */
+/** Preparation and sends are ordered; bounded acknowledgements settle separately. */
 export class InputQueue {
   private readonly jobs: QueuedJob[] = [];
+  private readonly pending = new Set<Promise<void>>();
   private running = false;
-  private collecting: QueuedJob | null = null;
+  private active: QueuedJob | null = null;
 
   constructor(
     private readonly client: CdpClient,
@@ -42,27 +52,38 @@ export class InputQueue {
 
   clear(): void {
     this.jobs.length = 0;
-    this.collecting = null;
   }
 
-  text(
-    text: string,
-    run: QueuedJob["run"],
-    prepare?: QueuedJob["prepare"],
-  ): void {
+  capture(): InputJob {
+    const owner = this.lifecycle.owner;
+    return {
+      owner,
+      request: (method, params) => this.request(owner, method, params),
+      dispatch: (method, params, acknowledged) => {
+        if (!this.lifecycle.owns(owner)) return;
+        if (this.pending.size >= 64) {
+          this.failed();
+          return;
+        }
+        const pending = this.request(owner, method, params)
+          .then(() => acknowledged?.())
+          .catch((error: unknown) => {
+            if (this.lifecycle.owns(owner)) this.failed(error);
+          })
+          .finally(() => this.pending.delete(pending));
+        this.pending.add(pending);
+      },
+    };
+  }
+
+  text(text: string, run: QueuedJob["run"]): void {
     if (!this.lifecycle.available || !text) return;
     if (text.length > 64 * 1024) {
       this.failed();
       return;
     }
-    const tail = this.jobs.at(-1) ?? this.collecting;
-    if (
-      tail?.text !== undefined &&
-      this.lifecycle.owns(tail.owner) &&
-      tail.text.length + text.length <= 64 * 1024
-    ) {
-      tail.text += text;
-    } else this.add(run, { text, ...(prepare ? { prepare } : {}) });
+    // Each native commit may change the page's focus before the next commit.
+    this.add(run, { text });
   }
 
   wheel(
@@ -109,6 +130,10 @@ export class InputQueue {
     this.add(run, { move, ...(prepare ? { prepare } : {}) });
   }
 
+  barrier(run: QueuedJob["run"]): void {
+    this.add(run, { barrier: true });
+  }
+
   private add(
     run: QueuedJob["run"],
     options: {
@@ -116,28 +141,21 @@ export class InputQueue {
       text?: string;
       wheel?: Wheel;
       prepare?: NonNullable<QueuedJob["prepare"]>;
+      barrier?: boolean;
     },
   ): void {
     if (!this.lifecycle.available) return;
     const { move = false, ...rest } = options;
     if (move && this.jobs.at(-1)?.move) this.jobs.pop();
-    if (this.jobs.length >= 64) {
+    if (this.jobs.length + this.pending.size + (this.active ? 1 : 0) >= 64) {
       this.failed();
       return;
     }
-    const owner = this.lifecycle.owner;
     const job: QueuedJob = {
-      owner,
+      ...this.capture(),
       run,
       move,
       ...rest,
-      request: (method, params) => {
-        // Arguments capture the payload now. Later text belongs to a new job,
-        // even while this write is awaiting acknowledgement.
-        if (method === "Input.insertText" && this.collecting === job)
-          this.collecting = null;
-        return this.request(owner, method, params);
-      },
     };
     this.jobs.push(job);
     if (!this.running)
@@ -199,8 +217,10 @@ export class InputQueue {
       while (this.jobs.length && this.lifecycle.available) {
         const job = this.jobs.shift()!;
         if (!this.lifecycle.owns(job.owner)) continue;
-        this.collecting = job.text === undefined ? null : job;
+        this.active = job;
         try {
+          if (job.barrier) await Promise.allSettled(this.pending);
+          if (!this.lifecycle.owns(job.owner)) continue;
           // Read-only preparation may overlap scope validation. Only this
           // joined boundary permits the ordered job's state changes/writes.
           const [member] = await Promise.all([
@@ -211,7 +231,7 @@ export class InputQueue {
         } catch (error) {
           if (this.lifecycle.owns(job.owner)) this.failed(error);
         } finally {
-          if (this.collecting === job) this.collecting = null;
+          this.active = null;
         }
       }
     } finally {
