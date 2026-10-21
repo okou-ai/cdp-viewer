@@ -244,14 +244,28 @@ test("delayed tab creation preserves a later host input focus", async ({
     server.origin,
   );
   let release: (() => void) | undefined;
+  let heldTabWorlds = 0;
+  let forwardedIconWorlds = 0;
   await page.routeWebSocket(backend.endpoint, (socket) => {
     const upstream = socket.connectToServer();
     socket.onMessage((message) => {
-      const command = JSON.parse(String(message)) as { method: string };
-      if (command.method === "Page.createIsolatedWorld") {
+      const command = JSON.parse(String(message)) as {
+        method: string;
+        params?: { worldName?: string };
+      };
+      if (
+        command.method === "Page.createIsolatedWorld" &&
+        command.params?.worldName === "cdp-viewer-tabs"
+      ) {
+        heldTabWorlds++;
         release = () => upstream.send(message);
         return;
       }
+      if (
+        command.method === "Page.createIsolatedWorld" &&
+        command.params?.worldName === "cdp-viewer-favicons"
+      )
+        forwardedIconWorlds++;
       upstream.send(message);
     });
   });
@@ -267,6 +281,8 @@ test("delayed tab creation preserves a later host input focus", async ({
     const create = viewer.getByRole("button", { name: "New tab", exact: true });
     await create.click();
     await expect.poll(() => typeof release).toBe("function");
+    await expect.poll(() => forwardedIconWorlds).toBeGreaterThan(0);
+    expect(heldTabWorlds).toBe(1);
     const input = page.getByLabel("Host input", { exact: true });
     await input.fill("Keep typing here");
     release!();
@@ -700,6 +716,7 @@ for (const nativeScrollbars of [false, true]) {
               const command = JSON.parse(String(message)) as {
                 id: number;
                 method: string;
+                params?: { worldName?: string };
               };
               if (empty && command.method === "Target.getTargets") {
                 socket.send(
@@ -710,7 +727,11 @@ for (const nativeScrollbars of [false, true]) {
                 );
                 return;
               }
-              if (holdCreate && command.method === "Page.createIsolatedWorld") {
+              if (
+                holdCreate &&
+                command.method === "Page.createIsolatedWorld" &&
+                command.params?.worldName === "cdp-viewer-tabs"
+              ) {
                 releaseCreate = () => upstream.send(message);
                 return;
               }
@@ -899,8 +920,13 @@ for (const colorScheme of ["light", "dark"] as const) {
         const command = JSON.parse(String(message)) as {
           id: number;
           method: string;
+          params?: { worldName?: string };
         };
-        if (holdCreate && command.method === "Page.createIsolatedWorld") {
+        if (
+          holdCreate &&
+          command.method === "Page.createIsolatedWorld" &&
+          command.params?.worldName === "cdp-viewer-tabs"
+        ) {
           release = () => upstream.send(message);
           return;
         }
