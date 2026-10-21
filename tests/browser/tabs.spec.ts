@@ -225,6 +225,7 @@ for (const colorScheme of ["light", "dark"] as const) {
             "960px";
           const root = document.querySelector<HTMLElement>(".cdpv-root")!;
           root.style.height = "600px";
+          root.style.setProperty("--cdpv-radius", "12px");
         });
       };
       await arrange();

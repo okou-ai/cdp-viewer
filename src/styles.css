@@ -6,7 +6,7 @@
 
 .cdpv-root {
   --cdpv-background: #ffffff;
-  --cdpv-tab-background: var(--cdpv-background);
+  --cdpv-tab-background: #dee1e6;
   --cdpv-address-background: #f1f3f4;
   --cdpv-stage-background: #f1f3f4;
   --cdpv-foreground: #202124;
@@ -16,7 +16,7 @@
   --cdpv-on-accent: #ffffff;
   --cdpv-error: #8a3500;
   --cdpv-error-background: #fff4e5;
-  --cdpv-radius: 6px;
+  --cdpv-radius: 10px;
   box-sizing: border-box;
   min-width: 0;
   height: 28rem;
@@ -24,7 +24,7 @@
   overflow: hidden;
   color: var(--cdpv-foreground);
   background: var(--cdpv-background);
-  border: 0;
+  border: 1px solid var(--cdpv-border);
   border-radius: var(--cdpv-radius);
   font:
     14px/1.45 system-ui,
@@ -38,6 +38,7 @@
 @supports (color: light-dark(white, black)) {
   .cdpv-root {
     --cdpv-background: light-dark(#ffffff, #35363a);
+    --cdpv-tab-background: light-dark(#dee1e6, #202124);
     --cdpv-address-background: light-dark(#f1f3f4, #202124);
     --cdpv-stage-background: light-dark(#f1f3f4, #202124);
     --cdpv-foreground: light-dark(#202124, #e8eaed);
@@ -71,7 +72,7 @@
   gap: 4px;
   flex: none;
   min-width: 0;
-  padding: 4px 8px 0;
+  padding: 6px 8px 0;
   background: var(--cdpv-tab-background);
 }
 
@@ -79,7 +80,7 @@
   display: flex;
   flex: 0 1 auto;
   min-width: 0;
-  gap: 0;
+  gap: 3px;
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--cdpv-border) transparent;
@@ -92,19 +93,12 @@
   width: 204px;
   min-width: 140px;
   max-width: 204px;
+  border-radius: 9px 9px 0 0;
   color: var(--cdpv-muted);
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
   color: var(--cdpv-foreground);
-}
-.cdpv-root .cdpv-tab-item[data-selected]::after {
-  content: "";
-  position: absolute;
-  inset-inline: 12px;
-  bottom: 0;
-  height: 2px;
-  background: var(--cdpv-accent);
-  pointer-events: none;
+  background: var(--cdpv-background);
 }
 .cdpv-root .cdpv-tab {
   display: flex;
@@ -143,13 +137,14 @@
   color: inherit;
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: 50%;
   cursor: pointer;
 }
 .cdpv-root .cdpv-new-tab {
   gap: 6px;
   font: inherit;
   font-size: 12px;
+  border-radius: 18px;
 }
 
 .cdpv-root .cdpv-button {
@@ -161,14 +156,14 @@
   padding: 6px;
   color: inherit;
   background: transparent;
-  border: 0;
-  border-radius: 4px;
+  border: 1px solid transparent;
+  border-radius: 50%;
   cursor: pointer;
   flex: none;
 }
 
 .cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cdpv-foreground) 6%, transparent);
+  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
 }
 .cdpv-root
   :is(.cdpv-tab, .cdpv-close, .cdpv-button, .cdpv-address):focus-visible {
@@ -230,13 +225,15 @@
 .cdpv-root .cdpv-primary {
   gap: 7px;
   padding: 7px 12px;
-  border-radius: 4px;
+  border-radius: 7px;
+  border-color: var(--cdpv-border);
   font: inherit;
   font-size: 13px;
 }
 .cdpv-root .cdpv-primary {
   background: var(--cdpv-accent);
   color: var(--cdpv-on-accent);
+  border-color: transparent;
 }
 .cdpv-root .cdpv-error {
   display: flex;
@@ -247,8 +244,7 @@
   font-size: 12px;
   color: var(--cdpv-error);
   background: var(--cdpv-error-background);
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--cdpv-border) 60%, transparent);
+  border-bottom: 1px solid var(--cdpv-border);
 }
 .cdpv-root .cdpv-error svg {
   flex: none;
@@ -260,8 +256,7 @@
   flex: none;
   gap: 4px;
   padding: 7px 8px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--cdpv-border) 60%, transparent);
+  border-bottom: 1px solid var(--cdpv-border);
 }
 .cdpv-root .cdpv-address {
   flex: 1;
@@ -270,8 +265,8 @@
   height: 32px;
   color: inherit;
   background: var(--cdpv-address-background);
-  border: 0;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 18px;
   font: inherit;
   font-size: 13px;
 }

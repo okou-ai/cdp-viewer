@@ -142,9 +142,8 @@ is discarded and closed. No connection credentials are persisted by the library.
 
 ## Styling
 
-The Chrome-style controls use flat surfaces, a slim active-tab indicator and light
-and dark palettes. Appearance defaults to the host container's CSS `color-scheme`.
-Pass the host's existing preference as
+The Chrome-style controls include light and dark palettes. Appearance defaults to
+the host container's CSS `color-scheme`. Pass the host's existing preference as
 `colorScheme="light"`, `"dark"` or `"system"` to override it; `system` follows OS
 changes. Class-based host themes can pass their setting or declare `color-scheme`
 on the surrounding container. Changing appearance preserves the connection,

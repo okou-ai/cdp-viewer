@@ -9,7 +9,7 @@
 }
 .cdpv-root {
   --cdpv-background: #fff;
-  --cdpv-tab-background: var(--cdpv-background);
+  --cdpv-tab-background: #dee1e6;
   --cdpv-address-background: #f1f3f4;
   --cdpv-stage-background: #f1f3f4;
   --cdpv-foreground: #202124;
@@ -19,17 +19,17 @@
   --cdpv-on-accent: #fff;
   --cdpv-error: #8a3500;
   --cdpv-error-background: #fff4e5;
-  --cdpv-radius: 6px;
+  --cdpv-radius: 10px;
   box-sizing: border-box;
   min-width: 0;
   height: 28rem;
   min-height: 16rem;
   color: var(--cdpv-foreground);
   background: var(--cdpv-background);
+  border: 1px solid var(--cdpv-border);
   border-radius: var(--cdpv-radius);
   text-align: start;
   color-scheme: inherit;
-  border: 0;
   font:
     14px/1.45 system-ui,
     sans-serif;
@@ -38,6 +38,7 @@
 @supports (color: light-dark(white, black)) {
   .cdpv-root {
     --cdpv-background: light-dark(#fff, #35363a);
+    --cdpv-tab-background: light-dark(#dee1e6, #202124);
     --cdpv-address-background: light-dark(#f1f3f4, #202124);
     --cdpv-stage-background: light-dark(#f1f3f4, #202124);
     --cdpv-foreground: light-dark(#202124, #e8eaed);
@@ -81,14 +82,14 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  padding: 4px 8px 0;
+  padding: 6px 8px 0;
   display: flex;
 }
 .cdpv-root .cdpv-tabs {
   scrollbar-width: thin;
   scrollbar-color: var(--cdpv-border) transparent;
   flex: 0 auto;
-  gap: 0;
+  gap: 3px;
   min-width: 0;
   display: flex;
   overflow-x: auto;
@@ -98,6 +99,7 @@
   min-width: 140px;
   max-width: 204px;
   color: var(--cdpv-muted);
+  border-radius: 9px 9px 0 0;
   flex: 0 0 204px;
   align-items: center;
   display: flex;
@@ -105,15 +107,7 @@
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
   color: var(--cdpv-foreground);
-}
-.cdpv-root .cdpv-tab-item[data-selected]:after {
-  content: "";
-  background: var(--cdpv-accent);
-  pointer-events: none;
-  inset-inline: 12px;
-  height: 2px;
-  position: absolute;
-  bottom: 0;
+  background: var(--cdpv-background);
 }
 .cdpv-root .cdpv-tab {
   min-width: 0;
@@ -147,7 +141,7 @@
   cursor: pointer;
   background: 0 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 50%;
   flex: none;
   justify-content: center;
   align-items: center;
@@ -157,6 +151,7 @@
 }
 .cdpv-root .cdpv-new-tab {
   font: inherit;
+  border-radius: 18px;
   gap: 6px;
   font-size: 12px;
 }
@@ -166,8 +161,8 @@
   color: inherit;
   cursor: pointer;
   background: 0 0;
-  border: 0;
-  border-radius: 4px;
+  border: 1px solid #0000;
+  border-radius: 50%;
   flex: none;
   justify-content: center;
   align-items: center;
@@ -179,7 +174,7 @@
 }
 @supports (color: color-mix(in lab, red, red)) {
   .cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
-    background: color-mix(in srgb, var(--cdpv-foreground) 6%, transparent);
+    background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
   }
 }
 .cdpv-root
@@ -238,8 +233,9 @@
 }
 .cdpv-root .cdpv-action,
 .cdpv-root .cdpv-primary {
+  border-color: var(--cdpv-border);
   font: inherit;
-  border-radius: 4px;
+  border-radius: 7px;
   gap: 7px;
   padding: 7px 12px;
   font-size: 13px;
@@ -247,6 +243,7 @@
 .cdpv-root .cdpv-primary {
   background: var(--cdpv-accent);
   color: var(--cdpv-on-accent);
+  border-color: #0000;
 }
 .cdpv-root .cdpv-error {
   color: var(--cdpv-error);
@@ -259,12 +256,6 @@
   font-size: 12px;
   display: flex;
 }
-@supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root .cdpv-error {
-    border-bottom: 1px solid
-      color-mix(in srgb, var(--cdpv-border) 60%, transparent);
-  }
-}
 .cdpv-root .cdpv-error svg {
   flex: none;
   margin-top: 2px;
@@ -276,20 +267,14 @@
   padding: 7px 8px;
   display: flex;
 }
-@supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root .cdpv-navigation {
-    border-bottom: 1px solid
-      color-mix(in srgb, var(--cdpv-border) 60%, transparent);
-  }
-}
 .cdpv-root .cdpv-address {
   min-width: 0;
   height: 32px;
   color: inherit;
   background: var(--cdpv-address-background);
   font: inherit;
-  border: 0;
-  border-radius: 6px;
+  border: 1px solid #0000;
+  border-radius: 18px;
   flex: 1;
   padding: 6px 13px;
   font-size: 13px;
