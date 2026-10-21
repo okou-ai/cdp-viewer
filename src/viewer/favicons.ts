@@ -329,6 +329,7 @@ export class FaviconDirectory {
     if (!page || !this.current(owner, revision)) return;
     owner.url = page.icons.url;
     if (owner.signature === page.signature) return;
+    owner.signature = null;
     this.publish(owner.targetId, null);
     let best: FaviconImage | null = null;
     const signal = AbortSignal.any([
@@ -359,7 +360,7 @@ export class FaviconDirectory {
     const confirmed = await this.read(owner, revision);
     if (!confirmed || !this.current(owner, revision)) return;
     if (confirmed.signature !== page.signature) {
-      owner.dirty = true;
+      // Leave changing declarations to the next scheduled poll, not a hot loop.
       return;
     }
     await this.directory.assertMember(owner.targetId);

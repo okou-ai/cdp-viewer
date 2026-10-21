@@ -19,7 +19,9 @@ async function fixture(ids = ["a"], windowId?: number) {
   let nextStream = 0;
   let hold: string | null = null;
   let oversized = false;
+  let largeStream = false;
   let membership = 0;
+  let churn = 0;
   const held: WireCommand[] = [];
   const pages = new Map(
     ids.map((id) => [
@@ -63,6 +65,9 @@ async function fixture(ids = ["a"], windowId?: number) {
           wire.reply(command, { executionContextId: 42 });
           break;
         case "Runtime.evaluate":
+          if (churn > 0) {
+            page.candidates[0]!.url = `https://owned.invalid/churn-${churn--}.png`;
+          }
           wire.reply(command, {
             result: { value: { url: page.url, candidates: page.candidates } },
           });
@@ -93,9 +98,11 @@ async function fixture(ids = ["a"], windowId?: number) {
           wire.reply(command, {
             data: oversized
               ? "x".repeat(48 * 1024 + 1)
-              : btoa(streams.get(String(command.params!.handle))!.url),
+              : largeStream
+                ? btoa("x".repeat(32 * 1024))
+                : btoa(streams.get(String(command.params!.handle))!.url),
             base64Encoded: true,
-            eof: true,
+            eof: !largeStream,
           });
           break;
         default:
@@ -145,8 +152,14 @@ async function fixture(ids = ["a"], windowId?: number) {
     oversized: () => {
       oversized = true;
     },
+    largeStream: () => {
+      largeStream = true;
+    },
     membership: (value: number) => {
       membership = value;
+    },
+    churn: (count: number) => {
+      churn = count;
     },
     commands: (method: string) =>
       socket.commands.filter((command) => command.method === method),
@@ -279,6 +292,11 @@ describe("optional favicon work", () => {
       eof: true,
     });
     await vi.advanceTimersByTimeAsync(0);
+    expect(f.commands("Network.loadNetworkResource")).toHaveLength(1);
+    expect(f.publish.mock.calls.filter(([, src]) => src !== null)).toHaveLength(
+      0,
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(
       f
         .commands("Network.loadNetworkResource")
@@ -327,6 +345,56 @@ describe("optional favicon work", () => {
     expect(f.commands("Page.createIsolatedWorld")).toHaveLength(2);
   });
 
+  it("defers unstable declaration retries to polling rather than looping image requests", async () => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    f.churn(4);
+    f.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.commands("Network.loadNetworkResource")).toHaveLength(1);
+    expect(f.publish.mock.calls.filter(([, src]) => src !== null)).toHaveLength(
+      0,
+    );
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(f.commands("Network.loadNetworkResource")).toHaveLength(3);
+    expect(f.publish.mock.calls.filter(([, src]) => src !== null)).toHaveLength(
+      1,
+    );
+  });
+
+  it("reloads an earlier icon when declarations revert during another image load", async () => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    f.start();
+    await vi.advanceTimersByTimeAsync(0);
+    f.pages.get("a")!.candidates[0]!.url =
+      "https://owned.invalid/temporary.png";
+    f.hold("IO.read");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(f.publish).toHaveBeenLastCalledWith("a", null);
+    f.pages.get("a")!.candidates[0]!.url = "https://owned.invalid/a.png";
+    f.hold(null);
+    f.socket.reply(f.held[0]!, {
+      data: btoa("temporary"),
+      base64Encoded: true,
+      eof: true,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(f.publish).toHaveBeenLastCalledWith(
+      "a",
+      "data:image/png;base64,owned",
+    );
+    expect(
+      f
+        .commands("Network.loadNetworkResource")
+        .map((command) => command.params!.url),
+    ).toEqual([
+      "https://owned.invalid/a.png",
+      "https://owned.invalid/temporary.png",
+      "https://owned.invalid/a.png",
+    ]);
+  });
+
   it("closes session-local IO before detaching a paused owner and revalidates on resume", async () => {
     vi.useFakeTimers();
     const f = await fixture();
@@ -363,6 +431,19 @@ describe("optional favicon work", () => {
     f.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(f.decode).not.toHaveBeenCalled();
+    expect(f.commands("IO.close")).toHaveLength(2);
+    expect(f.publish.mock.calls.every(([, src]) => src === null)).toBe(true);
+  });
+
+  it("stops an image stream after the aggregate byte limit even when individual chunks are valid", async () => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    f.largeStream();
+    f.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.decode).not.toHaveBeenCalled();
+    // Declaration and fallback each stop at the first chunk exceeding 128 KiB.
+    expect(f.commands("IO.read")).toHaveLength(10);
     expect(f.commands("IO.close")).toHaveLength(2);
     expect(f.publish.mock.calls.every(([, src]) => src === null)).toBe(true);
   });
