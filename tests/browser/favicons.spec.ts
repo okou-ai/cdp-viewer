@@ -130,8 +130,9 @@ test("installed viewers show native fixture icons, background updates, navigatio
   page,
 }, info) => {
   const site = await sites();
-  const backend = await launchBackend(info.outputPath("backend"), host.origin);
+  let backend: Awaited<ReturnType<typeof launchBackend>> | undefined;
   try {
+    backend = await launchBackend(info.outputPath("backend"), host.origin);
     const first = await backend.session.send("Target.createTarget", {
       url: site.origin + "/red",
       newWindow: true,
@@ -256,7 +257,7 @@ test("installed viewers show native fixture icons, background updates, navigatio
       path: info.outputPath("favicon-independent-cleanup.png"),
     });
   } finally {
-    await backend.close();
+    await backend?.close();
     await site.close();
   }
 });
@@ -265,9 +266,11 @@ test("default icons and cookie-protected cross-origin icons load through the rem
   page,
 }, info) => {
   const icons = await sites();
-  const site = await sites(true, icons.origin);
-  const backend = await launchBackend(info.outputPath("backend"), host.origin);
+  let site: Awaited<ReturnType<typeof sites>> | undefined;
+  let backend: Awaited<ReturnType<typeof launchBackend>> | undefined;
   try {
+    site = await sites(true, icons.origin);
+    backend = await launchBackend(info.outputPath("backend"), host.origin);
     const first = await backend.session.send("Target.createTarget", {
       url: site.origin + "/default",
       newWindow: true,
@@ -285,7 +288,7 @@ test("default icons and cookie-protected cross-origin icons load through the rem
     const hostImageRequests: string[] = [];
     page.on("request", (request) => {
       if (
-        request.url().startsWith(site.origin) ||
+        request.url().startsWith(site!.origin) ||
         request.url().startsWith(icons.origin)
       )
         hostImageRequests.push(request.url());
@@ -317,8 +320,8 @@ test("default icons and cookie-protected cross-origin icons load through the rem
       path: info.outputPath("favicon-default-authenticated.png"),
     });
   } finally {
-    await backend.close();
-    await site.close();
+    await backend?.close();
+    await site?.close();
     await icons.close();
   }
 });
@@ -327,8 +330,9 @@ test("inline icons preserve aspect ratio and host image policy falls back withou
   page,
 }, info) => {
   const site = await sites();
-  const backend = await launchBackend(info.outputPath("backend"), host.origin);
+  let backend: Awaited<ReturnType<typeof launchBackend>> | undefined;
   try {
+    backend = await launchBackend(info.outputPath("backend"), host.origin);
     const first = await backend.session.send("Target.createTarget", {
       url: site.origin + "/inline",
       newWindow: true,
@@ -391,9 +395,9 @@ test("inline icons preserve aspect ratio and host image policy falls back withou
     await expect(inline.locator("img.cdpv-favicon")).toHaveCount(0);
     await expect(a).toHaveAttribute("data-status", "streaming");
     await expect(b).toHaveAttribute("data-status", "streaming");
-    await expect(a.locator(".cdpv-notification")).toHaveCount(0);
+    await expect(a.getByRole("alert")).toHaveCount(0);
   } finally {
-    await backend.close();
+    await backend?.close();
     await site.close();
   }
 });
