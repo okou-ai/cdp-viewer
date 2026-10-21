@@ -121,7 +121,8 @@ focus changes and focused frames. Composition stays in a stable local textarea
 and sends committed text once through CDP; candidate confirmation is distinct
 from a later remote Enter. Optional caret metadata does not block input.
 The tab strip scrolls horizontally and supports explicit tab selection. Interactive
-viewers add new/close actions. Enter in the address bar navigates to an absolute
+viewers add new/close actions. The new-tab button stays compact and shows a
+spinner while creation is in progress. Enter in the address bar navigates to an absolute
 HTTP(S) address. The navigation toolbar supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).
 

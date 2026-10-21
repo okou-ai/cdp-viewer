@@ -122,14 +122,11 @@ function ViewerSurface({
             {pending?.type === "create" ? (
               <LoaderCircle
                 className="cdpv-spinning"
-                size={17}
+                size={18}
                 aria-hidden="true"
               />
             ) : (
               <Plus size={18} aria-hidden="true" />
-            )}
-            {pending?.type === "create" && (
-              <span aria-hidden="true">Creating…</span>
             )}
           </Button>
         )}

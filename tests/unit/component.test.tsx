@@ -315,6 +315,44 @@ it("keeps imports and server rendering free of browser connections", () => {
   expect(socket).not.toHaveBeenCalled();
 });
 
+it.each(["success", "failure"] as const)(
+  "keeps discovered-tab creation icon-only through %s",
+  async (outcome) => {
+    const fake = browser();
+    render(
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={0} interactive />,
+    );
+    const create = screen.getByRole("button", { name: "New tab" });
+    await waitFor(() => expect(create).toBeEnabled());
+    fake.holdMethod = "Page.navigate";
+    await userEvent.click(create);
+    await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+    await screen.findByRole("tab", { name: "New tab" });
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(create).toHaveAttribute("aria-busy", "true");
+    expect(create).toBeDisabled();
+    expect(create).toHaveTextContent(/^$/);
+    expect(screen.getByRole("status")).toHaveTextContent("Creating tab");
+    await userEvent.click(create);
+    expect(
+      fake.targets.filter((target) => target.id.startsWith("new-")),
+    ).toHaveLength(1);
+    const held = fake.heldCommands[0]!;
+    act(() => {
+      if (outcome === "success") held.socket.reply(held.command);
+      else held.socket.reject(held.command);
+    });
+    await waitFor(() => expect(create).toHaveAttribute("aria-busy", "false"));
+    await waitFor(() => expect(create).toBeEnabled());
+    expect(create).toHaveTextContent(/^$/);
+    expect(screen.getByRole("tab", { selected: true })).toHaveTextContent(
+      outcome === "success" ? "New tab" : "Window A",
+    );
+    if (outcome === "failure")
+      expect(screen.getByRole("alert")).toHaveTextContent("tab operation");
+  },
+);
+
 it("offers creation only for a confirmed empty browser, not failed discovery", async () => {
   const fake = browser();
   fake.targets = [];
