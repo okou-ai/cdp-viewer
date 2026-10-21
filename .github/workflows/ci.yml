@@ -37,4 +37,16 @@ jobs:
       - run: pnpm test:unit
       - run: pnpm test:package
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:browser
+      - name: Run browser tests
+        id: browser_tests
+        run: pnpm test:browser
+      - name: Save browser failure diagnostics
+        if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/**/trace.zip
+            test-results/**/error-context.md
+          if-no-files-found: warn
+          retention-days: 7
