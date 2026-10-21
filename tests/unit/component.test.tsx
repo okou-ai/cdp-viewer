@@ -167,6 +167,79 @@ it("reconnects explicitly but not when callback references change", async () => 
   expect(fake.sockets[0]!.readyState).toBe(3);
 });
 
+it("isolates navigation drafts and reconnect ownership while retaining native proxy nodes", async () => {
+  const fake = browser();
+  const view = render(
+    <>
+      <CdpViewer
+        key="a"
+        cdpUrl="wss://fixture.invalid"
+        windowId={0}
+        interactive
+      />
+      <CdpViewer
+        key="b"
+        cdpUrl="wss://fixture.invalid"
+        windowId={2}
+        interactive
+      />
+    </>,
+  );
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  const addresses = screen.getAllByRole("textbox", {
+    name: "Remote page address",
+  });
+  const proxies = screen.getAllByRole("textbox", {
+    name: "Remote browser input",
+  });
+  const siblingSocket = fake.sockets[1]!;
+  await userEvent.clear(addresses[0]!);
+  await userEvent.type(addresses[0]!, "https://draft-a.invalid/");
+  await userEvent.clear(addresses[1]!);
+  await userEvent.type(addresses[1]!, "https://draft-b.invalid/");
+  expect(addresses[0]).toHaveValue("https://draft-a.invalid/");
+  expect(addresses[1]).toHaveValue("https://draft-b.invalid/");
+  await userEvent.click(
+    screen.getAllByRole("button", { name: "Reconnect viewer" })[0]!,
+  );
+  await waitFor(() => expect(fake.sockets).toHaveLength(3));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  await waitFor(() =>
+    expect(addresses[0]).toHaveValue("https://fixture.invalid/"),
+  );
+  expect(addresses[1]).toHaveValue("https://draft-b.invalid/");
+  expect(
+    screen.getAllByRole("textbox", { name: "Remote browser input" }),
+  ).toEqual(proxies);
+  expect(siblingSocket.readyState).toBe(1);
+  view.rerender(
+    <>
+      <CdpViewer
+        key="b"
+        cdpUrl="wss://fixture.invalid"
+        windowId={2}
+        interactive
+      />
+    </>,
+  );
+  expect(siblingSocket.readyState).toBe(1);
+  expect(fake.sockets).toHaveLength(3);
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    proxies[1],
+  );
+  expect(
+    screen.getByRole("textbox", { name: "Remote page address" }),
+  ).toHaveValue("https://draft-b.invalid/");
+});
+
 it("keeps imports and server rendering free of browser connections", () => {
   const socket = vi.fn();
   vi.stubGlobal("WebSocket", socket);

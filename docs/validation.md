@@ -321,6 +321,29 @@ only their owned stream/session through existing pause semantics. No full local
 Vitest suite, development server, physical OS IME, provider or deployed-Origin
 compatibility claim is added by these measurements.
 
+## State architecture validation
+
+On 2026-10-21, the strict React/ccstate migration passed 69 real-config lint
+regressions and 26 focused cases across the model, component, controller and
+Canvas test files. Coverage includes independent drafts and reconnect revisions,
+stale runtime unbinding, valid zero window IDs, invalid applied settings,
+monotonic panel identities, host ccstate isolation, Strict Mode cleanup,
+callback-only updates and stable native textarea nodes.
+
+Seven owned Chromium 156.0.8078.4 scenarios passed through the production demo
+and the explicitly packed public-source consumer: independent-window input and
+navigation, explicit apply/reconnect/removal, invalid drafts retaining a live
+connection, local toolbar focus, composition committing once, and moving a real
+tab between window scopes. There was no development server or full local Vitest
+run. Broad unit/browser checks remain owned by the PR pipeline.
+
+The independent tarball consumer passed with pnpm 10.33.4 and React 19.2.6,
+including source types/CSS, disabled lifecycle scripts, frozen offline reinstall,
+production build and bundled SSR without WebSocket construction. This local
+receipt does not establish installation from the submitted GitHub SHA; CI runs
+that separately. Formatting, strict lint/types, dependency analysis, CSS
+consistency and library/demo builds also passed.
+
 ## Remaining compatibility boundaries
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider

@@ -6,153 +6,31 @@ import {
   Monitor,
   RotateCw,
 } from "lucide-react";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import type { RefObject } from "react";
-import { diagnostic } from "../cdp/errors";
-import { NativeInput } from "../input/native";
-import { CanvasRenderer } from "../render/canvas";
-import { ViewerController } from "../viewer/controller";
-import { createViewerModel } from "../viewer/model";
-import type { ViewerModel } from "../viewer/model";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
-
-// Deliberately separate from ccstate-react's host application context.
-const ViewerContext = createContext<ViewerModel | null>(null);
+import { viewerScope } from "./context";
+import { ViewerRuntime, useViewerElements } from "./runtime";
 
 export function CdpViewer(props: CdpViewerProps) {
-  const [model] = useState(createViewerModel);
   return (
-    <ViewerContext value={model}>
-      <ViewerSurface {...props} />
-    </ViewerContext>
+    <viewerScope.Provider>
+      <ViewerRuntime {...props}>
+        <ViewerSurface {...props} />
+      </ViewerRuntime>
+    </viewerScope.Provider>
   );
 }
 
 function ViewerSurface({
-  cdpUrl,
-  windowId,
-  paused = false,
   interactive = false,
   className,
   style,
-  onStatusChange,
-  onError,
 }: CdpViewerProps) {
-  const model = useContext(ViewerContext);
-  if (!model) throw new Error("CdpViewer must own its model.");
-  const snapshot = useSyncExternalStore(
-    model.subscribe,
-    model.getSnapshot,
-    model.getSnapshot,
-  );
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const proxy = useRef<HTMLTextAreaElement>(null);
-  const native = useRef<NativeInput | null>(null);
-  const runtime = useRef<ViewerController | null>(null);
-  const inViewport = useRef(true);
-  const committed = useRef({ paused, onStatusChange, onError });
-  const [retry, setRetry] = useState(0);
-  const selectId = useId();
-
-  useLayoutEffect(() => {
-    committed.current = { paused, onStatusChange, onError };
-  }, [paused, onStatusChange, onError]);
-
-  useLayoutEffect(() => {
-    if (!canvas.current) return;
-    model.update({
-      status: "connecting",
-      targets: Object.freeze([]),
-      selectedTargetId: null,
-      error: null,
-      navigation: null,
-    });
-    let controller: ViewerController;
-    try {
-      controller = new ViewerController(
-        model,
-        new CanvasRenderer(canvas.current),
-        {
-          url: cdpUrl,
-          ...(windowId === undefined ? {} : { windowId }),
-          paused:
-            committed.current.paused || document.hidden || !inViewport.current,
-          interactive,
-          onInputReset: () => native.current?.reset(),
-          onCaret: (point) => native.current?.place(point),
-        },
-      );
-    } catch (error) {
-      model.update({ status: "error", error: diagnostic(error) });
-      return;
-    }
-    runtime.current = controller;
-    let active = true;
-    const visibility = () =>
-      controller.setPaused(
-        committed.current.paused || document.hidden || !inViewport.current,
-      );
-    const observer =
-      typeof IntersectionObserver === "function"
-        ? new IntersectionObserver((entries) => {
-            if (!active) return;
-            const entry = entries.at(-1);
-            if (!entry) return;
-            inViewport.current = entry.isIntersecting;
-            visibility();
-          })
-        : null;
-    observer?.observe(canvas.current);
-    document.addEventListener("visibilitychange", visibility);
-    controller.start();
-    return () => {
-      active = false;
-      document.removeEventListener("visibilitychange", visibility);
-      observer?.disconnect();
-      controller.close();
-      if (runtime.current === controller) runtime.current = null;
-    };
-  }, [cdpUrl, windowId, retry, model, interactive]);
-
-  useLayoutEffect(() => {
-    if (!interactive || !canvas.current || !proxy.current) return;
-    const input = new NativeInput(
-      canvas.current,
-      proxy.current,
-      () => runtime.current?.input ?? null,
-    );
-    native.current = input;
-    return () => {
-      input.dispose();
-      if (native.current === input) native.current = null;
-    };
-  }, [interactive]);
-
-  useEffect(() => {
-    runtime.current?.setPaused(
-      paused || document.hidden || !inViewport.current,
-    );
-  }, [paused]);
-
-  useEffect(() => {
-    committed.current.onStatusChange?.(snapshot);
-  }, [snapshot]);
-
-  const errorKind = snapshot.error?.kind;
-  const errorMessage = snapshot.error?.message;
-  useEffect(() => {
-    if (errorKind && errorMessage)
-      committed.current.onError?.({ kind: errorKind, message: errorMessage });
-  }, [errorKind, errorMessage]);
+  const model = viewerScope.useModel();
+  const snapshot = viewerScope.useValue(model.snapshot$);
+  const select = viewerScope.useCommand(model.select$);
+  const reconnect = viewerScope.useCommand(model.reconnect$);
+  const { canvas, proxy } = useViewerElements();
+  const selectId = viewerScope.useIdentity();
 
   const selected = snapshot.targets.find(
     (target) => target.id === snapshot.selectedTargetId,
@@ -173,7 +51,7 @@ function ViewerSurface({
           disabled={
             !snapshot.targets.length || snapshot.status === "disconnected"
           }
-          onChange={(event) => runtime.current?.select(event.target.value)}
+          onChange={(event) => select(event.target.value)}
         >
           {!snapshot.selectedTargetId && (
             <option value="">Select a page</option>
@@ -188,14 +66,13 @@ function ViewerSurface({
           type="button"
           className="cdpv-button"
           aria-label="Reconnect viewer"
-          onClick={() => setRetry((value) => value + 1)}
+          onClick={() => reconnect()}
         >
           <RotateCw size={16} aria-hidden="true" />
         </Button>
       </div>
       {interactive && (
         <NavigationToolbar
-          runtime={runtime}
           navigation={snapshot.navigation ?? null}
           disabled={snapshot.status !== "streaming"}
         />
@@ -254,28 +131,27 @@ function ViewerSurface({
 }
 
 function NavigationToolbar({
-  runtime,
   navigation,
   disabled,
 }: {
-  runtime: RefObject<ViewerController | null>;
   navigation: ViewerNavigation | null;
   disabled: boolean;
 }) {
-  const addressId = useId();
-  const [address, setAddress] = useState("");
-  const editing = useRef(false);
-  useEffect(() => {
-    if (!editing.current) setAddress(navigation?.url ?? "");
-  }, [navigation?.url]);
+  const model = viewerScope.useModel();
+  const addressId = viewerScope.useIdentity() + "-address";
+  const address = viewerScope.useValue(model.address$);
+  const edit = viewerScope.useCommand(model.editAddress$);
+  const focus = viewerScope.useCommand(model.focusAddress$);
+  const blur = viewerScope.useCommand(model.blurAddress$);
+  const submit = viewerScope.useCommand(model.submitAddress$);
+  const navigate = viewerScope.useCommand(model.navigate$);
   return (
     <form
       className="cdpv-navigation"
       autoComplete="off"
       onSubmit={(event) => {
         event.preventDefault();
-        editing.current = false;
-        runtime.current?.input?.navigate({ url: address.trim() });
+        submit();
       }}
     >
       <Button
@@ -283,7 +159,7 @@ function NavigationToolbar({
         type="button"
         aria-label="Back remote page"
         disabled={disabled || !navigation?.canGoBack}
-        onClick={() => runtime.current?.input?.navigate("back")}
+        onClick={() => navigate("back")}
       >
         <ArrowLeft size={16} aria-hidden="true" />
       </Button>
@@ -292,7 +168,7 @@ function NavigationToolbar({
         type="button"
         aria-label="Forward remote page"
         disabled={disabled || !navigation?.canGoForward}
-        onClick={() => runtime.current?.input?.navigate("forward")}
+        onClick={() => navigate("forward")}
       >
         <ArrowRight size={16} aria-hidden="true" />
       </Button>
@@ -301,7 +177,7 @@ function NavigationToolbar({
         type="button"
         aria-label="Reload remote page"
         disabled={disabled}
-        onClick={() => runtime.current?.input?.navigate("reload")}
+        onClick={() => navigate("reload")}
       >
         <RotateCw size={16} aria-hidden="true" />
       </Button>
@@ -314,13 +190,9 @@ function NavigationToolbar({
         autoCapitalize="none"
         spellCheck={false}
         value={address}
-        onChange={(event) => setAddress(event.target.value)}
-        onFocus={() => {
-          editing.current = true;
-        }}
-        onBlur={() => {
-          editing.current = false;
-        }}
+        onChange={(event) => edit(event.target.value)}
+        onFocus={() => focus()}
+        onBlur={() => blur()}
       />
       <Button className="cdpv-button" type="submit" disabled={disabled}>
         Go

@@ -5,8 +5,8 @@ import type { Point } from "./geometry";
 import type { InputSession } from "./session";
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
-const buttonMasks = [1, 4, 2, 8, 16];
-const controlKeys = new Set([
+const buttonMasks = [1, 4, 2, 8, 16] as const;
+const controlKeys: ReadonlySet<string> = new Set([
   " ",
   "Enter",
   "Tab",

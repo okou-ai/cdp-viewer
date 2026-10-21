@@ -5,6 +5,13 @@ include behavior tests and documentation in each independently reviewable PR.
 Public source/type exports, included files and committed stylesheet must agree in
 an independently GitHub-installed consumer. Do not depend on private Okou workspaces.
 
+Follow [the state architecture](docs/state-architecture.md): ordinary React views
+read per-instance ccstate projections and invoke commands; resource lifetimes
+belong to the named runtime definitions. Preserve multiple independent viewers
+and host-provider isolation. `pnpm lint` includes strict boundary checks and
+their positive/negative policy regressions (`pnpm test:lint`). Do not suppress
+production lint or type errors, or exempt an infrastructure directory.
+
 Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
 
 ```text
