@@ -17,6 +17,9 @@
   --cdpv-error: #8a3500;
   --cdpv-error-background: #fff4e5;
   --cdpv-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
   box-sizing: border-box;
   min-width: 0;
   height: 28rem;

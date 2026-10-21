@@ -1,7 +1,14 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createStore, state } from "ccstate";
 import { StoreProvider, useGet } from "ccstate-react";
+import { LucideProvider, Plus } from "lucide-react";
 import { StrictMode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
@@ -313,6 +320,78 @@ it("keeps imports and server rendering free of browser connections", () => {
     renderToString(<CdpViewer cdpUrl="wss://fixture.invalid" />),
   ).toContain("Remote browser viewer");
   expect(socket).not.toHaveBeenCalled();
+});
+
+it.each([{ isComposing: true }, { keyCode: 229 }])(
+  "separates address composition confirmation from navigation inside a host form: %j",
+  async (composition) => {
+    const fake = browser();
+    const submitted = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form onSubmit={submitted}>
+        <CdpViewer cdpUrl="wss://fixture.invalid" interactive />
+        <button type="submit">Host submit</button>
+      </form>,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-status="streaming"]'),
+      ).toBeInTheDocument(),
+    );
+    const address = screen.getByRole("textbox", {
+      name: "Remote page address",
+    });
+    await userEvent.clear(address);
+    await userEvent.type(address, "https://destination.invalid/");
+    fireEvent.keyDown(address, { key: "Enter", code: "Enter", ...composition });
+    expect(
+      fake.sockets
+        .flatMap((socket) => socket.commands)
+        .filter((command) => command.method === "Page.navigate"),
+    ).toHaveLength(0);
+    expect(submitted).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(
+        fake.sockets
+          .flatMap((socket) => socket.commands)
+          .filter((command) => command.method === "Page.navigate"),
+      ).toHaveLength(1),
+    );
+    expect(submitted).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Host submit" }));
+    expect(submitted).toHaveBeenCalledOnce();
+  },
+);
+
+it("owns icon defaults without changing a shared host provider", async () => {
+  browser();
+  const { container } = render(
+    <LucideProvider
+      color="#cc1122"
+      size={40}
+      strokeWidth={5}
+      className="host-icons"
+    >
+      <Plus data-testid="host-icon" />
+      <CdpViewer cdpUrl="wss://fixture.invalid" interactive />
+    </LucideProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  expect(screen.getByTestId("host-icon")).toHaveAttribute("stroke", "#cc1122");
+  expect(screen.getByTestId("host-icon")).toHaveAttribute("width", "40");
+  expect(screen.getByTestId("host-icon")).toHaveAttribute("stroke-width", "5");
+  const icons = container.querySelectorAll(".cdpv-root svg");
+  expect(icons.length).toBeGreaterThan(0);
+  for (const icon of icons) {
+    expect(icon).toHaveAttribute("stroke", "currentColor");
+    expect(icon).toHaveAttribute("stroke-width", "2");
+    expect(icon).not.toHaveClass("host-icons");
+  }
 });
 
 it.each(["success", "failure"] as const)(

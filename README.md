@@ -164,6 +164,10 @@ Default height is 28rem; set `style={{ height: "70vh" }}` for host layout.
 customize the individual surfaces.
 Canvas decode/paint does not cause a React update for every frame.
 
+See [host integration boundaries](docs/host-integration.md) for form embedding,
+host shortcuts and the engineering conventions that keep normal integrations
+independent.
+
 ## Validation and compatibility
 
 ```sh

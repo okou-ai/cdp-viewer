@@ -9,6 +9,7 @@ import {
   Plus,
   X,
   LoaderCircle,
+  LucideProvider,
   RotateCw,
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
@@ -19,7 +20,9 @@ export function CdpViewer(props: CdpViewerProps) {
   return (
     <viewerScope.Provider>
       <ViewerRuntime {...props}>
-        <ViewerSurface {...props} />
+        <LucideProvider>
+          <ViewerSurface {...props} />
+        </LucideProvider>
       </ViewerRuntime>
     </viewerScope.Provider>
   );
@@ -73,6 +76,7 @@ function ViewerSurface({
               }
             >
               <Tabs.Tab
+                type="button"
                 className="cdpv-tab"
                 value={target.id}
                 title={target.title}
@@ -267,14 +271,7 @@ function NavigationToolbar({
   const submit = viewerScope.useCommand(model.submitAddress$);
   const navigate = viewerScope.useCommand(model.navigate$);
   return (
-    <form
-      className="cdpv-navigation"
-      autoComplete="off"
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-    >
+    <div className="cdpv-navigation">
       <Button
         className="cdpv-button"
         type="button"
@@ -316,7 +313,18 @@ function NavigationToolbar({
         onChange={(event) => edit(event.target.value)}
         onFocus={() => focus()}
         onBlur={() => blur()}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.stopPropagation();
+          if (
+            event.nativeEvent.isComposing ||
+            event.nativeEvent.keyCode === 229
+          )
+            return;
+          event.preventDefault();
+          submit();
+        }}
       />
-    </form>
+    </div>
   );
 }
