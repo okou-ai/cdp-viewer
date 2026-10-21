@@ -28,7 +28,7 @@ adding extensions; ordinary CDP must remain usable independently.
 - `tests/unit/`: Vitest, Testing Library and a fake external CDP wire.
 - `tests/browser/`: Playwright fixtures with test-owned Chromium windows.
 - `tests/consumer/`: separately installed React/Vite host and SSR fixtures.
-- `demo/`: view-only connection forms and independent panels using public exports.
+- `demo/`: connection forms and interactive panels using public exports.
 - `vite.demo.config.ts`: production demo build with the `/cdp-viewer/` Pages base.
 
 ## Toolchain and Checks

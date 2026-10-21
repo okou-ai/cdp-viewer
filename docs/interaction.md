@@ -1,7 +1,7 @@
 # Interaction and native text input
 
 Set `interactive` on a viewer to enable mouse, keyboard and page navigation.
-The default remains read-only, and the current Pages demo remains view-only.
+The component defaults to read-only; the Pages demo explicitly enables interaction.
 Each instance owns its native textarea, focus, pressed keys/buttons, bounded
 command queue and selected-target CDP session. No endpoint-keyed global input
 owner or document-wide keyboard handler is installed.

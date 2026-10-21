@@ -19,8 +19,11 @@ browser-level CDP WebSocket URL, optionally enter a window ID, then connect.
 Add independent panels to view different windows. Draft edits apply only when
 you choose **Apply & connect**; reconnect uses the last applied settings.
 
-The demo is view-only and connects directly to your endpoint. Connection details
-stay in page memory and are cleared on refresh. An HTTPS page normally needs a
+The demo enables interaction: click the live page to use your mouse and keyboard,
+or use its address and history controls. Press **F8** to release remote keyboard
+focus. Clipboard transfer and focused-frame typing remain unsupported; genuine
+macOS/Windows system IME validation is pending. Connection details stay in page
+memory and are cleared on refresh. An HTTPS page normally needs a
 `wss://` endpoint whose server permits the page's Origin. See the
 [connection and deployment guide](docs/demo.md) for parameters, network
 requirements and compatibility evidence.

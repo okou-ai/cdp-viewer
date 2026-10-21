@@ -19,11 +19,10 @@ export function App() {
           <div className="demo-brand">
             <Monitor size={24} aria-hidden="true" />
             <h1>cdp-viewer</h1>
-            <span className="demo-badge">View only</span>
+            <span className="demo-badge">Interactive</span>
           </div>
           <p>
-            Open a live view of your browser. Add panels to view different
-            windows.
+            View and control your browser. Add panels for different windows.
           </p>
         </div>
         <nav aria-label="Project">
@@ -40,17 +39,23 @@ export function App() {
         and an endpoint that allows this page’s Origin. Connection details stay
         in this page’s memory; nothing is saved or added to the URL.
         <details>
-          <summary>About windows and view-only mode</summary>
+          <summary>About windows and interaction</summary>
           <p>
             Leave Window ID blank to see existing tabs across all windows, or
             use an actual integer window ID to limit the view. Zero is a valid
             ID. Window filtering limits what is shown; it is not access control.
           </p>
           <p>
-            You can select existing tabs and watch them live. Remote navigation,
-            typing, clipboard and vendor adapters are not available yet. Two
-            panels can view different windows independently; simultaneous
-            streams of the same tab are not guaranteed.
+            Select an existing tab, then click the live page to use your mouse
+            and keyboard. Use the address bar to navigate, go back or forward,
+            or reload. Press F8 to release remote keyboard focus. Two panels can
+            control different windows independently; simultaneous streams of the
+            same tab are not guaranteed.
+          </p>
+          <p>
+            Clipboard transfer, typing into focused frames and vendor adapters
+            are not supported yet. System IME behavior on macOS and Windows is
+            still being validated.
           </p>
           <p>
             Browser provisioning and authentication belong to your endpoint
@@ -239,6 +244,7 @@ function ConnectionPanel({
         <CdpViewer
           key={connection.generation}
           cdpUrl={connection.cdpUrl}
+          interactive
           {...(connection.windowId === undefined
             ? {}
             : { windowId: connection.windowId })}

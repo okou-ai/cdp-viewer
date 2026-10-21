@@ -110,6 +110,31 @@ cleanup. It contains no endpoint URLs or input content. This establishes the
 view-only rollout; interaction and other providers are not established by it.
 See [the demo guide](demo.md).
 
+### Demo interaction integration
+
+On 2026-10-21, all seven production-demo Playwright scenarios passed locally
+with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1 and client/backend Chromium
+156.0.8078.4. The new interaction scenario failed on the previous view-only
+build because its native input proxy was absent, then passed after the demo
+enabled the existing public interaction option.
+
+Two test-owned windows receive their own native text, including Unicode.
+F8 releases remote keyboard focus; connection/address drafts stay local.
+Removing one panel leaves its remote tab open and the remaining panel accepts
+new text at a 390px viewport width. Go, back, forward and reload operate on that
+panel's actual remote page. Reload checks await the new load before reading
+its execution context. Desktop and narrow connected screenshots were inspected.
+The existing six connection/scope/cleanup/mobile/Origin scenarios also passed.
+
+These are local production-fixture results. Their sanitized receipt identifies
+`local-production-fixture`, source marker `local`, browser versions and tested
+capability booleans; it contains no endpoints or input content. The Pages smoke
+workflow runs the same test on the real deployed Origin after an authorized
+main rollout, where its receipt must identify `actual-pages-deployment` and the
+deployed source SHA. The earlier view-only Pages receipt remains historical
+viewing evidence. This integration adds no physical system-IME, clipboard,
+focused-frame typing or other-provider validation.
+
 ## Interaction validation
 
 On 2026-10-20/21, eight focused interaction Playwright scenarios passed with Node

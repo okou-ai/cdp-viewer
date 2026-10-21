@@ -2,9 +2,10 @@
 
 The [GitHub Pages demo](https://okou-ai.github.io/cdp-viewer/) uses the same public
 `cdp-viewer` component/types and `cdp-viewer/style.css` exports as consumers.
-It provides live viewing and selection of existing tabs, with independent panels.
-Remote navigation, pointer/keyboard/IME, clipboard and vendor adapters are not
-available in this version.
+It enables the public `interactive` option for live viewing, tab selection,
+mouse/keyboard input and navigation, with independent panels. Clipboard transfer,
+focused-frame text input and vendor adapters are not supported. Genuine
+macOS/Windows system IME validation remains pending.
 
 ## Connect
 
@@ -13,7 +14,7 @@ available in this version.
 2. Paste it into the masked **CDP URL** field. Optionally supply an actual
    **Window ID**. Choose **Connect**.
 3. Select an existing page from the viewer's **Page** control. Add another viewer
-   to watch a different window independently.
+   to control a different window independently.
 
 | Parameter | Accepted value                                | Behavior                                                                                                                                     |
 | --------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -37,6 +38,25 @@ Each viewer owns its connection, selection and cleanup. Two viewers of different
 windows are supported; simultaneous screencasts of the same tab are not
 guaranteed. The remote page remains shared website state regardless of how many
 viewers display it.
+
+## Interact
+
+Click inside the live page to focus its remote control, then type or use mouse
+and keyboard actions. Press **F8** outside composition to release remote keyboard
+focus to the page selector. Connection fields, page selection and the address
+bar retain their own local input; typing in them is not sent to the remote page.
+
+Enter an absolute `http://` or `https://` address and choose **Go** to navigate.
+Editing the address alone does not navigate. The toolbar also provides reload
+and available back/forward actions. Disconnecting or removing a panel discards
+its unsent input without closing the remote browser or tabs.
+
+The demo uses the same native input proxy and ownership rules as the public
+component. It does not add clipboard transfer or focused-frame keyboard routing.
+Typing in a focused iframe is rejected; click a supported top-document or open
+shadow-root control to recover. Genuine OS IME behavior and editor compatibility
+are limited to the recorded evidence in the [interaction guide](interaction.md).
+The component remains read-only by default in other host applications.
 
 ## Direct browser connectivity
 
@@ -85,9 +105,10 @@ and rollbacks still use reviewed full-SHA dependency and lockfile changes.
 
 ## Evidence and limits
 
-The new workflow's first live rollout is required before claiming this demo has
-been verified on GitHub Pages. A local production-fixture receipt is labeled
-`local-production-fixture`; it is not live Pages evidence. The workflow labels
-actual deployed-page receipts `actual-pages-deployment` and checks the source
-revision to reject stale deployments. See [validation](validation.md) for
-recorded checks and remaining compatibility boundaries.
+The view-only Pages rollout is recorded in [validation](validation.md).
+Interaction requires a successful rollout receipt bound to its own deployed
+revision. Local production receipts use `local-production-fixture`; the workflow
+labels actual deployed-page receipts `actual-pages-deployment` and checks the
+source revision to reject stale deployments. The same smoke file exercises
+native input, local focus, independent windows and navigation after deployment.
+Genuine system IME and provider compatibility still require their own evidence.
