@@ -161,7 +161,7 @@ source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
   resuming streaming keeps the same textarea and restores remote typing. The
   pause regression failed in owned Chromium before repair.
 
-Seventeen focused input-lifecycle unit cases cover pending focus guards across
+Twenty-three focused input-lifecycle unit cases cover pending focus guards across
 target/document replacement, an unacknowledged held-key release, accepted text
 followed by disconnect without retry, and unrelated frame/context changes versus
 main-context destruction. Rejected key-up and blur before key-up acknowledgement
@@ -169,11 +169,16 @@ retain original-session release cleanup; the rejection regression failed before
 its fix. Same-document navigation also covers owned key/button release after an
 ambiguous loading-start event; it failed before repair. Cross-document/history
 navigation starts, captured old owners, queue saturation/recovery and late focus
-objects are also covered. Twenty-five state cases cover transition policy,
+objects are also covered. Six Runtime ownership cases cover separate result and
+exception handles for both evaluation and focus-guard calls while current, after
+blur and after timeout. All six failed before the executor cleanup repair; a
+native Chromium probe confirmed that even by-value exceptions produce two
+distinct handles. Recovery sends only new input, without replaying failed work.
+Twenty-five state cases cover transition policy,
 cross-session token isolation, stale acknowledgements, composition ordering and
 cancellation; one case explores all 81 four-event press/acknowledge/cancel
 sequences. The four focused lifecycle/state/component/controller files passed
-58 cases after the refactor. No full local Vitest suite or dev server was run.
+64 cases after the Runtime cleanup repair. No full local Vitest suite or dev server was run.
 The consumer SSR fixture covers both read-only and interactive rendering with
 browser connections forbidden. Synthetic two-window UI screenshots were inspected.
 Seven focused component cases include local keyboard traversal during connection,

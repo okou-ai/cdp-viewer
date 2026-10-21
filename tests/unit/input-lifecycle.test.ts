@@ -4,9 +4,10 @@ import { createViewerModel } from "../../src/viewer/model";
 import { FakeBrowser } from "./wire";
 
 const controllers: ViewerController[] = [];
-afterEach(() =>
-  controllers.splice(0).forEach((controller) => controller.close()),
-);
+afterEach(() => {
+  controllers.splice(0).forEach((controller) => controller.close());
+  vi.useRealTimers();
+});
 
 async function mount() {
   const browser = new FakeBrowser();
@@ -38,6 +39,83 @@ async function mount() {
 }
 
 describe("owned remote input", () => {
+  describe.each(["Runtime.evaluate", "Runtime.callFunctionOn"] as const)(
+    "%s result ownership",
+    (method) => {
+      it.each(["active", "blurred", "timed-out"] as const)(
+        "releases both exception handles when the request is %s without replaying input",
+        async (outcome) => {
+          const { browser, controller, model, socket } = await mount();
+          const input = controller.input!;
+          if (outcome === "timed-out") vi.useFakeTimers();
+          browser.holdMethod = method;
+          if (method === "Runtime.evaluate") input.focus();
+          else input.text("discard on exception");
+          await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+          const held = browser.heldCommands[0]!;
+          if (outcome === "blurred") input.blur();
+          else if (outcome === "timed-out") {
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(model.getSnapshot().error?.kind).toBe("input");
+          }
+          browser.holdMethod = null;
+          held.socket.reply(held.command, {
+            result: {
+              type: "object",
+              subtype: "error",
+              objectId: "error-result",
+            },
+            exceptionDetails: {
+              exception: {
+                type: "object",
+                subtype: "error",
+                objectId: "error-detail",
+              },
+            },
+          });
+          await vi.waitFor(() =>
+            expect(
+              socket.commands.filter(
+                (command) =>
+                  command.method === "Runtime.releaseObject" &&
+                  ["error-result", "error-detail"].includes(
+                    String(command.params?.objectId),
+                  ),
+              ),
+            ).toEqual([
+              expect.objectContaining({
+                sessionId: held.command.sessionId,
+                params: { objectId: "error-result" },
+              }),
+              expect.objectContaining({
+                sessionId: held.command.sessionId,
+                params: { objectId: "error-detail" },
+              }),
+            ]),
+          );
+          expect(
+            socket.commands.filter(
+              (command) => command.method === "Input.insertText",
+            ),
+          ).toEqual([]);
+          input.focus();
+          input.text("recovered after exception");
+          await vi.waitFor(() =>
+            expect(
+              socket.commands.filter(
+                (command) => command.method === "Input.insertText",
+              ),
+            ).toEqual([
+              expect.objectContaining({
+                params: { text: "recovered after exception" },
+              }),
+            ]),
+          );
+        },
+      );
+    },
+  );
+
   it.each([
     "blur",
     "navigation-start",

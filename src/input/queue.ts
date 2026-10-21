@@ -73,15 +73,24 @@ export class InputQueue {
     params: ProtocolMapping.Commands[M]["paramsType"][0],
   ): Promise<ProtocolMapping.Commands[M]["returnType"]> {
     if (!this.lifecycle.owns(owner)) throw new Error("Input cancelled");
+    const runtime =
+      method === "Runtime.evaluate" || method === "Runtime.callFunctionOn";
     const releaseResult = (result: unknown) => {
-      if (
-        isRecord(result) &&
-        isRecord(result.result) &&
-        typeof result.result.objectId === "string"
-      )
+      if (!isRecord(result)) return;
+      const objects = [
+        result.result,
+        isRecord(result.exceptionDetails)
+          ? result.exceptionDetails.exception
+          : undefined,
+      ];
+      const ids = new Set<string>();
+      for (const object of objects)
+        if (isRecord(object) && typeof object.objectId === "string")
+          ids.add(object.objectId);
+      for (const objectId of ids)
         this.client.notify(
           "Runtime.releaseObject",
-          { objectId: result.result.objectId },
+          { objectId },
           owner.sessionId,
         );
     };
@@ -89,12 +98,19 @@ export class InputQueue {
       method,
       params,
       owner.sessionId,
-      method === "Runtime.evaluate" ? releaseResult : undefined,
+      runtime ? releaseResult : undefined,
     );
-    if (!this.lifecycle.owns(owner)) {
+    const current = this.lifecycle.owns(owner);
+    // By-value and exceptional results never transfer a remote handle to the
+    // job. Only a successful, current by-reference result may be retained.
+    if (
+      runtime &&
+      (!current ||
+        (isRecord(params) && params.returnByValue === true) ||
+        (isRecord(result) && result.exceptionDetails !== undefined))
+    )
       releaseResult(result);
-      throw new Error("Input cancelled");
-    }
+    if (!current) throw new Error("Input cancelled");
     return result;
   }
 

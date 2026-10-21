@@ -44,6 +44,12 @@ acknowledged. Invalidating a pending release can therefore send an additional
 best-effort release when its outcome is unknown. Text and navigation are never
 replayed. A late focus-object result is released using its original session.
 
+Runtime replies can contain separate handles in their result and exception
+details, even for a by-value request. The executor releases every distinct
+unretained handle through the requesting session, including replies received
+after cancellation or timeout. Only a successful current by-reference focus
+result transfers ownership to the lifecycle; exception handles never do.
+
 The queue holds at most 64 pending jobs. Only adjacent movement or text belonging
 to the same owner can coalesce; text chunks retain the 64 KiB bound. Cancellation
 clears queued work, while an already running request settles under its original
