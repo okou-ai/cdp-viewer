@@ -150,12 +150,12 @@
 .cdpv-root .cdpv-tab {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
   height: var(--cdpv-tab-height);
   /* The tab surface extends below the shared control center into navigation. */
-  padding: 0 12px var(--cdpv-tab-inset);
+  padding: 0 12px var(--cdpv-tab-inset) 8px;
   border: 0;
   color: inherit;
   background: transparent;

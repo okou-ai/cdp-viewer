@@ -162,7 +162,7 @@
 .cdpv-root .cdpv-tab {
   min-width: 0;
   height: var(--cdpv-tab-height);
-  padding: 0 12px var(--cdpv-tab-inset);
+  padding: 0 12px var(--cdpv-tab-inset) 8px;
   color: inherit;
   border-radius: inherit;
   font: inherit;
@@ -172,7 +172,7 @@
   border: 0;
   flex: 1;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   font-size: 12px;
   display: flex;
 }
