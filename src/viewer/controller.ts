@@ -231,6 +231,8 @@ export class ViewerController {
       targetId: selection.targetId,
     });
     if (!this.isCurrent(selection)) return;
+    await this.directory!.assertMember(selection.targetId);
+    if (!this.isCurrent(selection)) return;
     const attached: unknown = await client.request(
       "Target.attachToTarget",
       { targetId: selection.targetId, flatten: true },

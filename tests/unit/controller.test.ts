@@ -176,6 +176,29 @@ describe("viewer lifecycle", () => {
     expect(sink.push.mock.calls.length).toBe(count);
   });
 
+  it("rechecks window membership when a target moves during activation", async () => {
+    vi.useFakeTimers();
+    const browser = new FakeBrowser();
+    browser.holdMethod = "Target.activateTarget";
+    const { model, sink } = mount(browser, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(browser.heldCommands).toHaveLength(1);
+    browser.targets[0]!.windowId = 2;
+    const activation = browser.heldCommands[0]!;
+    activation.socket.reply(activation.command);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "error",
+      error: { kind: "scope" },
+    });
+    expect(sink.push).not.toHaveBeenCalled();
+    expect(
+      activation.socket.commands.some(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toBe(false);
+  });
+
   it("does not attach a stale selection after its activation completes", async () => {
     const browser = new FakeBrowser();
     browser.holdMethod = "Target.activateTarget";
