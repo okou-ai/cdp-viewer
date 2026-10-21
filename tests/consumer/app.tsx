@@ -13,7 +13,11 @@ function HostCounter() {
   const value = useGet(hostCount);
   const set = useSet(hostCount);
   return (
-    <button className="host-button" onClick={() => set(value + 1)}>
+    <button
+      type="button"
+      className="host-button"
+      onClick={() => set(value + 1)}
+    >
       Host count: {value}
     </button>
   );
@@ -23,6 +27,7 @@ function App() {
   const [settings, setSettings] = useState<FixtureSettings | null>(null);
   const [first, setFirst] = useState(true);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [submissions, setSubmissions] = useState(0);
   useEffect(() => {
     let active = true;
     const configure = async (value: FixtureSettings) => {
@@ -54,60 +59,76 @@ function App() {
         style: { "--cdpv-radius": "3px" },
       }
     : null;
+  const HostContainer = settings?.hostForm ? "form" : "div";
   return (
     <StoreProvider value={hostStore}>
-      <h1>Independent packed consumer</h1>
-      <HostCounter />
-      <label>
-        Host input <input aria-label="Host input" />
-      </label>
-      <span id="host-prefix-probe" className="hidden">
-        Host class stays visible
-      </span>
-      <div className="flex" id="host-utility">
-        Unprefixed host utility
-      </div>
-      <output id="statuses">{JSON.stringify(statuses)}</output>
-      <div
-        id="panels"
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+      <HostContainer
+        id="host-shell"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSubmissions((count) => count + 1);
+        }}
       >
-        {props && settings && (
+        <h1>Independent packed consumer</h1>
+        {settings?.hostForm && (
           <>
-            {first && (
-              <div id="viewer-a">
-                <CdpViewer
-                  {...props}
-                  {...(settings.colorSchemeA === undefined
-                    ? {}
-                    : { colorScheme: settings.colorSchemeA })}
-                  {...(settings.windowA === undefined
-                    ? {}
-                    : { windowId: settings.windowA })}
-                  onStatusChange={status("a")}
-                />
-              </div>
-            )}
-            {settings.second !== false && (
-              <div id="viewer-b">
-                <CdpViewer
-                  {...props}
-                  {...(settings.colorSchemeB === undefined
-                    ? {}
-                    : { colorScheme: settings.colorSchemeB })}
-                  {...(settings.windowB === undefined
-                    ? {}
-                    : { windowId: settings.windowB })}
-                  onStatusChange={status("b")}
-                />
-              </div>
-            )}
+            <style>{"section { display: block }"}</style>
+            <button type="submit">Host submit</button>
+            <output id="host-submissions">{submissions}</output>
           </>
         )}
-      </div>
-      <label>
-        After viewers <input aria-label="After viewers" />
-      </label>
+        <HostCounter />
+        <label>
+          Host input <input aria-label="Host input" />
+        </label>
+        <span id="host-prefix-probe" className="hidden">
+          Host class stays visible
+        </span>
+        <div className="flex" id="host-utility">
+          Unprefixed host utility
+        </div>
+        <output id="statuses">{JSON.stringify(statuses)}</output>
+        <div
+          id="panels"
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+        >
+          {props && settings && (
+            <>
+              {first && (
+                <div id="viewer-a">
+                  <CdpViewer
+                    {...props}
+                    {...(settings.colorSchemeA === undefined
+                      ? {}
+                      : { colorScheme: settings.colorSchemeA })}
+                    {...(settings.windowA === undefined
+                      ? {}
+                      : { windowId: settings.windowA })}
+                    onStatusChange={status("a")}
+                  />
+                </div>
+              )}
+              {settings.second !== false && (
+                <div id="viewer-b">
+                  <CdpViewer
+                    {...props}
+                    {...(settings.colorSchemeB === undefined
+                      ? {}
+                      : { colorScheme: settings.colorSchemeB })}
+                    {...(settings.windowB === undefined
+                      ? {}
+                      : { windowId: settings.windowB })}
+                    onStatusChange={status("b")}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <label>
+          After viewers <input aria-label="After viewers" />
+        </label>
+      </HostContainer>
     </StoreProvider>
   );
 }

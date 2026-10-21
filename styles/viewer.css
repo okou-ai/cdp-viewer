@@ -20,6 +20,7 @@
   --cdpv-error: #8a3500;
   --cdpv-error-background: #fff4e5;
   --cdpv-radius: 10px;
+  isolation: isolate;
   box-sizing: border-box;
   min-width: 0;
   height: 28rem;
@@ -30,9 +31,11 @@
   border-radius: var(--cdpv-radius);
   text-align: start;
   color-scheme: inherit;
+  flex-direction: column;
   font:
     14px/1.45 system-ui,
     sans-serif;
+  display: flex;
   overflow: hidden;
 }
 @supports (color: light-dark(white, black)) {

@@ -243,6 +243,7 @@ export class NativeInput {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     if (!point || !this.input()) return;
     event.preventDefault();
+    event.stopPropagation();
     const unit =
       event.deltaMode === 1
         ? 16
@@ -321,6 +322,7 @@ export class NativeInput {
       ["Dead", "Process", "Unidentified"].includes(event.key)
     )
       return;
+    event.stopPropagation();
     if (event.key === "F8") {
       event.preventDefault();
       this.cancel();
@@ -362,6 +364,7 @@ export class NativeInput {
   private readonly keyUp = (event: KeyboardEvent) => {
     if (!this.forwarded.delete(event.code || event.key)) return;
     event.preventDefault();
+    event.stopPropagation();
     this.input()?.key({
       type: "keyUp",
       key: event.key,

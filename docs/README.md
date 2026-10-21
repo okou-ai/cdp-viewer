@@ -6,6 +6,8 @@ This directory holds coding principles, architecture and validation methods.
   boundaries and practical lint policy.
 - [Input lifecycle architecture](input-lifecycle.md): component responsibilities,
   asynchronous ownership and resource cleanup.
+- [Host integration boundaries](host-integration.md): forms, scoped styles,
+  stacking, event cooperation and independent component ownership.
 - [Validation strategy](validation.md): test boundaries, deterministic checks and
   evidence requirements.
 
