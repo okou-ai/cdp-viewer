@@ -337,6 +337,7 @@ for (const [colorScheme, width] of [
     );
     try {
       const { windowId } = await remoteWindow(backend);
+      let rejectClose: (() => void) | undefined;
       await page.routeWebSocket(backend.endpoint, (socket) => {
         const upstream = socket.connectToServer();
         socket.onMessage((message) => {
@@ -345,12 +346,13 @@ for (const [colorScheme, width] of [
             method: string;
           };
           if (command.method === "Target.closeTarget") {
-            socket.send(
-              JSON.stringify({
-                id: command.id,
-                error: { code: -32000, message: "Synthetic denial" },
-              }),
-            );
+            rejectClose = () =>
+              socket.send(
+                JSON.stringify({
+                  id: command.id,
+                  error: { code: -32000, message: "Synthetic denial" },
+                }),
+              );
           } else upstream.send(message);
         });
       });
@@ -375,11 +377,22 @@ for (const [colorScheme, width] of [
       const firstBounds = await notice.boundingBox();
       if (!first || !firstBounds)
         throw new Error("The first notification is missing.");
+      // Starting a tab action clears the warning before the CDP failure arrives.
+      // Hold its actual exit so backend latency cannot remove the predecessor.
+      await holdNextExit(viewer);
       await holdNextArrival(viewer);
       await viewer
         .getByRole("button", { name: /^Close / })
         .first()
         .click();
+      await expect(notice).toHaveAttribute("data-phase", "exiting");
+      expect(
+        await notice.evaluate((node) =>
+          node.getAnimations().map((animation) => animation.playState),
+        ),
+      ).toEqual(["paused"]);
+      await expect.poll(() => typeof rejectClose).toBe("function");
+      rejectClose!();
       await expect(notice).toContainText("tab operation");
       const previous = viewer.locator(".cdpv-error-previous");
       await expect(previous).toHaveAttribute("aria-hidden", "true");
