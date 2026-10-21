@@ -2,6 +2,7 @@ import { interval } from "signal-timers";
 import type { CdpClient, CdpEvent } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import type { TargetDirectory } from "../cdp/targets";
+import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import { iconExpression, iconScore, parseIcons } from "./favicon-declarations";
 import { decodeFavicon } from "./favicon-image";
 import type { FaviconImage } from "./favicon-image";
@@ -46,7 +47,9 @@ export class FaviconDirectory {
   }
 
   reconcile(targets: readonly string[]): void {
-    this.targets = targets.slice(0, 512);
+    this.targets = targets
+      .slice(0, 512)
+      .filter((id) => this.directory.mayHaveFavicon(id));
     for (const owner of this.owners.values())
       if (!this.targets.includes(owner.targetId)) this.release(owner, true);
     if (this.paused || this.closed || this.disabled) return;
@@ -244,8 +247,11 @@ export class FaviconDirectory {
 
   private async read(owner: IconOwner, revision: number) {
     if (!this.current(owner, revision) || !owner.sessionId) return null;
+    const sessionId = owner.sessionId;
     const document = owner.document ?? (await this.document(owner, revision));
     if (!document || !this.current(owner, revision)) return null;
+    const release = (value: unknown) =>
+      releaseRuntimeObjects(this.client, sessionId, value);
     const result = await this.client.request(
       "Runtime.evaluate",
       {
@@ -254,8 +260,10 @@ export class FaviconDirectory {
         returnByValue: true,
         timeout: 1_000,
       },
-      owner.sessionId,
+      sessionId,
+      release,
     );
+    release(result);
     if (!this.current(owner, revision) || result.exceptionDetails) return null;
     const icons = parseIcons(result.result.value);
     return icons

@@ -210,6 +210,36 @@ describe("optional favicon work", () => {
     expect(f.publish.mock.calls.every(([, src]) => src === null)).toBe(true);
   });
 
+  it.each(["active", "timed-out"])(
+    "releases %s evaluation exception handles through their owning session",
+    async (state) => {
+      vi.useFakeTimers();
+      const f = await fixture();
+      f.hold("Runtime.evaluate");
+      f.start();
+      await vi.advanceTimersByTimeAsync(0);
+      const evaluation = f.held[0]!;
+      if (state === "timed-out") await vi.advanceTimersByTimeAsync(500);
+      f.socket.reply(evaluation, {
+        result: { objectId: "result-object" },
+        exceptionDetails: {
+          text: "owned exception",
+          exception: { objectId: "exception-object" },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        f
+          .commands("Runtime.releaseObject")
+          .map((command) => [command.sessionId, command.params!.objectId]),
+      ).toEqual([
+        [evaluation.sessionId, "result-object"],
+        [evaluation.sessionId, "exception-object"],
+      ]);
+      expect(f.publish.mock.calls.every(([, src]) => src === null)).toBe(true);
+    },
+  );
+
   it("closes delayed streams and rejects results after navigation or scope loss", async () => {
     vi.useFakeTimers();
     const f = await fixture(["a"], 0);

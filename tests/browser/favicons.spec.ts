@@ -57,14 +57,16 @@ async function sites(defaultIcon = false, protectedOrigin?: string) {
           )
         : name === "protected"
           ? `${protectedOrigin}/icons/protected.svg`
-          : name === "broken"
-            ? "/icons/missing.svg"
-            : `./icons/${name}.svg`;
+          : name === "mixed"
+            ? "/icons/red.svg"
+            : name === "broken"
+              ? "/icons/missing.svg"
+              : `./icons/${name}.svg`;
     response.setHeader("Content-Type", "text/html");
     if (name === "protected")
       response.setHeader("Set-Cookie", "favicon=owned; Path=/; SameSite=Lax");
     response.end(
-      `<html><head><title>${title}</title>${name === "default" ? "" : `<link rel="icon" sizes="16x16" href="${icon}">`}${name === "multiple" ? '<link rel="icon" sizes="16x16" href="/icons/blue.svg"><link rel="icon" sizes="any" media="not all" href="/icons/red.svg">' : ""}</head><body style="background:#ddd"><h1>${title}</h1></body></html>`,
+      `<html><head><title>${title}</title>${name === "default" ? "" : `<link rel="icon" sizes="16x16" href="${icon}">`}${name === "multiple" ? '<link rel="icon" sizes="16x16" href="/icons/blue.svg"><link rel="icon" sizes="any" media="not all" href="/icons/red.svg">' : ""}${name === "mixed" ? '<link rel="icon" href="http://[">' : ""}</head><body style="background:#ddd"><h1>${title}</h1></body></html>`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -367,6 +369,14 @@ test("inline icons preserve aspect ratio and host image policy falls back withou
         return context.getImageData(16, 0, 1, 1).data[3];
       }),
     ).toBe(0);
+    const remote = backend.context
+      .pages()
+      .find((target) => target.url() === site.origin + "/inline")!;
+    await remote.goto(site.origin + "/mixed");
+    await expectIcon(
+      a.getByRole("tab", { name: "Mixed", exact: true }),
+      [232, 32, 48],
+    );
     // Blob decoding remains allowed while the rendered data PNG is denied.
     await page.evaluate(() => {
       const policy = document.createElement("meta");
@@ -374,13 +384,10 @@ test("inline icons preserve aspect ratio and host image policy falls back withou
       policy.content = "img-src blob:";
       document.head.append(policy);
     });
-    const remote = backend.context
-      .pages()
-      .find((target) => target.url() === site.origin + "/inline")!;
     await remote.evaluate(() => {
       document.querySelector<HTMLLinkElement>("link")!.href = "/icons/blue.svg";
     });
-    const inline = a.getByRole("tab", { name: "Inline", exact: true });
+    const inline = a.getByRole("tab", { name: "Mixed", exact: true });
     await expect(inline.locator("img.cdpv-favicon")).toHaveCount(0);
     await expect(a).toHaveAttribute("data-status", "streaming");
     await expect(b).toHaveAttribute("data-status", "streaming");

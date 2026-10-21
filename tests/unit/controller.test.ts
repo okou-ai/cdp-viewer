@@ -34,6 +34,37 @@ function mount(
 }
 
 describe("viewer lifecycle", () => {
+  it("skips icon sessions for known blank tabs and discovers icons after page navigation", async () => {
+    const browser = new FakeBrowser();
+    const { model } = mount(browser, 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const socket = browser.sockets[0]!;
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+    browser.targets[0]!.url = "https://fixture.invalid/page";
+    socket.emit("Target.targetInfoChanged", {
+      targetInfo: { targetId: "page-a", url: "https://fixture.invalid/page" },
+    });
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter(
+          (command) => command.method === "Target.attachToTarget",
+        ),
+      ).toHaveLength(2),
+    );
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.activateTarget",
+      ),
+    ).toHaveLength(1);
+    expect(model.getSnapshot().status).toBe("streaming");
+  });
+
   it("keeps displayed tab order when discovery reorders and updates targets", async () => {
     const browser = new FakeBrowser();
     const { model } = mount(browser);
@@ -210,7 +241,7 @@ describe("viewer lifecycle", () => {
     });
     expect(
       browser.sockets[0]!.commands.filter(
-        (c) => c.method === "Page.startScreencast",
+        (c) => c.method === "Target.attachToTarget",
       ),
     ).toHaveLength(1);
   });
@@ -281,9 +312,6 @@ describe("viewer lifecycle", () => {
       expect(model.getSnapshot().status).toBe("streaming"),
     );
     const old = browser.heldCommands[0]!;
-    const attached = browser.sockets[0]!.commands.filter(
-      (command) => command.method === "Target.attachToTarget",
-    );
     old.socket.reply(old.command);
     await Promise.resolve();
     expect(model.getSnapshot().selectedTargetId).toBe("page-b");
@@ -291,12 +319,7 @@ describe("viewer lifecycle", () => {
       browser.sockets[0]!.commands.filter(
         (command) => command.method === "Target.attachToTarget",
       ).map((command) => command.params?.targetId),
-    ).toEqual(attached.map((command) => command.params?.targetId));
-    expect(
-      browser.sockets[0]!.commands.filter(
-        (command) => command.method === "Page.startScreencast",
-      ),
-    ).toHaveLength(1);
+    ).toEqual(["page-b"]);
   });
 
   it("reports activation failure without attaching or exposing provider errors", async () => {

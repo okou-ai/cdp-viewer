@@ -21,7 +21,12 @@ function pageIcons() {
     const link = links[i]!;
     if (link.media && !matchMedia(link.media).matches) continue;
     if (!link.getAttribute("href")) continue;
-    const url = new URL(link.href, document.baseURI);
+    let url: URL;
+    try {
+      url = new URL(link.href, document.baseURI);
+    } catch {
+      continue;
+    }
     if (!["http:", "https:", "data:"].includes(url.protocol)) continue;
     if (url.href.length > 16_384) continue;
     const sizes = link.sizes.value.toLowerCase().split(/\s+/);

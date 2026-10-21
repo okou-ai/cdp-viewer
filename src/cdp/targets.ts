@@ -3,10 +3,17 @@ import { CdpClient } from "./client";
 import { CdpFault, isRecord } from "./errors";
 
 export class TargetDirectory {
+  private faviconEligibility = new Map<string, boolean>();
+
   constructor(
     private readonly client: CdpClient,
     private readonly windowId: number | undefined,
   ) {}
+
+  /** A known blank tab has no site icon; missing URL metadata remains optional. */
+  mayHaveFavicon(targetId: string): boolean {
+    return this.faviconEligibility.get(targetId) ?? true;
+  }
 
   async assertMember(targetId: string): Promise<void> {
     if (this.windowId === undefined) return;
@@ -53,6 +60,7 @@ export class TargetDirectory {
       );
     }
     const pages: ViewerTarget[] = [];
+    const faviconEligibility = new Map<string, boolean>();
     for (const info of raw.targetInfos as unknown[]) {
       if (
         !isRecord(info) ||
@@ -75,8 +83,15 @@ export class TargetDirectory {
               : "Untitled page",
         }),
       );
+      faviconEligibility.set(
+        info.targetId,
+        !(typeof info.url === "string" && /^about:blank(?:#|$)/.test(info.url)),
+      );
     }
-    if (this.windowId === undefined) return Object.freeze(pages);
+    if (this.windowId === undefined) {
+      this.faviconEligibility = faviconEligibility;
+      return Object.freeze(pages);
+    }
 
     const members: ViewerTarget[] = [];
     // Avoid an unbounded fan-out into the transport's request map.
@@ -95,6 +110,9 @@ export class TargetDirectory {
       );
       for (const page of results) if (page) members.push(page);
     }
+    this.faviconEligibility = new Map(
+      members.map((target) => [target.id, faviconEligibility.get(target.id)!]),
+    );
     return Object.freeze(members);
   }
 
