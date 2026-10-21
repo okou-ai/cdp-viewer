@@ -19,12 +19,14 @@ adding extensions; ordinary CDP must remain usable independently.
 - `src/cdp/`: native WebSocket transport, protocol diagnostics and window lookup.
 - `src/viewer/`: controller/session lifecycle, ccstate model and public types.
 - `src/react/`: React component and private context/subscription bridge.
+- `src/state/`: per-instance Store entry and private React subscription bridge.
 - `src/render/`: Canvas decoding, frame queue and painting.
 - `src/input/`: DOM adapter, native composition model, lifecycle transition/pressed
   input state, owner-bound CDP queue and image/CSS geometry. Read
   `docs/input-lifecycle.md` before changing input ownership or cleanup.
 - `src/styles.css`: source styles; `styles/viewer.css`: committed compiled CSS.
 - `scripts/`: CSS generation/checks and independent consumer verification.
+- `tools/eslint/`: local strict React/ccstate rules and real-config regressions.
 - `tests/unit/`: Vitest, Testing Library and a fake external CDP wire.
 - `tests/browser/`: Playwright fixtures with test-owned Chromium windows.
 - `tests/consumer/`: separately installed React/Vite host and SSR fixtures.
@@ -87,6 +89,18 @@ For unpushed changes, `CDP_VIEWER_CONSUMER_SOURCE=tarball pnpm test:package` is 
 supplementary local check; it does not establish real GitHub installation.
 
 ## Runtime Invariants
+
+Read [docs/state-architecture.md](docs/state-architecture.md) before changing state
+or React boundaries. Ordinary views read projections and dispatch commands from
+event handlers. Keep writable atoms private and preserve independent viewer
+Stores. Only named definition files have the individual primitive capabilities
+listed there; do not add broad exemptions or inline suppressions. `pnpm lint`
+also runs the architecture rule regressions.
+
+Keep lint rules simple and focused on ordinary code and likely mistakes. Follow
+the documented rule design policy; a deliberately constructed bypass alone does
+not justify more analysis or special cases. Preserve multi-instance behavior
+through implementation, behavioral tests and review.
 
 - Each viewer owns its socket, request IDs, pending requests, timers, sessions,
   store and renderer. Do not introduce an implicit endpoint-keyed global pool.

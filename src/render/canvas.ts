@@ -82,7 +82,15 @@ export class CanvasRenderer implements FrameSink {
       return;
     }
     this.queued = { data, generation: this.generation, painted, failed };
-    if (!this.decoding) void this.drain();
+    if (!this.decoding) {
+      const generation = this.generation;
+      this.drain().catch(() => {
+        if (!this.disposed && generation === this.generation)
+          failed(
+            new CdpFault("frame", "The live frame could not be rendered."),
+          );
+      });
+    }
   }
 
   reset(): void {

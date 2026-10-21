@@ -1,16 +1,20 @@
 import { CdpViewer } from "cdp-viewer";
-import type { CdpViewerProps } from "cdp-viewer";
 import { Monitor, Plus, RotateCw, X } from "lucide-react";
-import { useId, useRef, useState } from "react";
-import type { FormEvent } from "react";
-
-type Connection = Pick<CdpViewerProps, "cdpUrl" | "windowId"> & {
-  generation: number;
-};
+import { demoScope } from "./context";
+import type { Panel } from "./model";
 
 export function App() {
-  const [panels, setPanels] = useState([1]);
-  const nextId = useRef(2);
+  return (
+    <demoScope.Provider>
+      <DemoView />
+    </demoScope.Provider>
+  );
+}
+
+function DemoView() {
+  const model = demoScope.useModel();
+  const panels = demoScope.useValue(model.panels$);
+  const add = demoScope.useCommand(model.add$);
 
   return (
     <main className="demo">
@@ -70,26 +74,13 @@ export function App() {
 
       <div className="demo-section-heading">
         <h2>Browser views</h2>
-        <button
-          type="button"
-          className="demo-button"
-          onClick={() => {
-            const id = nextId.current++;
-            setPanels((current) => [...current, id]);
-          }}
-        >
+        <button type="button" className="demo-button" onClick={() => add()}>
           <Plus size={16} aria-hidden="true" /> Add viewer
         </button>
       </div>
       <div className="demo-panels">
-        {panels.map((id) => (
-          <ConnectionPanel
-            key={id}
-            number={id}
-            onRemove={() =>
-              setPanels((current) => current.filter((n) => n !== id))
-            }
-          />
+        {panels.map((panel) => (
+          <ConnectionPanel key={panel.id} panel={panel} />
         ))}
       </div>
       {!panels.length && (
@@ -103,55 +94,15 @@ export function App() {
   );
 }
 
-function ConnectionPanel({
-  number,
-  onRemove,
-}: {
-  number: number;
-  onRemove: () => void;
-}) {
-  const id = useId();
-  const [endpoint, setEndpoint] = useState("");
-  const [windowDraft, setWindowDraft] = useState("");
-  const [connection, setConnection] = useState<Connection | null>(null);
-  const [error, setError] = useState<"endpoint" | "window" | null>(null);
-  const generation = useRef(0);
-
-  function connect(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const cdpUrl = endpoint.trim();
-    try {
-      const url = new URL(cdpUrl);
-      // URL.hash is also empty when the URL ends with a bare fragment marker.
-      if (
-        !["ws:", "wss:"].includes(url.protocol) ||
-        url.username ||
-        url.password ||
-        url.href.includes("#")
-      ) {
-        setError("endpoint");
-        return;
-      }
-    } catch {
-      setError("endpoint");
-      return;
-    }
-    const value = windowDraft.trim();
-    const windowId = value === "" ? undefined : Number(value);
-    if (
-      value !== "" &&
-      (!/^[+-]?\d+$/.test(value) || !Number.isSafeInteger(windowId))
-    ) {
-      setError("window");
-      return;
-    }
-    setError(null);
-    setConnection({
-      cdpUrl,
-      ...(windowId === undefined ? {} : { windowId }),
-      generation: ++generation.current,
-    });
-  }
+function ConnectionPanel({ panel }: { panel: Panel }) {
+  const { id: number, endpoint, windowDraft, connection, error } = panel;
+  const model = demoScope.useModel();
+  const id = demoScope.useIdentity() + "-" + number;
+  const remove = demoScope.useCommand(model.remove$);
+  const edit = demoScope.useCommand(model.edit$);
+  const connect = demoScope.useCommand(model.connect$);
+  const reconnect = demoScope.useCommand(model.reconnect$);
+  const disconnect = demoScope.useCommand(model.disconnect$);
 
   return (
     <section className="demo-panel" aria-labelledby={`${id}-heading`}>
@@ -161,14 +112,17 @@ function ConnectionPanel({
           type="button"
           className="demo-icon-button"
           aria-label={`Remove viewer ${number}`}
-          onClick={onRemove}
+          onClick={() => remove(number)}
         >
           <X size={18} aria-hidden="true" />
         </button>
       </div>
       <form
         className="demo-form"
-        onSubmit={connect}
+        onSubmit={(event) => {
+          event.preventDefault();
+          connect(number);
+        }}
         noValidate
         autoComplete="off"
       >
@@ -182,7 +136,7 @@ function ConnectionPanel({
             spellCheck={false}
             placeholder="wss://…"
             value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
+            onChange={(event) => edit(number, "endpoint", event.target.value)}
             aria-invalid={error === "endpoint"}
             aria-describedby={error === "endpoint" ? `${id}-error` : undefined}
           />
@@ -198,7 +152,9 @@ function ConnectionPanel({
             autoComplete="off"
             placeholder="All windows"
             value={windowDraft}
-            onChange={(event) => setWindowDraft(event.target.value)}
+            onChange={(event) =>
+              edit(number, "windowDraft", event.target.value)
+            }
             aria-invalid={error === "window"}
             aria-describedby={error === "window" ? `${id}-error` : undefined}
           />
@@ -218,12 +174,7 @@ function ConnectionPanel({
             type="button"
             className="demo-button"
             disabled={!connection}
-            onClick={() => {
-              const next = ++generation.current;
-              setConnection(
-                (current) => current && { ...current, generation: next },
-              );
-            }}
+            onClick={() => reconnect(number)}
           >
             <RotateCw size={14} aria-hidden="true" /> Reconnect
           </button>
@@ -231,7 +182,7 @@ function ConnectionPanel({
             type="button"
             className="demo-button"
             disabled={!connection}
-            onClick={() => setConnection(null)}
+            onClick={() => disconnect(number)}
           >
             Disconnect
           </button>

@@ -236,7 +236,7 @@ export class CdpClient {
         }
       } else if (entry.settled) {
         if (entry.late) {
-          void Promise.resolve()
+          Promise.resolve()
             .then(() => entry.late?.(value.result))
             .catch(() => {
               this.close(

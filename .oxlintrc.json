@@ -2,6 +2,15 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": { "correctness": "error" },
   "rules": { "typescript/no-explicit-any": "error" },
+  "overrides": [
+    {
+      "files": ["src/**/*.{ts,tsx}", "demo/**/*.{ts,tsx}"],
+      "rules": {
+        "typescript/no-floating-promises": ["error", { "ignoreVoid": false }],
+        "typescript/no-misused-promises": "error"
+      }
+    }
+  ],
   "ignorePatterns": [
     "dist",
     "node_modules",

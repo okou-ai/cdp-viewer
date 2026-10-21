@@ -460,7 +460,10 @@ export class InputSession {
   private refreshCaret(job: InputJob): void {
     this.caretVersion++;
     this.caretJob = job;
-    if (!this.caretReading) void this.drainCaret();
+    if (!this.caretReading)
+      this.drainCaret().catch((error: unknown) => {
+        if (this.available) this.reportFailure(error);
+      });
   }
 
   private async drainCaret(): Promise<void> {

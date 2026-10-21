@@ -140,7 +140,10 @@ export class InputQueue {
       },
     };
     this.jobs.push(job);
-    if (!this.running) void this.drain();
+    if (!this.running)
+      this.drain().catch((error: unknown) => {
+        if (this.lifecycle.available) this.failed(error);
+      });
   }
 
   private async request<M extends keyof ProtocolMapping.Commands>(

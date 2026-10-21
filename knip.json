@@ -13,6 +13,7 @@
     "src/**/*.{ts,tsx,css}",
     "demo/**/*.{ts,tsx,css}",
     "tests/**/*.{ts,tsx}",
-    "scripts/*.mjs"
+    "scripts/*.mjs",
+    "tools/eslint/**/*.{js,mjs}"
   ]
 }

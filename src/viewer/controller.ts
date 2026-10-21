@@ -58,7 +58,7 @@ export class ViewerController {
   }
 
   start(): void {
-    void this.connect().catch((error: unknown) => {
+    this.connect().catch((error: unknown) => {
       if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
     });
   }
@@ -98,7 +98,7 @@ export class ViewerController {
       inputReady: !this.options.interactive,
     };
     this.selection = selection;
-    void this.attach(selection).catch((error: unknown) => {
+    this.attach(selection).catch((error: unknown) => {
       if (this.isCurrent(selection)) this.fail(error);
     });
   }
@@ -160,7 +160,10 @@ export class ViewerController {
   private refresh(): void {
     if (this.disposed || !this.connected) return;
     this.refreshWanted = true;
-    if (!this.refreshing) void this.refreshLoop();
+    if (!this.refreshing)
+      this.refreshLoop().catch((error: unknown) => {
+        if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
+      });
   }
 
   private async refreshLoop(): Promise<void> {

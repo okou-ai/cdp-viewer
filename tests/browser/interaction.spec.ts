@@ -876,6 +876,43 @@ test("navigation is explicit, validates addresses and preserves local toolbar ow
   }
 });
 
+test("interaction mode changes discard an unfinished address and resume native input", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    const address = view.getByRole("textbox", { name: "Remote page address" });
+    const currentUrl = server.origin + "/fixture/editor";
+    await address.fill(currentUrl + "?unfinished");
+    await expect(address).toBeFocused();
+    for (const interactive of [false, true]) {
+      await page.evaluate(
+        async (settings) => window.configureViewers!(settings),
+        {
+          cdpUrl: backend.endpoint,
+          windowA: windowId,
+          second: false,
+          interactive,
+        },
+      );
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      if (!interactive) await expect(address).toHaveCount(0);
+    }
+    await expect(address).toHaveValue(currentUrl);
+    expect(remote.url()).toBe(currentUrl);
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.type("after mode change");
+    await expect(remote.locator("#plain")).toHaveValue("after mode change");
+  } finally {
+    await backend.close();
+  }
+});
+
 test("blur, target replacement and unsupported frame focus discard local composition", async ({
   page,
 }, info) => {
