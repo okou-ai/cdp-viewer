@@ -74,6 +74,147 @@ async function expectColor(viewer: Locator, color: [number, number, number]) {
     .toBeLessThanOrEqual(4);
 }
 
+test("demo routes native input and navigation to independent windows", async ({
+  page,
+  browser,
+}, info) => {
+  const revision = await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  try {
+    async function editor() {
+      const created = backend.context.waitForEvent("page");
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+      });
+      const remote = await created;
+      await remote.goto(server.origin + "/fixture/red");
+      // The viewport center stays the image center under contain fitting.
+      await remote.setContent(`<!doctype html><title>Synthetic demo editor</title>
+        <style>html,body{height:100%;margin:0}body{display:grid;place-items:center}
+        input{width:240px;height:40px;font:20px sans-serif}</style>
+        <input aria-label="Fixture input">`);
+      const { windowId } = await backend.session.send(
+        "Browser.getWindowForTarget",
+        { targetId: target.targetId },
+      );
+      return { remote, windowId };
+    }
+    const first = await editor();
+    const second = await editor();
+    const a = panel(page, 1);
+    await configure(a, backend.endpoint, first.windowId);
+    await page.getByRole("button", { name: "Add viewer" }).click();
+    const b = panel(page, 2);
+    await configure(b, backend.endpoint, second.windowId);
+    const aView = a.getByRole("region", { name: "Remote browser viewer" });
+    const bView = b.getByRole("region", { name: "Remote browser viewer" });
+    await expect(aView).toHaveAttribute("data-status", "streaming");
+    await expect(bView).toHaveAttribute("data-status", "streaming");
+    await expect(aView.getByLabel("Remote browser input")).toBeEnabled();
+    await aView.getByRole("img", { name: "Live browser view" }).click();
+    await page.keyboard.insertText("first🙂");
+    await expect(first.remote.getByLabel("Fixture input")).toHaveValue(
+      "first🙂",
+    );
+    await expect(second.remote.getByLabel("Fixture input")).toHaveValue("");
+    await page.keyboard.press("F8");
+    await expect(aView.getByRole("combobox")).toBeFocused();
+
+    await bView.getByRole("img", { name: "Live browser view" }).click();
+    await page.keyboard.type("second");
+    await expect(second.remote.getByLabel("Fixture input")).toHaveValue(
+      "second",
+    );
+    await page.screenshot({
+      path: info.outputPath("interactive-demo-desktop.png"),
+      fullPage: true,
+    });
+    await a.getByLabel("CDP URL", { exact: true }).fill("wss://draft.invalid/");
+    await bView
+      .getByLabel("Remote page address")
+      .fill(server.origin + "/fixture/blue");
+    await expect(second.remote).toHaveURL(server.origin + "/fixture/red");
+    await expect(first.remote.getByLabel("Fixture input")).toHaveValue(
+      "first🙂",
+    );
+    await expect(second.remote.getByLabel("Fixture input")).toHaveValue(
+      "second",
+    );
+    await a.getByRole("button", { name: "Remove viewer 1" }).click();
+    await expect(a).toHaveCount(0);
+    expect(first.remote.isClosed()).toBe(false);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await bView.getByRole("img", { name: "Live browser view" }).click();
+    await page.keyboard.insertText(" alive");
+    await expect(second.remote.getByLabel("Fixture input")).toHaveValue(
+      "second alive",
+    );
+
+    await bView
+      .getByLabel("Remote page address")
+      .fill(server.origin + "/fixture/blue");
+    await bView.getByRole("button", { name: "Go", exact: true }).click();
+    await expect(second.remote).toHaveURL(server.origin + "/fixture/blue");
+    await expectColor(bView, [24, 80, 224]);
+    await bView.getByRole("button", { name: "Back remote page" }).click();
+    await expect(second.remote).toHaveURL(server.origin + "/fixture/red");
+    await bView.getByRole("button", { name: "Forward remote page" }).click();
+    await expect(second.remote).toHaveURL(server.origin + "/fixture/blue");
+    await second.remote.waitForLoadState();
+    const loaded = await second.remote.evaluate(() => performance.timeOrigin);
+    const reloaded = second.remote.waitForEvent("load");
+    await bView.getByRole("button", { name: "Reload remote page" }).click();
+    await reloaded;
+    expect(
+      await second.remote.evaluate(() => performance.timeOrigin),
+    ).toBeGreaterThan(loaded);
+    await expectColor(bView, [24, 80, 224]);
+    await page.screenshot({
+      path: info.outputPath("interactive-demo-mobile.png"),
+      fullPage: true,
+    });
+    const version = await backend.session.send("Browser.getVersion");
+    await writeFile(
+      info.outputPath("demo-receipt.json"),
+      JSON.stringify(
+        {
+          sourceRevision: revision,
+          frontend: process.env.CDP_VIEWER_DEMO_URL
+            ? "actual-pages-deployment"
+            : "local-production-fixture",
+          client: browser.version(),
+          backend: version.product,
+          backendKind: "test-owned Chromium, allowlisted frontend Origin",
+          localNetworkPermission: process.env.CDP_VIEWER_DEMO_URL
+            ? "explicitly granted for the owned loopback endpoint"
+            : "not required for loopback HTTP frontend",
+          pointer: true,
+          nativeText: true,
+          navigation: true,
+          localFocusIsolation: true,
+          differentWindows: true,
+          survivingPanelInput: true,
+          systemIme: "unverified",
+          otherProviders: "unverified",
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    await backend.close();
+  }
+});
+
 test("demo applies settings explicitly and isolates two real windows and cleanup", async ({
   page,
   browser,
