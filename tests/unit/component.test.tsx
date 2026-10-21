@@ -216,9 +216,11 @@ it("isolates navigation drafts and reconnect ownership while retaining native pr
     expect(addresses[0]).toHaveValue("https://fixture.invalid/"),
   );
   expect(addresses[1]).toHaveValue("https://draft-b.invalid/");
-  expect(
-    screen.getAllByRole("textbox", { name: "Remote browser input" }),
-  ).toEqual(proxies);
+  const afterReconnect = screen.getAllByRole("textbox", {
+    name: "Remote browser input",
+  });
+  expect(afterReconnect[0]).toBe(proxies[0]);
+  expect(afterReconnect[1]).toBe(proxies[1]);
   expect(siblingSocket.readyState).toBe(1);
   view.rerender(
     <>
