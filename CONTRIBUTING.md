@@ -12,6 +12,10 @@ and host-provider isolation. `pnpm lint` includes strict boundary checks and
 their positive/negative policy regressions (`pnpm test:lint`). Do not suppress
 production lint or type errors, or exempt an infrastructure directory.
 
+See [engineering documentation](docs/README.md) for documentation scope and the
+architecture and validation guides. Demo usage and interaction instructions live
+alongside the demo.
+
 Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
 
 ```text

@@ -3,7 +3,7 @@
 ## Project
 
 `cdp-viewer` is a generic browser-side React library for existing Chrome DevTools
-Protocol browsers. Read `README.md`, `CONTRIBUTING.md` and `docs/validation.md`
+Protocol browsers. Read `README.md`, `CONTRIBUTING.md` and `docs/README.md`
 before changing behavior or making compatibility claims.
 
 The current component supports view-only streaming, target selection, optional
@@ -94,7 +94,8 @@ Read [docs/state-architecture.md](docs/state-architecture.md) before changing st
 or React boundaries. Ordinary views read projections and dispatch commands from
 event handlers. Keep writable atoms private and preserve independent viewer
 Stores. Only named definition files have the individual primitive capabilities
-listed there; do not add broad exemptions or inline suppressions. `pnpm lint`
+defined in `tools/eslint/policy.js`; do not add broad exemptions or inline
+suppressions. `pnpm lint`
 also runs the architecture rule regressions.
 
 Keep lint rules simple and focused on ordinary code and likely mistakes. Follow
@@ -134,6 +135,10 @@ through implementation, behavioral tests and review.
 - Use [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
 - Keep README focused on the library and its usage; do not add issue references,
   internal delivery phases or task-tracking notes.
+- Keep `docs/` focused on coding principles, architecture and validation methods.
+  Put demo instructions and interaction behavior in `demo/`. Keep concrete
+  business rules in implementation/tests and dated results in PRs, issues or CI
+  artifacts rather than permanent engineering guidance.
 - Record actual tested capabilities and limitations. A Node CDP connection does
   not prove browser Origin/TLS access. Do not claim provider, hosted, other-browser,
   same-target concurrent stream or physical OS IME compatibility without evidence.

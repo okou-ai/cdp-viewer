@@ -5,7 +5,7 @@ It provides **live streaming, target selection, optional window filtering,
 and independent viewers**. Viewers are read-only by default. Enable `interactive`
 for mouse, keyboard, native text composition and remote navigation. Clipboard
 transfer and vendor adapters are not yet supported. Genuine macOS/Windows IME
-validation remains pending; see the [interaction support matrix](docs/interaction.md).
+validation remains pending; see the [interaction support matrix](demo/interaction.md).
 
 The package stays private and is distributed as source from GitHub. No npm
 registry publication is planned.
@@ -25,7 +25,7 @@ focus. Clipboard transfer and focused-frame typing remain unsupported; genuine
 macOS/Windows system IME validation is pending. Connection details stay in page
 memory and are cleared on refresh. An HTTPS page normally needs a
 `wss://` endpoint whose server permits the page's Origin. See the
-[connection and deployment guide](docs/demo.md) for parameters, network
+[connection and deployment guide](demo/README.md) for parameters, network
 requirements and compatibility evidence.
 
 ## Install from GitHub
@@ -117,7 +117,7 @@ fields retain their own input. **F8** releases remote keyboard focus to the page
 selector. Composition stays in a stable local textarea and sends committed text
 once through CDP; candidate confirmation is distinct from a later remote Enter.
 The navigation toolbar accepts absolute HTTP(S) addresses and supports reload and
-available history. See [interaction behavior and limits](docs/interaction.md).
+available history. See [interaction behavior and limits](demo/interaction.md).
 
 Each instance has its own socket, request IDs, timers, controller, private ccstate
 store/context, Canvas queue, and cleanup. A host `ccstate-react` provider is
@@ -192,7 +192,7 @@ Initial automation targets current desktop Chromium. Experimental remote CDP
 capabilities, provider Origin/TLS policy and other client browsers must be recorded
 before compatibility is claimed. Browser Use connectivity and connections from
 GitHub Pages require their own deployed-Origin evidence; see the
-[demo guide](docs/demo.md).
+[demo guide](demo/README.md).
 
 ## Contributing
 
