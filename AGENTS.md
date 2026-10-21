@@ -127,7 +127,9 @@ through implementation, behavioral tests and review.
   send preedit/control keys through the committed-text path. Discard unsent work
   after ownership loss; never retry uncertain input/navigation. Preserve local
   toolbar/host focus and release owned keys/buttons. F8 exits remote keyboard
-  focus. Clipboard transfer and focused iframe input require separate support.
+  focus. Route input through Chromium's current native focus; DOM caret metadata
+  is optional and must not authorize or block input. Clipboard transfer requires
+  separate support.
 
 ## Documentation and Change Hygiene
 

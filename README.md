@@ -21,7 +21,7 @@ you choose **Apply & connect**; reconnect uses the last applied settings.
 
 The demo enables interaction: click the live page to use your mouse and keyboard,
 or use its address and history controls. Press **F8** to release remote keyboard
-focus. Clipboard transfer and focused-frame typing remain unsupported; genuine
+focus. Clipboard transfer remains unsupported; genuine
 macOS/Windows system IME validation is pending. Connection details stay in page
 memory and are cleared on refresh. An HTTPS page normally needs a
 `wss://` endpoint whose server permits the page's Origin. See the
@@ -115,8 +115,10 @@ data; do not log or persist snapshots indiscriminately.
 
 Click the remote image to focus its native input proxy. Local toolbar and host
 fields retain their own input. **F8** releases remote keyboard focus to the page
-selector. Composition stays in a stable local textarea and sends committed text
-once through CDP; candidate confirmation is distinct from a later remote Enter.
+selector. Keyboard input follows Chromium's current focus, including automatic
+focus changes and focused frames. Composition stays in a stable local textarea
+and sends committed text once through CDP; candidate confirmation is distinct
+from a later remote Enter. Optional caret metadata does not block input.
 The navigation toolbar accepts absolute HTTP(S) addresses and supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).
 

@@ -7,7 +7,7 @@ command queue and selected-target CDP session. No endpoint-keyed global input
 owner or document-wide keyboard handler is installed.
 
 Lifecycle transitions and cleanup use one coordinator, with separate native
-composition state and an owner-bound serial executor. See the
+composition state and an owner-bound ordered executor. See the
 [input lifecycle architecture](../docs/input-lifecycle.md) for ownership and
 concurrency principles.
 
@@ -41,8 +41,9 @@ visibility still apply, and pausing discards unsent input as described below.
 
 A stable, uncontrolled, visually transparent textarea hosts the local OS input
 method. It remains rendered and focusable; `display:none`, `visibility:hidden`
-and `type=hidden` cannot do this. Ordinary committed text and completed Unicode
-composition use `Input.insertText`. Preedit stays local. Composition/input event
+and `type=hidden` cannot do this. Ordinary desktop keys use native keyboard
+events. Completed Unicode composition and native text input use
+`Input.insertText`. Preedit stays local. Composition/input event
 ordering is consumed as a value boundary so a trailing final input does not
 duplicate committed text or suppress a subsequent identical character.
 Cancellation sends no text. IME/229/composing Enter is kept separate from a later
@@ -54,26 +55,31 @@ For ordinary contenteditable selections, a collapsed DOM range supplies the
 candidate anchor where available. Native input/textarea controls do not expose a
 standard caret rectangle, so the fallback is near the focused control's top-left
 editing area; the initial click is the fallback before remote geometry resolves.
+Caret reads are optional and follow the current focused control through
+accessible frames and shadow roots. Missing metadata, including inaccessible
+cross-origin frames, leaves the click anchor in place and does not reject input.
 The proxy uses the measured image transform and does not mirror remote values.
 Exact native candidate-window placement still requires actual OS validation.
 
 ## Ownership, navigation and uncertain outcomes
 
-The remote focus guard retains the expected connected top-document/open-shadow
-element, rather than choosing a control by title or cached selection. A changed
-element or unsupported focused iframe rejects text with a fixed diagnostic;
-click a supported control to recover. Pointer viewing/clicking a frame does not
-establish supported keyboard/composition routing into it.
+Chromium routes keyboard and text events to its current native focus, including
+same/cross-origin frames, Tab navigation and controls that a site replaces or
+automatically focuses. Input does not require a retained DOM element or editable
+control lookup. The browser decides whether the focused control accepts an event.
 
 Unsent work is discarded on local blur, target/session replacement, observed
 document/context navigation, pause, disconnect and unmount. Async continuations
-check their original owner before sending. Owned key/button releases and late
-focus-object cleanup use their original connection. Queued input/navigation is
-never automatically replayed. CDP cannot atomically bind `Input.insertText` to a remote
-DOM element: a site can move focus between the guard and an already-sent command.
+check their original owner before sending. Owned key/button releases use their
+original connection. Input sends remain ordered while acknowledgements settle
+independently, with a combined bound on queued and in-flight work. Explicit toolbar
+navigation waits for previously sent input to settle. Queued input/navigation is
+never automatically replayed. A site can move its native focus before an
+already-sent event executes.
 Already accepted remote input cannot be cancelled or rolled back.
 
-Pressed keys remain owned until their `keyUp` response confirms release. A failed
+Pressed keys/buttons remain owned until their matching release response confirms
+release. An old response cannot clear a later press of the same key/button. A failed
 or interrupted release still permits best-effort release cleanup on the original
 session, which can send an additional `keyUp` when its outcome is unknown.
 Committed text and navigation are not replayed by this cleanup.
@@ -91,18 +97,19 @@ in memory and may contain sensitive data; do not record them in snapshots/logs.
 
 ## Support and evidence matrix
 
-| Surface                                          | Automated fixture                                     | Candidate anchor / limitation                                                 |
-| ------------------------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Top-document text input                          | Native text/emoji, selection, deletion, undo/redo     | Control rectangle fallback; not an exact input caret                          |
-| Top-document textarea                            | Text and ordinary Enter/newline                       | Control rectangle fallback                                                    |
-| Native contenteditable with nested rich markup   | Text replacement and Unicode                          | Collapsed selection range when exposed                                        |
-| Open shadow-root text input                      | Native text input through an actual open-root control | Closed roots are not supported                                                |
-| Focused same-origin iframe                       | Explicit rejection without writing another control    | Frame-context input routing is not implemented                                |
-| Cross-origin / out-of-process iframe             | Not separately probed                                 | Outside the supported input boundary                                          |
-| Application editors such as ProseMirror/Lexical  | Not verified                                          | No application-specific editor compatibility claim                            |
-| macOS system IMEs                                | Pending genuine OS receipt                            | Candidate placement, confirmation/cancellation and focus transitions required |
-| Windows system IMEs                              | Pending genuine OS receipt                            | Same required native scenarios                                                |
-| Other frontend browsers / provider CDP endpoints | Not verified by owned Chromium fixtures               | Capability, Origin and platform evidence required                             |
+| Surface                                          | Automated fixture                                      | Candidate anchor / limitation                                                 |
+| ------------------------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Top-document text input                          | Native text/emoji, selection, deletion, undo/redo      | Control rectangle fallback; not an exact input caret                          |
+| Top-document textarea                            | Text and ordinary Enter/newline                        | Control rectangle fallback                                                    |
+| Native contenteditable with nested rich markup   | Text replacement and Unicode                           | Collapsed selection range when exposed                                        |
+| Open shadow-root text input                      | Native text input through an actual open-root control  | Closed-root candidate geometry is unavailable                                 |
+| Automatic focus handoff / replaced input         | Sequential native keys reach the current control       | DOM identity changes do not require clicking again                            |
+| Focused same-origin iframe                       | Keys, Unicode, Tab, textarea and contenteditable       | Accessible frame metadata can supply an anchor                                |
+| Cross-origin / out-of-process iframe             | Same native input scenarios in an owned isolated frame | Click anchor when DOM metadata is inaccessible                                |
+| Application editors such as ProseMirror/Lexical  | Not verified                                           | No application-specific editor compatibility claim                            |
+| macOS system IMEs                                | Pending genuine OS receipt                             | Candidate placement, confirmation/cancellation and focus transitions required |
+| Windows system IMEs                              | Pending genuine OS receipt                             | Same required native scenarios                                                |
+| Other frontend browsers / provider CDP endpoints | Not verified by owned Chromium fixtures                | Capability, Origin and platform evidence required                             |
 
 Synthetic composition exercises browser routing and event ordering, not a real
 system IME. Genuine receipts must record source revision, client OS/browser,

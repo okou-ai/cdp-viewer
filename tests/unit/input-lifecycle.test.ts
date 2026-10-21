@@ -39,24 +39,29 @@ async function mount() {
 }
 
 describe("owned remote input", () => {
-  describe.each(["Runtime.evaluate", "Runtime.callFunctionOn"] as const)(
+  describe.each(["Runtime.evaluate"] as const)(
     "%s result ownership",
     (method) => {
       it.each(["active", "blurred", "timed-out"] as const)(
-        "releases both exception handles when the request is %s without replaying input",
+        "releases optional metadata exception handles when %s without blocking input",
         async (outcome) => {
           const { browser, controller, model, socket } = await mount();
           const input = controller.input!;
           if (outcome === "timed-out") vi.useFakeTimers();
           browser.holdMethod = method;
-          if (method === "Runtime.evaluate") input.focus();
-          else input.text("discard on exception");
+          input.focus();
           await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
           const held = browser.heldCommands[0]!;
+          input.text("independent of metadata");
+          await vi.waitFor(() =>
+            expect(
+              socket.commands.filter((c) => c.method === "Input.insertText"),
+            ).toHaveLength(1),
+          );
           if (outcome === "blurred") input.blur();
           else if (outcome === "timed-out") {
             await vi.advanceTimersByTimeAsync(10_000);
-            expect(model.getSnapshot().error?.kind).toBe("input");
+            expect(model.getSnapshot().error).toBeNull();
           }
           browser.holdMethod = null;
           held.socket.reply(held.command, {
@@ -97,7 +102,11 @@ describe("owned remote input", () => {
             socket.commands.filter(
               (command) => command.method === "Input.insertText",
             ),
-          ).toEqual([]);
+          ).toEqual([
+            expect.objectContaining({
+              params: { text: "independent of metadata" },
+            }),
+          ]);
           input.focus();
           input.text("recovered after exception");
           await vi.waitFor(() =>
@@ -106,6 +115,9 @@ describe("owned remote input", () => {
                 (command) => command.method === "Input.insertText",
               ),
             ).toEqual([
+              expect.objectContaining({
+                params: { text: "independent of metadata" },
+              }),
               expect.objectContaining({
                 params: { text: "recovered after exception" },
               }),
@@ -167,16 +179,16 @@ describe("owned remote input", () => {
 
   it("discards a saturated queue and recovers without sending its stale keys", async () => {
     const { browser, controller, socket, model } = await mount();
-    browser.holdMethod = "Runtime.callFunctionOn";
+    browser.holdMethod = "Input.dispatchKeyEvent";
     const input = controller.input!;
     input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-    for (let index = 0; index < 65; index++)
+    // The held write counts toward the 64 queued/in-flight operation bound.
+    for (let index = 0; index < 64; index++)
       input.key({ type: "rawKeyDown", key: "ArrowRight", code: "ArrowRight" });
     expect(model.getSnapshot().error?.kind).toBe("input");
-    const held = browser.heldCommands[0]!;
     browser.holdMethod = null;
-    held.socket.reply(held.command, { result: { value: {} } });
+    for (const held of browser.heldCommands) held.socket.reply(held.command);
     input.focus();
     input.text("recovered queue");
     await vi.waitFor(() =>
@@ -186,14 +198,21 @@ describe("owned remote input", () => {
     );
     expect(
       socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ key: "Shift", type: "rawKeyDown" }),
+      }),
+      expect.objectContaining({
+        params: expect.objectContaining({ key: "Shift", type: "keyUp" }),
+      }),
+    ]);
     expect(
       socket.commands.find((c) => c.method === "Input.insertText")?.params
         ?.text,
     ).toBe("recovered queue");
   });
 
-  it("releases a late focus object through its original session before current input", async () => {
+  it("releases an unexpected late metadata handle through its original session", async () => {
     const { browser, controller, socket } = await mount();
     browser.holdMethod = "Runtime.evaluate";
     const input = controller.input!;
@@ -225,9 +244,10 @@ describe("owned remote input", () => {
     ).toBe("current focus");
   });
 
-  it("drops text waiting on a focus guard when the selected target is replaced", async () => {
+  it("drops queued text behind pointer preparation when the target is replaced", async () => {
     const { browser, controller, socket } = await mount();
-    browser.holdMethod = "Runtime.callFunctionOn";
+    browser.holdMethod = "Page.getLayoutMetrics";
+    controller.input!.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
     controller.input!.text("old target text");
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
     const held = browser.heldCommands[0]!;
@@ -238,7 +258,7 @@ describe("owned remote input", () => {
     );
     await vi.waitFor(() => expect(controller.input).not.toBeNull());
     held.socket.reply(held.command, {
-      result: { value: { editable: true, supported: true, x: 10, y: 20 } },
+      cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
     });
     controller.input!.focus();
     controller.input!.text("new target text");
@@ -259,8 +279,9 @@ describe("owned remote input", () => {
 
   it("discards a pending text operation when its document navigates", async () => {
     const { browser, controller, socket } = await mount();
-    browser.holdMethod = "Runtime.callFunctionOn";
+    browser.holdMethod = "Page.getLayoutMetrics";
     const input = controller.input!;
+    input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
     input.text("stale document text");
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
     socket.emit(
@@ -270,7 +291,7 @@ describe("owned remote input", () => {
     );
     const held = browser.heldCommands[0]!;
     held.socket.reply(held.command, {
-      result: { value: { editable: true, supported: true, x: 10, y: 20 } },
+      cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
     });
     browser.holdMethod = null;
     input.focus();
@@ -380,6 +401,110 @@ describe("owned remote input", () => {
       ]);
     },
   );
+
+  it("retains a later key press when an earlier key-up reply arrives", async () => {
+    const { browser, controller, socket } = await mount();
+    const input = controller.input!;
+    browser.holdMethod = "Input.dispatchKeyEvent";
+    const key = { key: "Shift", code: "ShiftLeft", modifiers: 8 };
+    input.key({ type: "rawKeyDown", ...key });
+    input.key({ type: "keyUp", ...key, modifiers: 0 });
+    input.key({ type: "rawKeyDown", ...key });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(3));
+    const oldRelease = browser.heldCommands[1]!;
+    oldRelease.socket.reply(oldRelease.command);
+    await vi.waitFor(() =>
+      expect(
+        oldRelease.socket.commands.filter(
+          (c) => c.method === "Input.dispatchKeyEvent",
+        ),
+      ).toHaveLength(3),
+    );
+    // Drain the reply continuation before cleanup inspects the later press.
+    await Promise.resolve();
+    await Promise.resolve();
+    input.blur();
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.dispatchKeyEvent")
+        .map((c) => c.params?.type),
+    ).toEqual(["rawKeyDown", "keyUp", "rawKeyDown", "keyUp"]);
+    browser.holdMethod = null;
+    for (const held of browser.heldCommands) held.socket.reply(held.command);
+  });
+
+  it("retains a later mouse press when an earlier release reply arrives", async () => {
+    const { browser, controller, socket } = await mount();
+    const input = controller.input!;
+    browser.holdMethod = "Input.dispatchMouseEvent";
+    const point = { x: 0.25, y: 0.5 };
+    input.pointer("mousePressed", point, { button: "left", buttons: 1 });
+    input.pointer("mouseReleased", point, { button: "left", buttons: 0 });
+    input.pointer("mousePressed", point, { button: "left", buttons: 1 });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(3));
+    const oldRelease = browser.heldCommands[1]!;
+    oldRelease.socket.reply(oldRelease.command);
+    await Promise.resolve();
+    await Promise.resolve();
+    input.blur();
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.dispatchMouseEvent")
+        .map((c) => c.params?.type),
+    ).toEqual([
+      "mousePressed",
+      "mouseReleased",
+      "mousePressed",
+      "mouseReleased",
+    ]);
+    browser.holdMethod = null;
+    for (const held of browser.heldCommands) held.socket.reply(held.command);
+  });
+
+  it("waits for dispatched input before sending toolbar navigation without replay", async () => {
+    const { browser, controller, socket } = await mount();
+    const input = controller.input!;
+    browser.holdMethod = "Input.insertText";
+    input.text("accepted once");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.navigate({ url: "https://fixture.invalid/next" });
+    await Promise.resolve();
+    expect(socket.commands.some((c) => c.method === "Page.navigate")).toBe(
+      false,
+    );
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Page.navigate"),
+      ).toHaveLength(1),
+    );
+    expect(
+      socket.commands.filter((c) => c.method === "Input.insertText"),
+    ).toHaveLength(1);
+  });
+
+  it("ignores an old write failure after a new local input owner takes over", async () => {
+    const { browser, controller, socket, model } = await mount();
+    const input = controller.input!;
+    browser.holdMethod = "Input.insertText";
+    input.text("old uncertain input");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.blur();
+    browser.holdMethod = null;
+    input.text("current input");
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(2),
+    );
+    const old = browser.heldCommands[0]!;
+    old.socket.reject(old.command, -32000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(model.getSnapshot().error).toBeNull();
+  });
 
   it("does not retry an accepted text write when the owning socket disconnects", async () => {
     const { browser, controller, model, socket } = await mount();
@@ -504,7 +629,8 @@ describe("owned remote input", () => {
         ),
       ).toBe(true),
     );
-    browser.holdMethod = "Runtime.callFunctionOn";
+    browser.holdMethod = "Page.getLayoutMetrics";
+    input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
     input.text("discard on main context loss");
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
     socket.emit(
@@ -513,7 +639,9 @@ describe("owned remote input", () => {
       input.sessionId,
     );
     const held = browser.heldCommands[0]!;
-    held.socket.reply(held.command, { result: { value: {} } });
+    held.socket.reply(held.command, {
+      cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+    });
     browser.holdMethod = null;
     input.focus();
     input.text("new main context");

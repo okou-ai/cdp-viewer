@@ -21,19 +21,15 @@ it.each(transitions)(
   (reason, release, terminal) => {
     const lifecycle = new InputLifecycle("owned-session");
     const owner = lifecycle.owner;
-    lifecycle.beginFocus(owner);
-    lifecycle.acceptFocus(owner, "owned-focus");
     lifecycle.pressKey(owner, shift);
     lifecycle.pointer(owner, { x: 20, y: 40 }, "left");
     const cleanup = lifecycle.transition(reason)!;
     expect(lifecycle.owns(owner)).toBe(false);
     expect(lifecycle.available).toBe(!terminal);
     expect(cleanup.owner).toBe(owner);
-    expect(cleanup.objectId).toBe("owned-focus");
     expect(cleanup.keys).toEqual(release ? [shift] : []);
     expect(cleanup.buttons).toEqual(release ? ["left"] : []);
     expect(cleanup.point).toEqual({ x: 20, y: 40 });
-    expect(lifecycle.focusedObject(lifecycle.owner)).toBeNull();
     expect(lifecycle.transition(reason)?.keys ?? []).toEqual([]);
     expect(lifecycle.transition(reason)?.buttons ?? []).toEqual([]);
     if (terminal) expect(lifecycle.transition("blur")).toBeNull();
@@ -47,21 +43,20 @@ it.each([
   "document-lost",
   "failed",
 ] as const)(
-  "late focus and release results cannot alter a new owner after %s",
+  "late release results cannot alter a new owner after %s",
   (reason) => {
     const lifecycle = new InputLifecycle("owned-session");
     const old = lifecycle.owner;
     lifecycle.pressKey(old, shift);
+    const oldKey = lifecycle.pressedKey(old, shift);
+    lifecycle.pointer(old, { x: 20, y: 30 }, "left");
+    const oldButton = lifecycle.pressedButton(old, "left");
     lifecycle.transition(reason);
     const current = lifecycle.owner;
-    lifecycle.beginFocus(current);
-    lifecycle.acceptFocus(current, "new-focus");
     lifecycle.pressKey(current, shift);
     lifecycle.pointer(current, { x: 80, y: 90 }, "left");
-    lifecycle.acceptFocus(old, "late-old-focus");
-    lifecycle.releaseKey(old, shift);
-    lifecycle.releaseButton(old, "left");
-    expect(lifecycle.focusedObject(current)).toBe("new-focus");
+    lifecycle.releaseKey(old, shift, oldKey);
+    lifecycle.releaseButton(old, "left", oldButton);
     const cleanup = lifecycle.transition("blur")!;
     expect(cleanup.keys).toEqual([shift]);
     expect(cleanup.buttons).toEqual(["left"]);
@@ -78,6 +73,34 @@ it("keeps tokens isolated even when two connections reuse the same session ID", 
   expect(first.transition("blur")!.keys).toEqual([]);
 });
 
+it("keeps a later press owned when an earlier release is acknowledged", () => {
+  const lifecycle = new InputLifecycle("owned-session");
+  const owner = lifecycle.owner;
+  const point = { x: 20, y: 30 };
+  lifecycle.pressKey(owner, shift);
+  lifecycle.pointer(owner, point, "left");
+  const oldKey = lifecycle.pressedKey(owner, shift);
+  const oldButton = lifecycle.pressedButton(owner, "left");
+  // Reusing caller objects must still create distinct press generations.
+  lifecycle.pressKey(owner, shift);
+  lifecycle.pointer(owner, point, "left");
+  lifecycle.releaseKey(owner, shift, oldKey);
+  lifecycle.releaseButton(owner, "left", oldButton);
+  expect(lifecycle.transition("blur")).toMatchObject({
+    keys: [shift],
+    buttons: ["left"],
+  });
+});
+
+it("owns distinct keys when a native keyboard provides an empty code", () => {
+  const lifecycle = new InputLifecycle("owned-session");
+  const modifier = { ...shift, code: "" };
+  const letter = { type: "keyDown", key: "a", code: "" } as const;
+  lifecycle.pressKey(lifecycle.owner, modifier);
+  lifecycle.pressKey(lifecycle.owner, letter);
+  expect(lifecycle.transition("blur")!.keys).toEqual([modifier, letter]);
+});
+
 it("preserves pressed-input accounting across bounded event sequences", () => {
   const actions = ["press", "acknowledge", "cancel"] as const;
   for (const a of actions)
@@ -91,7 +114,11 @@ it("preserves pressed-input accounting across bounded event sequences", () => {
               lifecycle.pressKey(lifecycle.owner, shift);
               held = true;
             } else if (action === "acknowledge") {
-              lifecycle.releaseKey(lifecycle.owner, shift);
+              lifecycle.releaseKey(
+                lifecycle.owner,
+                shift,
+                lifecycle.pressedKey(lifecycle.owner, shift),
+              );
               held = false;
             } else {
               expect(lifecycle.transition("blur")!.keys).toHaveLength(

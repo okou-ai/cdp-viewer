@@ -112,7 +112,17 @@ export class FakeBrowser {
           break;
         case "Runtime.evaluate":
           socket.reply(command, {
-            result: { type: "object", objectId: "focus-" + command.sessionId },
+            result: {
+              type: "object",
+              value: {
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 600,
+                offsetX: 0,
+                offsetY: 0,
+              },
+            },
           });
           break;
         case "Runtime.callFunctionOn":

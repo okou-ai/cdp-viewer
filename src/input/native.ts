@@ -6,27 +6,6 @@ import type { InputSession } from "./session";
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
 const buttonMasks = [1, 4, 2, 8, 16] as const;
-const controlKeys: ReadonlySet<string> = new Set([
-  " ",
-  "Enter",
-  "Tab",
-  "Backspace",
-  "Delete",
-  "Escape",
-  "ArrowLeft",
-  "ArrowRight",
-  "ArrowUp",
-  "ArrowDown",
-  "Home",
-  "End",
-  "PageUp",
-  "PageDown",
-  "Shift",
-  "Control",
-  "Alt",
-  "Meta",
-]);
-
 function modifiers(event: MouseEvent | KeyboardEvent): number {
   return (
     (event.altKey ? 1 : 0) |
@@ -163,8 +142,8 @@ export class NativeInput {
     )
       this.clearMove();
     // Preserve queued gestures, held modifiers and the consumed composition
-    // boundary for another click in the same viewer. The serialized press
-    // changes remote focus after preceding committed input has completed.
+    // boundary for another click in the same viewer. The ordered press follows
+    // preceding committed input on the same CDP session.
     this.place(point);
     this.pointerId = event.pointerId;
     this.proxy.focus({ preventScroll: true });
@@ -315,15 +294,15 @@ export class NativeInput {
     }
     const shortcut =
       (event.ctrlKey || event.metaKey) && !event.getModifierState("AltGraph");
-    if (!controlKeys.has(event.key) && !shortcut) return;
+    const printable = Array.from(event.key).length === 1;
     if (!["Shift", "Control", "Alt", "Meta"].includes(event.key))
       event.preventDefault();
     if (shortcut && ["c", "v", "x"].includes(event.key.toLowerCase())) return;
     const text =
       event.key === "Enter"
         ? "\r"
-        : event.key === " " && !shortcut
-          ? " "
+        : printable && !shortcut
+          ? event.key
           : undefined;
     const key: Protocol.Input.DispatchKeyEventRequest = {
       type: text === undefined ? "rawKeyDown" : "keyDown",
@@ -341,12 +320,12 @@ export class NativeInput {
         key.commands = [event.shiftKey ? "redo" : "undo"];
       else if (letter === "y") key.commands = ["redo"];
     }
-    this.forwarded.add(event.code);
+    this.forwarded.add(event.code || event.key);
     this.input()?.key(key);
   };
 
   private readonly keyUp = (event: KeyboardEvent) => {
-    if (!this.forwarded.delete(event.code)) return;
+    if (!this.forwarded.delete(event.code || event.key)) return;
     event.preventDefault();
     this.input()?.key({
       type: "keyUp",

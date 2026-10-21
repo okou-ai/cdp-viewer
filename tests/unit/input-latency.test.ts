@@ -12,6 +12,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 function focusResult(x = 10) {
@@ -56,25 +57,30 @@ async function mount(windowId?: number) {
   return { browser, socket, input, caret, model };
 }
 
-it("collects adjacent native text while the running batch's focus guard is pending", async () => {
+it("sends native text while optional caret metadata is still pending", async () => {
   const { browser, socket, input } = await mount();
-  browser.holdMethod = "Runtime.callFunctionOn";
-  input.text("a");
+  browser.holdMethod = "Runtime.evaluate";
+  input.focus();
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.text("a");
   input.text("bc");
-  const held = browser.heldCommands[0]!;
-  browser.holdMethod = null;
-  held.socket.reply(held.command, focusResult());
   await vi.waitFor(() =>
     expect(
       socket.commands
-        .filter((command) => command.method === "Input.insertText")
-        .map((command) => command.params?.text),
-    ).toEqual(["abc"]),
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text)
+        .join(""),
+    ).toBe("abc"),
   );
+  expect(
+    socket.commands.some((c) => c.method === "Runtime.callFunctionOn"),
+  ).toBe(false);
+  browser.holdMethod = null;
+  const held = browser.heldCommands[0]!;
+  held.socket.reply(held.command, focusResult());
 });
 
-it("collects text while window membership is still being verified", async () => {
+it("collects text while fresh window membership is being verified", async () => {
   const { browser, socket, input } = await mount(0);
   browser.holdMethod = "Browser.getWindowForTarget";
   input.text("a");
@@ -86,45 +92,64 @@ it("collects text while window membership is still being verified", async () => 
   await vi.waitFor(() =>
     expect(
       socket.commands
-        .filter((command) => command.method === "Input.insertText")
-        .map((command) => command.params?.text),
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text),
     ).toEqual(["abc"]),
   );
 });
 
-it("starts a new text batch once the previous payload was sent", async () => {
+it("sends later immutable text payloads without waiting for earlier acknowledgements", async () => {
   const { browser, socket, input } = await mount();
   browser.holdMethod = "Input.insertText";
   input.text("a");
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   input.text("bc");
-  const held = browser.heldCommands[0]!;
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+  expect(
+    socket.commands
+      .filter((c) => c.method === "Input.insertText")
+      .map((c) => c.params?.text),
+  ).toEqual(["a", "bc"]);
   browser.holdMethod = null;
-  held.socket.reply(held.command);
-  await vi.waitFor(() =>
-    expect(
-      socket.commands
-        .filter((command) => command.method === "Input.insertText")
-        .map((command) => command.params?.text),
-    ).toEqual(["a", "bc"]),
-  );
+  for (const held of browser.heldCommands) held.socket.reply(held.command);
 });
 
-it("seals text before sending and never merges across a key boundary", async () => {
+it("preserves text/key send order while input acknowledgements are held", async () => {
   const { browser, socket, input } = await mount();
   browser.holdMethod = "Input.insertText";
   input.text("a");
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
   input.text("bc");
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+  expect(
+    socket.commands
+      .filter((c) => c.method.startsWith("Input."))
+      .map((c) => [c.method, c.params?.text]),
+  ).toEqual([
+    ["Input.insertText", "a"],
+    ["Input.dispatchKeyEvent", undefined],
+    ["Input.insertText", "bc"],
+  ]);
+  browser.holdMethod = null;
+  for (const held of browser.heldCommands) held.socket.reply(held.command);
+});
+
+it("does not merge a preflight text batch across a queued key", async () => {
+  const { browser, socket, input } = await mount(0);
+  browser.holdMethod = "Browser.getWindowForTarget";
+  input.text("a");
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+  input.text("bc");
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command);
+  held.socket.reply(held.command, { windowId: 0 });
   await vi.waitFor(() =>
     expect(
       socket.commands
-        .filter((command) => command.method.startsWith("Input."))
-        .map((command) => [command.method, command.params?.text]),
+        .filter((c) => c.method.startsWith("Input."))
+        .map((c) => [c.method, c.params?.text]),
     ).toEqual([
       ["Input.insertText", "a"],
       ["Input.dispatchKeyEvent", undefined],
@@ -133,176 +158,232 @@ it("seals text before sending and never merges across a key boundary", async () 
   );
 });
 
-it("does not merge a preflight batch across an intervening queued key", async () => {
-  const { browser, socket, input } = await mount();
-  browser.holdMethod = "Runtime.callFunctionOn";
-  input.text("a");
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
-  input.text("bc");
-  const held = browser.heldCommands[0]!;
-  browser.holdMethod = null;
-  held.socket.reply(held.command, focusResult());
-  await vi.waitFor(() =>
-    expect(
-      socket.commands
-        .filter((command) => command.method.startsWith("Input."))
-        .map((command) => [command.method, command.params?.text]),
-    ).toEqual([
-      ["Input.insertText", "a"],
-      ["Input.dispatchKeyEvent", undefined],
-      ["Input.insertText", "bc"],
-    ]),
-  );
-});
-
-it("keeps collecting text bounded and discards the entire old-owner batch", async () => {
-  const { browser, socket, input } = await mount();
-  browser.holdMethod = "Runtime.callFunctionOn";
+it("discards collected old-owner text while retaining the per-payload bound", async () => {
+  const { browser, socket, input } = await mount(0);
+  browser.holdMethod = "Browser.getWindowForTarget";
   input.text("a".repeat(64 * 1024));
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   input.text("b");
   input.blur();
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, focusResult());
+  held.socket.reply(held.command, { windowId: 0 });
   input.focus();
   input.text("new owner");
   await vi.waitFor(() =>
     expect(
       socket.commands
-        .filter((command) => command.method === "Input.insertText")
-        .map((command) => command.params?.text),
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text),
     ).toEqual(["new owner"]),
   );
 });
 
-it("does not let an optional caret response block later verified input", async () => {
-  const { browser, socket, input, caret, model } = await mount();
-  browser.holdMethod = "Input.dispatchKeyEvent";
-  input.key({ type: "rawKeyDown", key: "Backspace", code: "Backspace" });
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  browser.holdMethod = "Runtime.callFunctionOn";
-  const key = browser.heldCommands[0]!;
-  key.socket.reply(key.command);
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
-  browser.holdMethod = null;
-  input.text("after caret");
-  await vi.waitFor(() =>
-    expect(
-      socket.commands.find((command) => command.method === "Input.insertText")
-        ?.params?.text,
-    ).toBe("after caret"),
-  );
-  input.blur();
-  const stale = browser.heldCommands[1]!;
-  stale.socket.reply(stale.command, focusResult(400));
-  input.focus();
-  input.text("recovered");
-  await vi.waitFor(() =>
-    expect(
-      socket.commands.filter((command) => command.method === "Input.insertText")
-        .length,
-    ).toBe(2),
-  );
-  expect(caret).toHaveBeenCalledTimes(2);
-  expect(caret.mock.calls.every(([point]) => point.x === 10 / 800)).toBe(true);
-  expect(model.getSnapshot().error).toBeNull();
-});
-
-it("ignores an old caret after a new focus handoff within the same owner", async () => {
-  const { browser, socket, input, caret } = await mount();
-  const owner = input.owner;
-  browser.holdMethod = "Input.dispatchKeyEvent";
-  input.key({ type: "rawKeyDown", key: "Backspace", code: "Backspace" });
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  browser.holdMethod = "Runtime.callFunctionOn";
-  const key = browser.heldCommands[0]!;
-  key.socket.reply(key.command);
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
-  browser.holdMethod = null;
-  input.focus();
-  await vi.waitFor(() => expect(caret).toHaveBeenCalledTimes(2));
-  expect(input.owner).toBe(owner);
-  const stale = browser.heldCommands[1]!;
-  stale.socket.reply(stale.command, focusResult(400));
-  input.text("latest focus");
-  await vi.waitFor(() =>
-    expect(
-      socket.commands.find((command) => command.method === "Input.insertText")
-        ?.params?.text,
-    ).toBe("latest focus"),
-  );
-  expect(caret).toHaveBeenCalledTimes(2);
-  expect(caret.mock.calls.every(([point]) => point.x === 10 / 800)).toBe(true);
-});
-
-it("bounds each batch while text is collected during preflight", async () => {
-  const { browser, socket, input } = await mount();
-  browser.holdMethod = "Runtime.callFunctionOn";
+it("keeps batches bounded while text is collected during scoped preparation", async () => {
+  const { browser, socket, input } = await mount(0);
+  browser.holdMethod = "Browser.getWindowForTarget";
   input.text("a".repeat(64 * 1024 - 1));
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   input.text("bc");
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, focusResult());
+  held.socket.reply(held.command, { windowId: 0 });
   await vi.waitFor(() =>
     expect(
       socket.commands
-        .filter((command) => command.method === "Input.insertText")
-        .map((command) => String(command.params?.text).length),
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => String(c.params?.text).length),
     ).toEqual([64 * 1024 - 1, 2]),
   );
 });
 
-it("keeps only one caret read and the newest requested refresh", async () => {
-  const { browser, socket, input, caret } = await mount();
-  browser.holdMethod = "Input.dispatchKeyEvent";
-  input.key({ type: "rawKeyDown", key: "Backspace", code: "Backspace" });
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  browser.holdMethod = "Runtime.callFunctionOn";
-  const key = browser.heldCommands[0]!;
-  key.socket.reply(key.command);
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+it("bounds in-flight writes and recovers after old replies settle without replay", async () => {
+  const { browser, socket, input, model } = await mount();
+  vi.useFakeTimers();
+  browser.holdMethod = "Input.insertText";
+  for (let index = 0; index < 64; index++) {
+    input.text("a");
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  expect(browser.heldCommands).toHaveLength(64);
+  input.text("overflow");
+  expect(model.getSnapshot().error?.kind).toBe("input");
   browser.holdMethod = null;
+  for (const held of browser.heldCommands) held.socket.reply(held.command);
+  await vi.advanceTimersByTimeAsync(0);
+  input.text("recovered");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(
+    socket.commands
+      .filter((c) => c.method === "Input.insertText")
+      .map((c) => c.params?.text),
+  ).toEqual([...Array<string>(64).fill("a"), "recovered"]);
+  expect(model.getSnapshot().error).toBeNull();
+  vi.useRealTimers();
+});
+
+it("keeps one optional caret read and applies only the newest requested refresh", async () => {
+  const { browser, socket, input, caret } = await mount();
+  browser.holdMethod = "Runtime.evaluate";
+  input.focus();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   const before = socket.commands.length;
   input.key({ type: "rawKeyDown", key: "ArrowLeft", code: "ArrowLeft" });
   input.key({ type: "rawKeyDown", key: "ArrowRight", code: "ArrowRight" });
   await vi.waitFor(() =>
     expect(
-      socket.commands.filter(
-        (command) => command.method === "Input.dispatchKeyEvent",
-      ),
-    ).toHaveLength(3),
+      socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
+    ).toHaveLength(2),
   );
-  const held = browser.heldCommands[1]!;
+  expect(browser.heldCommands).toHaveLength(1);
+  const held = browser.heldCommands[0]!;
+  browser.holdMethod = null;
   held.socket.reply(held.command, focusResult(400));
   await vi.waitFor(() => expect(caret).toHaveBeenCalledTimes(2));
   expect(
     socket.commands
       .slice(before)
-      .filter((command) => command.method === "Runtime.callFunctionOn"),
-  ).toHaveLength(3); // Two write guards, then one newest optional read.
+      .filter((c) => c.method === "Runtime.evaluate"),
+  ).toHaveLength(1);
+  expect(caret.mock.calls.every(([point]) => point.x === 10 / 800)).toBe(true);
+});
+
+it("discards stale caret metadata across blur and refocus", async () => {
+  const { browser, input, caret } = await mount();
+  browser.holdMethod = "Runtime.evaluate";
+  input.focus();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.blur();
+  input.focus();
+  const held = browser.heldCommands[0]!;
+  browser.holdMethod = null;
+  held.socket.reply(held.command, focusResult(400));
+  await vi.waitFor(() => expect(caret).toHaveBeenCalledTimes(2));
   expect(caret.mock.calls.every(([point]) => point.x === 10 / 800)).toBe(true);
 });
 
 it("does not clear a newer navigation error when optional geometry succeeds", async () => {
   const { browser, input, caret, model } = await mount();
-  browser.holdMethod = "Input.dispatchKeyEvent";
-  input.key({ type: "rawKeyDown", key: "Backspace", code: "Backspace" });
+  browser.holdMethod = "Runtime.evaluate";
+  input.focus();
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  browser.holdMethod = "Runtime.callFunctionOn";
-  const key = browser.heldCommands[0]!;
-  key.socket.reply(key.command);
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
   input.navigate({ url: "invalid" });
   const error = model.getSnapshot().error;
   expect(error?.message).toContain("absolute http:// or https://");
   browser.holdMethod = null;
-  const held = browser.heldCommands[1]!;
+  const held = browser.heldCommands[0]!;
   held.socket.reply(held.command, focusResult());
   await vi.waitFor(() => expect(caret).toHaveBeenCalledTimes(2));
   expect(model.getSnapshot().error).toEqual(error);
+});
+
+it("forwards printable keys natively and commits composition once through text", async () => {
+  const { input, socket } = await mount();
+  const stage = document.createElement("div");
+  const canvas = document.createElement("canvas");
+  const proxy = document.createElement("textarea");
+  stage.append(canvas, proxy);
+  document.body.append(stage);
+  adapters.push(new NativeInput(canvas, proxy, () => input));
+  proxy.focus();
+  expect(
+    proxy.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "a",
+        code: "KeyA",
+        keyCode: 65,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  ).toBe(false);
+  proxy.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      key: "a",
+      code: "KeyA",
+      keyCode: 65,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
+    ).toHaveLength(2),
+  );
+  expect(
+    socket.commands
+      .filter((c) => c.method === "Input.dispatchKeyEvent")
+      .map((c) => c.params),
+  ).toEqual([
+    expect.objectContaining({ type: "keyDown", key: "a", text: "a" }),
+    expect.objectContaining({ type: "keyUp", key: "a" }),
+  ]);
+  proxy.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "F2",
+      code: "F2",
+      keyCode: 113,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  proxy.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      key: "F2",
+      code: "F2",
+      keyCode: 113,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
+    ).toHaveLength(4),
+  );
+  expect(
+    socket.commands
+      .filter((c) => c.method === "Input.dispatchKeyEvent")
+      .slice(-2)
+      .map((c) => c.params),
+  ).toEqual([
+    expect.objectContaining({ type: "rawKeyDown", key: "F2", code: "F2" }),
+    expect.objectContaining({ type: "keyUp", key: "F2", code: "F2" }),
+  ]);
+  proxy.dispatchEvent(
+    new CompositionEvent("compositionstart", { bubbles: true }),
+  );
+  proxy.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Process",
+      keyCode: 229,
+      isComposing: true,
+      bubbles: true,
+    }),
+  );
+  proxy.value = "中";
+  // Happy DOM does not populate CompositionEvent.data from its constructor.
+  const end = new Event("compositionend", { bubbles: true });
+  Object.defineProperty(end, "data", { value: "中" });
+  proxy.dispatchEvent(end);
+  proxy.dispatchEvent(
+    new InputEvent("input", {
+      data: "中",
+      inputType: "insertCompositionText",
+      bubbles: true,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text),
+    ).toEqual(["中"]),
+  );
+  expect(
+    socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
+  ).toHaveLength(4);
 });
 
 it("supersedes a pending hover move at the press position while retaining drag movement", async () => {

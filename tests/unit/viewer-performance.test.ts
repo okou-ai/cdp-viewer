@@ -151,19 +151,15 @@ it.each([undefined, { ...metadata, pageScaleFactor: 0 }])(
   },
 );
 
-it("overlaps scope and focus reads while keeping writes behind both guards", async () => {
+it("keeps text behind fresh scope verification without a DOM focus guard", async () => {
   const { browser, input, socket } = await mount(0);
   browser.holdMethod = "Browser.getWindowForTarget";
   const before = socket.commands.length;
   input.text("a");
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  await vi.waitFor(() =>
-    expect(
-      socket.commands
-        .slice(before)
-        .some((c) => c.method === "Runtime.callFunctionOn"),
-    ).toBe(true),
-  );
+  expect(
+    socket.commands.slice(before).some((c) => c.method.startsWith("Runtime.")),
+  ).toBe(false);
   expect(socket.commands.some((c) => c.method === "Input.insertText")).toBe(
     false,
   );
@@ -177,24 +173,11 @@ it("overlaps scope and focus reads while keeping writes behind both guards", asy
   );
 });
 
-it("releases a late preparation handle after the scope guard fails", async () => {
-  const { browser, input, socket, model, sessionId } = await mount(0);
-  browser.holdMethod = "Runtime.callFunctionOn";
+it("rejects a text write when its fresh window scope check fails", async () => {
+  const { browser, input, socket, model } = await mount(0);
   browser.targets[0]!.windowId = 2;
   input.text("discard");
   await vi.waitFor(() => expect(model.getSnapshot().error?.kind).toBe("input"));
-  expect(browser.heldCommands).toHaveLength(1);
-  const held = browser.heldCommands[0]!;
-  held.socket.reply(held.command, { result: { objectId: "late-preparation" } });
-  await vi.waitFor(() =>
-    expect(socket.commands).toContainEqual(
-      expect.objectContaining({
-        method: "Runtime.releaseObject",
-        sessionId,
-        params: { objectId: "late-preparation" },
-      }),
-    ),
-  );
   expect(socket.commands.some((c) => c.method === "Input.insertText")).toBe(
     false,
   );
@@ -221,7 +204,7 @@ it("revalidates geometry invalidated while a scope guard is pending", async () =
   ).toMatchObject({ x: 400, y: 300 });
 });
 
-it("combines adjacent queued wheel intent without changing a sent payload", async () => {
+it("coalesces unsent wheels while earlier acknowledgements remain pending", async () => {
   const { browser, input, socket, model } = await mount();
   browser.holdMethod = "Input.dispatchMouseEvent";
   input.pointer("mouseWheel", point, { deltaY: 5 });
@@ -231,15 +214,17 @@ it("combines adjacent queued wheel intent without changing a sent payload", asyn
   expect(model.getSnapshot().error).toBeNull();
   const held = browser.heldCommands[0]!;
   expect(held.command.params?.deltaY).toBe(5);
-  browser.holdMethod = null;
-  held.socket.reply(held.command);
   await vi.waitFor(() =>
     expect(
       socket.commands
         .filter((c) => c.method === "Input.dispatchMouseEvent")
         .map((c) => c.params?.deltaY),
-    ).toEqual([5, 500]),
+    ).toEqual([5, 5, 495]),
   );
+  expect(held.command.params?.deltaY).toBe(5);
+  browser.holdMethod = null;
+  for (const pending of browser.heldCommands)
+    pending.socket.reply(pending.command);
 });
 
 it("keeps wheel reversals, positions, modifiers and key barriers separate", async () => {
