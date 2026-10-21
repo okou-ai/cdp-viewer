@@ -484,12 +484,14 @@ async function tabBarPixels(
     clip: { x: number; y: number; width: number; height: number };
     points: number[][];
   },
+  pixelRatio = 1,
 ) {
-  const image = await viewer
-    .page()
-    .screenshot({ clip: sample.clip, scale: "css" });
+  const image = await viewer.page().screenshot({
+    clip: sample.clip,
+    scale: pixelRatio === 1 ? "css" : "device",
+  });
   return viewer.evaluate(
-    async (_, { bytes, points }) => {
+    async (_, { bytes, points, pixelRatio }) => {
       const bitmap = await createImageBitmap(
         new Blob([new Uint8Array(bytes)], { type: "image/png" }),
       );
@@ -499,14 +501,19 @@ async function tabBarPixels(
         context.drawImage(bitmap, 0, 0);
         return points.map(([x, y]) =>
           Array.from(
-            context.getImageData(Math.floor(x!), Math.floor(y!), 1, 1).data,
+            context.getImageData(
+              Math.floor(x! * pixelRatio),
+              Math.floor(y! * pixelRatio),
+              1,
+              1,
+            ).data,
           ),
         );
       } finally {
         bitmap.close();
       }
     },
-    { bytes: Array.from(image), points: sample.points },
+    { bytes: Array.from(image), points: sample.points, pixelRatio },
   );
 }
 
@@ -573,6 +580,69 @@ async function expectParallelContour(
   ).toEqual([]);
 }
 
+async function expectNewTabHoverAlignment(viewer: Locator) {
+  const sample = await viewer.evaluate((root) => {
+    const row = root.querySelector(".cdpv-toolbar")!.getBoundingClientRect();
+    const tab = root.querySelector(".cdpv-tab-item")!.getBoundingClientRect();
+    const button = root.querySelector(".cdpv-new-tab")!.getBoundingClientRect();
+    const centerX = button.left + button.width / 2 - row.left;
+    const pixelRatio = devicePixelRatio;
+    const verticalSamples = row.height * pixelRatio;
+    return {
+      clip: { x: row.x, y: row.y, width: row.width, height: row.height },
+      points: [
+        [centerX, 1],
+        ...Array.from({ length: verticalSamples }, (_, y) => [
+          centerX,
+          (y + 0.5) / pixelRatio,
+        ]),
+        ...Array.from({ length: button.width * pixelRatio }, (_, x) => [
+          button.left - row.left + (x + 0.5) / pixelRatio,
+          row.height / 2,
+        ]),
+      ],
+      tabTop: tab.top - row.top,
+      rowHeight: row.height,
+      buttonWidth: button.width,
+      pixelRatio,
+      verticalSamples,
+    };
+  });
+  const pixels = await tabBarPixels(viewer, sample, sample.pixelRatio);
+  const range = (axis: number[][]) => {
+    const painted = axis.map((pixel) =>
+      pixel.some((channel, index) => channel !== pixels[0]![index]),
+    );
+    return {
+      start: painted.indexOf(true) / sample.pixelRatio,
+      end: (painted.lastIndexOf(true) + 1) / sample.pixelRatio,
+    };
+  };
+  const vertical = range(pixels.slice(1, 1 + sample.verticalSamples));
+  const horizontal = range(pixels.slice(1 + sample.verticalSamples));
+  expect
+    .soft(vertical.start, "Hover circle starts at the tab's top edge")
+    .toBe(sample.tabTop);
+  expect
+    .soft(vertical.end, "Hover circle has equal top and bottom clearance")
+    .toBe(sample.rowHeight - sample.tabTop);
+  expect.soft((vertical.start + vertical.end) / 2).toBe(sample.rowHeight / 2);
+  // Odd CSS diameters can quantize a horizontal edge by one device pixel.
+  expect
+    .soft(
+      Math.abs(
+        (horizontal.start + horizontal.end) / 2 - sample.buttonWidth / 2,
+      ),
+    )
+    .toBeLessThanOrEqual(1 / sample.pixelRatio);
+  expect
+    .soft(
+      horizontal.end - horizontal.start,
+      "The centered hover surface stays circular",
+    )
+    .toBe(vertical.end - vertical.start);
+}
+
 test.describe(() => {
   test.use({ deviceScaleFactor: 2 });
 
@@ -597,6 +667,9 @@ test.describe(() => {
         });
         await page.locator("#panels").evaluate((element) => {
           element.style.gridTemplateColumns = "minmax(0, 1fr)";
+          // Pixel-edge assertions need a stable screenshot crop origin.
+          const top = element.getBoundingClientRect().top;
+          element.style.marginTop = `${Math.ceil(top) - top}px`;
         });
         await expect(viewer).toHaveAttribute("data-status", "streaming");
         const strip = viewer.getByRole("tablist");
@@ -639,6 +712,7 @@ test.describe(() => {
           await viewer.screenshot({
             path: info.outputPath(`${width}-new-tab-hover.png`),
           });
+          await expectNewTabHoverAlignment(viewer);
           const last = await tabs.last().locator("..").boundingBox();
           const action = await create.boundingBox();
           expect

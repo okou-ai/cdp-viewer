@@ -245,6 +245,17 @@
   height: 32px;
   position: relative;
 }
+.cdpv-root .cdpv-new-tab:before {
+  content: "";
+  z-index: -1;
+  width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  pointer-events: none;
+  border-radius: 50%;
+  margin: auto;
+  position: absolute;
+  inset: 0;
+}
 .cdpv-root .cdpv-button {
   min-width: 32px;
   min-height: 32px;
@@ -259,11 +270,13 @@
   padding: 6px;
   display: inline-flex;
 }
-.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
+.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled, .cdpv-new-tab),
+.cdpv-root .cdpv-new-tab:hover:not(:disabled):before {
   background: var(--cdpv-foreground);
 }
 @supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
+  .cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled, .cdpv-new-tab),
+  .cdpv-root .cdpv-new-tab:hover:not(:disabled):before {
     background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
   }
 }

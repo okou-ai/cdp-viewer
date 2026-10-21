@@ -211,6 +211,18 @@
   width: 32px;
   height: 32px;
 }
+.cdpv-root .cdpv-new-tab::before {
+  /* Center the tab's visible content height within the larger hit target. */
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  margin: auto;
+  border-radius: 50%;
+  pointer-events: none;
+}
 
 .cdpv-root .cdpv-button {
   display: inline-flex;
@@ -227,7 +239,8 @@
   flex: none;
 }
 
-.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
+.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled, .cdpv-new-tab),
+.cdpv-root .cdpv-new-tab:hover:not(:disabled)::before {
   background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
 }
 .cdpv-root
