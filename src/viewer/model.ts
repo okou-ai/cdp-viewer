@@ -27,6 +27,10 @@ export type ViewerTransition =
   | { type: "failed"; error: ViewerError }
   | { type: "disconnected"; established: boolean; error: ViewerError };
 
+export type ViewerUpdate = Partial<
+  Pick<ViewerSnapshot, "targets" | "navigation" | "error">
+>;
+
 function initialSnapshot(): ViewerSnapshot {
   return Object.freeze({
     status: "connecting",
@@ -121,6 +125,9 @@ function createViewerSignals() {
       set(draft$, null);
     set(internalSnapshot$, next);
   });
+  const updateData$ = command(({ set }, patch: ViewerUpdate) =>
+    set(update$, patch),
+  );
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
     switch (event.type) {
       case "reset":
@@ -240,7 +247,7 @@ function createViewerSignals() {
     setTabAction$,
     createTab$,
     closeTab$,
-    update$,
+    updateData$,
     transition$,
     bind$,
     unbind$,
@@ -265,8 +272,8 @@ export function createViewerModel() {
     getSnapshot: () => instance.read(instance.signals.snapshot$),
     subscribe: (listener: () => void) =>
       instance.watch(instance.signals.snapshot$, listener),
-    update: (patch: Partial<ViewerSnapshot>) =>
-      instance.run(instance.signals.update$, patch),
+    update: (patch: ViewerUpdate) =>
+      instance.run(instance.signals.updateData$, patch),
     transition: (event: ViewerTransition) =>
       instance.run(instance.signals.transition$, event),
   };

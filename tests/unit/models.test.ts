@@ -101,12 +101,12 @@ it("isolates viewer commands, drafts and reconnects, including stale runtime cle
   const second = createViewerModel();
   first.update({
     navigation: navigation("https://one.invalid/"),
-    status: "streaming",
   });
+  first.transition({ type: "streaming" });
   second.update({
     navigation: navigation("https://two.invalid/"),
-    status: "streaming",
   });
+  second.transition({ type: "streaming" });
   const actions = () => ({
     select: vi.fn(),
     navigate: vi.fn(),
