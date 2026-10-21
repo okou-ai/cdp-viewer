@@ -245,6 +245,7 @@ function ViewerSurface({
           </div>
         )}
       </Tabs.Panel>
+      {interactive && <ClipboardRecovery />}
       <div className="cdpv-sr-only" role="status" aria-live="polite">
         {pending?.type === "create"
           ? "Creating tab"
@@ -256,6 +257,48 @@ function ViewerSurface({
           : ". View only."}
       </div>
     </Tabs.Root>
+  );
+}
+
+function ClipboardRecovery() {
+  const model = viewerScope.useModel();
+  const value = viewerScope.useValue(model.clipboard$);
+  const copy = viewerScope.useCommand(model.copyClipboard$);
+  const dismiss = viewerScope.useCommand(model.dismissClipboard$);
+  const select = viewerScope.useCommand(model.selectClipboard$);
+  const { clipboard } = useViewerElements();
+  if (!value) return null;
+  return (
+    <section className="cdpv-clipboard" aria-label="Clipboard recovery">
+      <p role="status">{value.message}</p>
+      {value.text !== null && (
+        <>
+          <textarea
+            ref={clipboard}
+            aria-label="Text to copy"
+            readOnly
+            value={value.text}
+            rows={3}
+            spellCheck={false}
+            onFocus={() => select()}
+          />
+          <Button
+            type="button"
+            className="cdpv-button cdpv-action"
+            onClick={() => copy()}
+          >
+            Copy text
+          </Button>
+        </>
+      )}
+      <Button
+        type="button"
+        className="cdpv-button cdpv-action"
+        onClick={() => dismiss()}
+      >
+        Dismiss
+      </Button>
+    </section>
   );
 }
 

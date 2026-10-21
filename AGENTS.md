@@ -9,7 +9,9 @@ before changing behavior or making compatibility claims.
 The current component supports view-only streaming, target selection, optional
 window filtering and multiple independent instances. Optional `interactive` mode
 adds native text input, mouse/keyboard and navigation; physical macOS/Windows IME
-validation is still pending. Clipboard and vendor adapters are not implemented.
+validation is still pending. Plain-text clipboard transfer is available in
+interactive mode; see demo/interaction.md for its supported selection/permission
+boundary. Vendor adapters are not implemented.
 Keep vendor-specific behavior optional when
 adding extensions; ordinary CDP must remain usable independently.
 
@@ -128,8 +130,8 @@ through implementation, behavioral tests and review.
   after ownership loss; never retry uncertain input/navigation. Preserve local
   toolbar/host focus and release owned keys/buttons. F8 exits remote keyboard
   focus. Route input through Chromium's current native focus; DOM caret metadata
-  is optional and must not authorize or block input. Clipboard transfer requires
-  separate support.
+  is optional and must not authorize or block input. Clipboard transfer must
+  validate selection ownership and preserve the local browser gesture.
 
 ## Documentation and Change Hygiene
 

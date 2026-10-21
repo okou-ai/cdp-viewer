@@ -23,6 +23,7 @@ interface Elements {
   address: RefObject<HTMLInputElement | null>;
   tabs: RefObject<HTMLDivElement | null>;
   notice: RefObject<HTMLDivElement | null>;
+  clipboard: RefObject<HTMLTextAreaElement | null>;
 }
 const ElementsContext = createContext<Elements | null>(null);
 
@@ -59,9 +60,10 @@ export function ViewerRuntime({
   const address = useRef<HTMLInputElement>(null);
   const tabs = useRef<HTMLDivElement>(null);
   const notice = useRef<HTMLDivElement>(null);
+  const clipboard = useRef<HTMLTextAreaElement>(null);
   const elements = useMemo(
-    () => ({ canvas, proxy, address, tabs, notice }),
-    [canvas, proxy, address, tabs, notice],
+    () => ({ canvas, proxy, address, tabs, notice, clipboard }),
+    [canvas, proxy, address, tabs, notice, clipboard],
   );
   const focus = useMemo(() => new ToolbarFocus(tabs, address), [tabs, address]);
   const native = useRef<NativeInput | null>(null);
@@ -86,7 +88,8 @@ export function ViewerRuntime({
           ...(windowId === undefined ? {} : { windowId }),
           paused: effectivePaused(committed.current.paused, inViewport.current),
           interactive,
-          onInputReset: () => native.current?.reset(),
+          onInputReset: (reason) => native.current?.reset(reason),
+          onClipboardReset: () => native.current?.clearClipboard(),
           onCaret: (point) => native.current?.place(point),
           onTabCreated: () => focus.created(),
           onTabClosed: (targetId) => focus.closed(targetId),
@@ -108,6 +111,9 @@ export function ViewerRuntime({
         controller.closeTab(id);
       },
       navigate: (action) => controller.input?.navigate(action),
+      copyClipboard: () => native.current?.copyClipboard(),
+      dismissClipboard: () => native.current?.clearClipboard(),
+      selectClipboard: () => clipboard.current?.select(),
     };
     model.run(model.bind$, actions);
     let active = true;
@@ -200,13 +206,14 @@ export function ViewerRuntime({
       proxy.current,
       () => runtime.current?.input ?? null,
       () => focus.release(),
+      (value) => model.run(model.setClipboard$, value),
     );
     native.current = input;
     return () => {
       input.dispose();
       if (native.current === input) native.current = null;
     };
-  }, [interactive, focus]);
+  }, [interactive, focus, model]);
   useEffect(() => {
     runtime.current?.setPaused(effectivePaused(paused, inViewport.current));
   }, [paused]);

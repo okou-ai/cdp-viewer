@@ -3,12 +3,16 @@ import { createInstance } from "../state/instance";
 import { layoutTabs } from "./tab-layout";
 import type { TabSpace } from "./tab-layout";
 import type { ViewerError, ViewerSnapshot } from "./types";
+import type { ClipboardRecovery } from "../input/clipboard";
 
 export interface ViewerActions {
   select(targetId: string): void;
   createTab(): void;
   closeTab(targetId: string): void;
   navigate(action: "back" | "forward" | "reload" | { url: string }): void;
+  copyClipboard?(): void;
+  dismissClipboard?(): void;
+  selectClipboard?(): void;
 }
 
 interface AddressDraft {
@@ -64,6 +68,19 @@ function createViewerSignals() {
   const internalNotification$ = state<ViewerNotification | null>(null);
   const notificationSequence$ = state(0);
   const internalConnected$ = state(false);
+  // Clipboard text is private and must never enter ViewerSnapshot/callbacks.
+  const internalClipboard$ = state<ClipboardRecovery | null>(null);
+  const clipboard$ = computed((get) => get(internalClipboard$));
+  const setClipboard$ = command(({ set }, value: ClipboardRecovery | null) =>
+    set(internalClipboard$, value),
+  );
+  const copyClipboard$ = command(({ get }) => get(actions$)?.copyClipboard?.());
+  const dismissClipboard$ = command(({ get }) =>
+    get(actions$)?.dismissClipboard?.(),
+  );
+  const selectClipboard$ = command(({ get }) =>
+    get(actions$)?.selectClipboard?.(),
+  );
   const configuration$ = state({
     interactive: false,
     scoped: false,
@@ -212,6 +229,7 @@ function createViewerSignals() {
     set(update$, patch),
   );
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
+    if (event.type !== "streaming") set(internalClipboard$, null);
     switch (event.type) {
       case "reset":
         set(internalConnected$, false);
@@ -276,6 +294,7 @@ function createViewerSignals() {
       set(pendingTab$, null);
       set(internalConnected$, false);
       set(internalNotification$, null);
+      set(internalClipboard$, null);
     }
   });
   const reconnect$ = command(({ set }) => {
@@ -322,6 +341,11 @@ function createViewerSignals() {
     get(actions$)?.navigate({ url });
   });
   return {
+    clipboard$,
+    setClipboard$,
+    copyClipboard$,
+    dismissClipboard$,
+    selectClipboard$,
     snapshot$,
     tabLayout$,
     resizeTabs$,

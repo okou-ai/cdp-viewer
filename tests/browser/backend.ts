@@ -5,8 +5,14 @@ import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { waitForDebuggerEndpoint } from "./debugger-endpoint";
 
-export async function serveConsumer(dist: string, base = "/") {
+export async function serveConsumer(
+  dist: string,
+  base = "/",
+  headers: Readonly<Record<string, string>> = {},
+) {
   const server = createServer((request, response) => {
+    for (const [name, value] of Object.entries(headers))
+      response.setHeader(name, value);
     const pathname = new URL(request.url ?? "/", "http://fixture.invalid")
       .pathname;
     if (pathname === "/fixture/no-content") {
