@@ -122,9 +122,14 @@ and mirrors preedit into the remote editor through CDP before committing the
 selected text once. Unsupported composition commands retain final-text-only
 input; candidate confirmation is distinct
 from a later remote Enter. Optional caret metadata does not block input.
-The tab strip scrolls horizontally and supports explicit tab selection. Interactive
-viewers add new/close actions. The compact new-tab button follows the tabs and
-stays reachable during scrolling, showing a spinner while creation is in progress.
+The tab strip compresses to fit its container and never scrolls horizontally.
+Titles truncate, then narrow inactive tabs omit their close buttons; the selected
+interactive tab prioritizes its close action. Full tab names remain accessible.
+If the tabs cannot all fit at useful minimum widths, an **All tabs** selector
+keeps every page reachable while the strip retains the selected page. This compact
+fallback is intended for an embedded viewer rather than reproducing native Chrome
+Tab Search. Interactive viewers add new/close actions. The compact new-tab button
+follows the tabs and stays reachable, showing a spinner during creation.
 Enter in the address bar navigates to an absolute
 HTTP(S) address. The navigation toolbar supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).

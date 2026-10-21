@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CircleAlert,
+  ChevronDown,
   Monitor,
   Globe,
   Plus,
@@ -36,6 +37,7 @@ function ViewerSurface({
 }: CdpViewerProps) {
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
+  const tabLayout = viewerScope.useValue(model.tabLayout$);
   const select = viewerScope.useCommand(model.select$);
   const reconnect = viewerScope.useCommand(model.reconnect$);
   const createTab = viewerScope.useCommand(model.createTab$);
@@ -67,10 +69,11 @@ function ViewerSurface({
           aria-label="Browser tabs"
           activateOnFocus={false}
         >
-          {snapshot.targets.map((target) => (
+          {tabLayout.items.map(({ target, width }) => (
             <div
               className="cdpv-tab-item"
               key={target.id}
+              style={{ width }}
               data-selected={
                 target.id === snapshot.selectedTargetId ? "" : undefined
               }
@@ -80,6 +83,7 @@ function ViewerSurface({
                 className="cdpv-tab"
                 value={target.id}
                 title={target.title}
+                aria-label={target.title}
                 disabled={controls.tabsDisabled}
                 data-target-id={target.id}
               >
@@ -114,6 +118,27 @@ function ViewerSurface({
             </div>
           ))}
         </Tabs.List>
+        {tabLayout.overflow && (
+          <div className="cdpv-tab-picker">
+            <select
+              aria-label="All tabs"
+              title="All tabs"
+              value={snapshot.selectedTargetId ?? ""}
+              disabled={controls.tabsDisabled}
+              onChange={(event) => select(event.target.value)}
+            >
+              <option value="" disabled>
+                Choose a tab
+              </option>
+              {snapshot.targets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.title}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={16} aria-hidden="true" />
+          </div>
+        )}
         {interactive && (
           <Button
             type="button"

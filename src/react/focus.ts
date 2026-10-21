@@ -5,6 +5,7 @@ export class ToolbarFocus {
   private createOrigin: Element | null = null;
   private closingTarget: string | null = null;
   private restoreClosed = false;
+  private toolbarFocus: HTMLElement | null = null;
 
   constructor(
     private readonly tabs: RefObject<HTMLDivElement | null>,
@@ -15,6 +16,7 @@ export class ToolbarFocus {
     this.createOrigin = null;
     this.closingTarget = null;
     this.restoreClosed = false;
+    this.toolbarFocus = null;
   }
 
   beginCreate(): void {
@@ -57,41 +59,47 @@ export class ToolbarFocus {
     (
       this.selected() ??
       list?.querySelector<HTMLElement>('[role="tab"]') ??
+      list?.parentElement?.querySelector<HTMLElement>(
+        ".cdpv-tab-picker select",
+      ) ??
       list?.parentElement?.querySelector<HTMLElement>(".cdpv-new-tab")
     )?.focus({ preventScroll: true });
   }
 
-  revealSelection(): void {
-    const selected = this.selected();
-    if (selected) this.reveal(selected);
+  listen(): () => void {
+    const row = this.tabs.current?.parentElement;
+    const focused = (event: FocusEvent) => {
+      this.toolbarFocus =
+        event.target instanceof HTMLElement && row?.contains(event.target)
+          ? event.target
+          : null;
+    };
+    const pointed = (event: PointerEvent) => {
+      if (event.target instanceof Node && !row?.contains(event.target))
+        this.toolbarFocus = null;
+    };
+    document.addEventListener("focusin", focused);
+    document.addEventListener("pointerdown", pointed);
+    return () => {
+      document.removeEventListener("focusin", focused);
+      document.removeEventListener("pointerdown", pointed);
+    };
   }
 
-  listen(): () => void {
-    const list = this.tabs.current;
-    const focused = (event: FocusEvent) => {
-      const tab = event.target;
-      if (tab instanceof HTMLElement && tab.getAttribute("role") === "tab")
-        this.reveal(tab);
-    };
-    list?.addEventListener("focusin", focused);
-    return () => list?.removeEventListener("focusin", focused);
+  restoreLayout(): void {
+    const origin = this.toolbarFocus;
+    if (
+      origin &&
+      (!origin.isConnected || !origin.getClientRects().length) &&
+      (document.activeElement === document.body ||
+        document.activeElement === origin)
+    )
+      this.release();
   }
 
   private selected(): HTMLElement | null | undefined {
     return this.tabs.current?.querySelector<HTMLElement>(
       '[role="tab"][aria-selected="true"]',
     );
-  }
-
-  private reveal(tab: HTMLElement): void {
-    const list = this.tabs.current;
-    if (!list) return;
-    const item = tab.parentElement!.getBoundingClientRect();
-    const strip = list.getBoundingClientRect();
-    const padding = getComputedStyle(list);
-    const left = strip.left + parseFloat(padding.paddingLeft);
-    const right = strip.right - parseFloat(padding.paddingRight);
-    if (item.left < left) list.scrollLeft += item.left - left;
-    else if (item.right > right) list.scrollLeft += item.right - right;
   }
 }

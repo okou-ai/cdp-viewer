@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createStore, state } from "ccstate";
@@ -392,6 +393,101 @@ it("owns icon defaults without changing a shared host provider", async () => {
     expect(icon).toHaveAttribute("stroke-width", "2");
     expect(icon).not.toHaveClass("host-icons");
   }
+});
+
+it("owns tab measurement per viewer and keeps hidden tabs accessible without reconnecting", async () => {
+  const fake = browser();
+  fake.targets = Array.from({ length: 20 }, (_, index) => ({
+    id: `page-${index}`,
+    title: `Project ${index} with a complete accessible name`,
+    windowId: index < 10 ? 0 : 2,
+  }));
+  const observations: {
+    measure: () => void;
+    disconnect: ReturnType<typeof vi.fn>;
+  }[] = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      readonly disconnect = vi.fn();
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        if (target.classList.contains("cdpv-toolbar"))
+          observations.push({
+            measure: () => this.callback([], this),
+            disconnect: this.disconnect,
+          });
+      }
+      unobserve() {}
+    },
+  );
+  const geometry = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(
+        0,
+        0,
+        this.classList.contains("cdpv-new-tab")
+          ? 32
+          : parseFloat(this.style.width) || 0,
+        41,
+      );
+    });
+  const view = render(
+    <>
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={0} interactive />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={2} interactive />
+    </>,
+  );
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  const viewers = Array.from(
+    document.querySelectorAll<HTMLElement>(".cdpv-root"),
+  );
+  const rows = viewers.map((root) =>
+    root.querySelector<HTMLElement>(".cdpv-toolbar")!,
+  );
+  const canvas = viewers[0]!.querySelector("canvas");
+  const proxy = within(viewers[0]!).getByLabelText("Remote browser input");
+  for (const row of rows) {
+    row.style.cssText =
+      "width:320px;padding:0 16px 0 3px;column-gap:6px;--cdpv-tab-action:32px";
+    row.querySelector<HTMLElement>(".cdpv-tabs")!.style.cssText =
+      "padding:0 16px;column-gap:3px";
+  }
+  act(() => observations.forEach((observer) => observer.measure()));
+  const first = within(viewers[0]!);
+  const second = within(viewers[1]!);
+  expect(first.getAllByRole("tab")).toHaveLength(6);
+  expect(second.getAllByRole("tab")).toHaveLength(6);
+  await userEvent.selectOptions(
+    first.getByRole("combobox", { name: "All tabs" }),
+    "page-9",
+  );
+  expect(first.getByRole("tab", { selected: true })).toHaveAccessibleName(
+    "Project 9 with a complete accessible name",
+  );
+  expect(second.getByRole("tab", { selected: true })).toHaveAccessibleName(
+    "Project 10 with a complete accessible name",
+  );
+  rows[0]!.style.width = "900px";
+  act(() => observations[0]!.measure());
+  expect(first.getAllByRole("tab")).toHaveLength(10);
+  expect(first.queryByRole("combobox")).toBeNull();
+  expect(second.getAllByRole("tab")).toHaveLength(6);
+  expect(fake.sockets).toHaveLength(2);
+  expect(viewers[0]!.querySelector("canvas")).toBe(canvas);
+  expect(first.getByLabelText("Remote browser input")).toBe(proxy);
+  view.unmount();
+  const measured = geometry.mock.calls.length;
+  observations.forEach((observer) => {
+    expect(observer.disconnect).toHaveBeenCalledOnce();
+    observer.measure();
+  });
+  expect(geometry).toHaveBeenCalledTimes(measured);
 });
 
 it.each(["success", "failure"] as const)(

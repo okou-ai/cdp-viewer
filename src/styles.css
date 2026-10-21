@@ -73,6 +73,7 @@
   --cdpv-tab-height: 35px;
   --cdpv-tab-inset: 6px;
   --cdpv-tab-radius: 10px;
+  --cdpv-tab-action: 32px;
   /* Concentric inner/outer corners keep the clearance constant through the arc. */
   --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
   display: flex;
@@ -95,10 +96,9 @@
   /* Leave room for the first and last selected tab's outward curves. */
   padding-inline: var(--cdpv-tab-corner);
   margin-left: calc(-1 * var(--cdpv-tab-corner));
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: clip;
 }
-.cdpv-root .cdpv-tabs:has(+ .cdpv-new-tab) {
+.cdpv-root .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
   /* Share the decorative gutter with the button without moving the tab bodies. */
   margin-right: calc(-1 * var(--cdpv-tab-corner));
   /* Keep scrolling content out of the button's hit region, retaining the cap.
@@ -118,10 +118,10 @@
   align-items: center;
   position: relative;
   isolation: isolate;
-  flex: 0 0 204px;
-  width: 204px;
-  min-width: 140px;
-  max-width: 204px;
+  flex: none;
+  width: 232px;
+  min-width: 0;
+  container: cdpv-tab / inline-size;
   border-radius: var(--cdpv-tab-radius) var(--cdpv-tab-radius) 0 0;
   color: var(--cdpv-muted);
 }
@@ -182,6 +182,7 @@
   font-size: 12px;
   cursor: pointer;
   text-align: start;
+  overflow: hidden;
 }
 .cdpv-root .cdpv-tab svg {
   flex: none;
@@ -211,8 +212,76 @@
   /* The masked scroll gutter must not intercept this control's leading edge. */
   position: relative;
   z-index: 1;
-  width: 32px;
+  width: var(--cdpv-tab-action);
   height: 32px;
+}
+.cdpv-root .cdpv-tab-picker {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: var(--cdpv-tab-action);
+  height: 32px;
+  border-radius: 50%;
+}
+.cdpv-root .cdpv-tab-picker select {
+  appearance: none;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  color: transparent;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cdpv-root .cdpv-tab-picker option {
+  color: var(--cdpv-foreground);
+  background: var(--cdpv-background);
+}
+.cdpv-root .cdpv-tab-picker > svg {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none;
+}
+.cdpv-root .cdpv-tab-picker:has(select:hover:not(:disabled)) {
+  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+}
+.cdpv-root .cdpv-tab-picker:has(select:disabled) {
+  opacity: 0.35;
+}
+.cdpv-root .cdpv-tab-picker select:disabled {
+  cursor: default;
+}
+
+@container cdpv-tab (width < 120px) {
+  .cdpv-root .cdpv-tab-item:not([data-selected]) .cdpv-close {
+    display: none;
+  }
+}
+@container cdpv-tab (width < 88px) {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab span {
+    display: none;
+  }
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab {
+    gap: 0;
+    padding-inline: 8px;
+  }
+}
+@container cdpv-tab (width < 72px) {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab svg {
+    display: none;
+  }
+}
+@container cdpv-tab (width < 56px) {
+  .cdpv-root .cdpv-tab span {
+    display: none;
+  }
+  .cdpv-root .cdpv-tab {
+    gap: 0;
+    padding-inline: 8px;
+  }
 }
 .cdpv-root .cdpv-new-tab::before {
   /* Center the tab's visible content height within the larger hit target. */
@@ -247,7 +316,13 @@
   background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
 }
 .cdpv-root
-  :is(.cdpv-tab, .cdpv-close, .cdpv-button, .cdpv-address):focus-visible {
+  :is(
+    .cdpv-tab,
+    .cdpv-close,
+    .cdpv-button,
+    .cdpv-address,
+    .cdpv-tab-picker select
+  ):focus-visible {
   outline: 2px solid var(--cdpv-accent);
   outline-offset: -2px;
 }

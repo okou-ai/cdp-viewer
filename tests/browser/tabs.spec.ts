@@ -283,7 +283,7 @@ test("delayed tab creation preserves a later host input focus", async ({
   }
 });
 
-test("tab discovery preserves manual scrolling while selection and focus stay visible", async ({
+test("tab discovery preserves compressed layout while selection and focus stay visible without scrolling", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -310,20 +310,31 @@ test("tab discovery preserves manual scrolling while selection and focus stay vi
     await expect(firstTab).toHaveAttribute("aria-selected", "true");
     await expect(viewer).toHaveAttribute("data-status", "streaming");
     const strip = viewer.getByRole("tablist");
-    const scrolled = await strip.evaluate((element) => {
-      element.scrollLeft = element.scrollWidth;
-      return element.scrollLeft;
-    });
-    expect(scrolled).toBeGreaterThan(0);
+    const widths = await viewer
+      .locator(".cdpv-tab-item")
+      .evaluateAll((items) =>
+        items.map((item) => item.getBoundingClientRect().width),
+      );
+    expect(widths.every((width) => width < 100)).toBe(true);
+    expect(
+      await strip.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+        return element.scrollLeft;
+      }),
+    ).toBe(0);
     await background.remote.evaluate(() => {
       document.title = "Updated background";
     });
     await expect(
       viewer.getByRole("tab", { name: "Updated background", exact: true }),
     ).toBeVisible();
-    expect(await strip.evaluate((element) => element.scrollLeft)).toBe(
-      scrolled,
-    );
+    expect(
+      await viewer
+        .locator(".cdpv-tab-item")
+        .evaluateAll((items) =>
+          items.map((item) => item.getBoundingClientRect().width),
+        ),
+    ).toEqual(widths);
     await viewer.getByRole("img", { name: "Live browser view" }).click();
     const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
     await page.keyboard.press("F8");
@@ -337,10 +348,10 @@ test("tab discovery preserves manual scrolling while selection and focus stay vi
     await expect(lastTab).toHaveAttribute("aria-selected", "true");
     await expect(lastTab).toBeInViewport({ ratio: 1 });
     await expect(viewer).toHaveAttribute("data-status", "streaming");
-    await strip.evaluate((element) => {
-      element.scrollLeft = 0;
+    await viewer.evaluate((element) => {
+      element.style.width = "960px";
     });
-    await expect(lastTab).not.toBeInViewport();
+    await expect(viewer.locator(".cdpv-close").first()).toBeVisible();
     await viewer.locator(".cdpv-close").first().click();
     await expect(viewer.getByRole("tab")).toHaveCount(3);
     await expect(lastTab).toHaveAttribute("aria-selected", "true");
@@ -384,25 +395,27 @@ async function expectTabBarAlignment(viewer: Locator) {
         root.querySelectorAll(
           ".cdpv-tab svg, .cdpv-tab span, .cdpv-close, .cdpv-close svg, .cdpv-new-tab, .cdpv-new-tab svg, .cdpv-new-tab span",
         ),
-        (element) => {
+      )
+        .filter((element) => element.getClientRects().length)
+        .map((element) => {
           const box = element.getBoundingClientRect();
           return {
             name: element.getAttribute("class") ?? element.tagName,
             offset: box.top + box.height / 2 - center,
           };
-        },
-      ),
+        }),
       hitAreas: Array.from(
         root.querySelectorAll(".cdpv-tab, .cdpv-close, .cdpv-new-tab"),
-        (element) => ({
+      )
+        .filter((element) => element.getClientRects().length)
+        .map((element) => ({
           minimum: element.matches(".cdpv-tab")
             ? 35
             : element.matches(".cdpv-close")
               ? 24
               : 32,
           height: element.getBoundingClientRect().height,
-        }),
-      ),
+        })),
       listBottom: list.bottom - toolbar.bottom,
       tabBottom: (tab?.bottom ?? list.bottom) - toolbar.bottom,
       leadingInset:
@@ -410,7 +423,8 @@ async function expectTabBarAlignment(viewer: Locator) {
           ? tab.left - toolbar.left
           : null,
       afterTabs: rect
-        ? rect.left -
+        ? (root.querySelector(".cdpv-tab-picker")?.getBoundingClientRect()
+            .left ?? rect.left) -
           (list.right -
             parseFloat(
               getComputedStyle(root.querySelector(".cdpv-tabs")!).paddingRight,
@@ -733,13 +747,16 @@ test.describe(() => {
         for (let index = 0; index < 3; index++)
           await remoteTab(backend, `Overflow ${index}`);
         await expect(tabs).toHaveCount(5);
-        // Scroll a selected surface through the action gutter, not just text.
-        await tabs.nth(1).click();
+        // Compressed selected surfaces retain the clear action gutter.
         await page.mouse.move(0, 0);
-        for (const scrollLeft of [0, 37, 101, 207]) {
-          await strip.evaluate((list, value) => {
-            list.scrollLeft = value;
-          }, scrollLeft);
+        for (const selectedIndex of [0, 1, 3, 4]) {
+          await tabs.nth(selectedIndex).click();
+          expect(
+            await strip.evaluate((list) => {
+              list.scrollLeft = 207;
+              return list.scrollLeft;
+            }),
+          ).toBe(0);
           const sample = await viewer.evaluate((root) => {
             const row = root
               .querySelector(".cdpv-toolbar")!
@@ -769,7 +786,7 @@ test.describe(() => {
           expect
             .soft(
               pixels.slice(1),
-              "Scrolling contents do not paint beneath the new-tab button",
+              "Compressed tabs do not paint beneath the new-tab button",
             )
             .toEqual([pixels[0], pixels[0], pixels[0]]);
           expect(
@@ -798,7 +815,7 @@ test.describe(() => {
         await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
         await create.hover();
         await viewer.screenshot({
-          path: info.outputPath("320-overflow-end.png"),
+          path: info.outputPath("320-compressed-end.png"),
         });
         await expectTabBarAlignment(viewer);
       } finally {
@@ -1016,7 +1033,7 @@ for (const nativeScrollbars of [false, true]) {
               .poll(() =>
                 viewer
                   .getByRole("tablist")
-                  .evaluate((list) => list.scrollWidth > list.clientWidth),
+                  .evaluate((list) => list.scrollWidth <= list.clientWidth + 1),
               )
               .toBe(true);
             const strip = viewer.getByRole("tablist");
@@ -1030,7 +1047,7 @@ for (const nativeScrollbars of [false, true]) {
             await page.mouse.wheel(250, 0);
             await expect
               .poll(() => strip.evaluate((list) => list.scrollLeft))
-              .toBeGreaterThan(0);
+              .toBe(0);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
             await expectTabBarAlignment(viewer);
             await viewer.screenshot({
@@ -1235,13 +1252,22 @@ for (const colorScheme of ["light", "dark"] as const) {
       await a.locator(`[data-target-id="${first.targetId}"]`).click();
       for (let index = 1; index <= 9; index++)
         await remoteTab(backend, `Project ${index} · Planning and research`);
+      const allTabs = a.getByRole("combobox", { name: "All tabs" });
       await expect(a.getByRole("tab")).toHaveCount(13);
-      expect(
-        await a
-          .getByRole("tablist")
-          .evaluate((list) => list.scrollWidth > list.clientWidth),
-      ).toBe(true);
+      await expect(allTabs).toHaveCount(0);
+      await expect
+        .poll(() =>
+          a
+            .locator(".cdpv-tab-item")
+            .evaluateAll((items) =>
+              items.every((item) => item.getBoundingClientRect().width < 100),
+            ),
+        )
+        .toBe(true);
       await a.getByRole("tab").last().click();
+      expect(
+        await a.getByRole("tablist").evaluate((list) => list.scrollLeft),
+      ).toBe(0);
       await expect(a.getByRole("tab").last()).toHaveAttribute(
         "aria-selected",
         "true",
@@ -1254,8 +1280,9 @@ for (const colorScheme of ["light", "dark"] as const) {
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
-      await a.screenshot({ path: info.outputPath("04-overflow.png") });
+      await a.screenshot({ path: info.outputPath("04-compressed.png") });
       await page.setViewportSize({ width: 390, height: 844 });
+      await expect(allTabs.locator("option")).toHaveCount(14);
       await expect(a.getByLabel("Remote page address")).toBeVisible();
       expect(
         await page.evaluate(
@@ -1413,3 +1440,322 @@ test("inherits host appearance and isolates explicit and system overrides withou
     await backend.close();
   }
 });
+
+test("keeps view-only overflow lists and resizing scoped to their own window and viewer", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    await page.setViewportSize({ width: 1200, height: 850 });
+    const first = await remoteTab(backend, "Workspace", true);
+    const extras = [];
+    for (let index = 1; index <= 7; index++)
+      extras.push(await remoteTab(backend, `Research ${index}`));
+    const other = await remoteTab(backend, "Other window", true);
+    const viewer = await host(page, {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      windowB: other.windowId,
+    });
+    const sibling = page.locator("#viewer-b .cdpv-root");
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    await expect(sibling).toHaveAttribute("data-status", "streaming");
+    const siblingBounds = await sibling.boundingBox();
+    const siblingCanvas = await sibling.locator("canvas").elementHandle();
+    await viewer.evaluate((root) => {
+      root.style.width = "220px";
+    });
+    const allTabs = viewer.getByRole("combobox", { name: "All tabs" });
+    await expect(allTabs.locator("option")).toHaveCount(9);
+    await expect(
+      allTabs.locator("option", { hasText: "Other window" }),
+    ).toHaveCount(0);
+    await allTabs.selectOption(extras.at(-1)!.targetId);
+    await expect(
+      viewer.getByRole("tab", { selected: true }),
+    ).toHaveAccessibleName("Research 7");
+    await expect(
+      viewer.getByRole("button", { name: "New tab", exact: true }),
+    ).toHaveCount(0);
+    await expect(viewer.locator(".cdpv-close")).toHaveCount(0);
+    await allTabs.focus();
+    await viewer.evaluate((root) => {
+      root.style.width = "500px";
+    });
+    await expect(allTabs).toHaveCount(0);
+    await expect(viewer.getByRole("tab", { selected: true })).toBeFocused();
+    await expect(viewer.getByRole("tab")).toHaveCount(8);
+    await expect(
+      sibling.getByRole("tab", { selected: true }),
+    ).toHaveAccessibleName("Other window");
+    expect(await sibling.boundingBox()).toEqual(siblingBounds);
+    expect(
+      await sibling
+        .locator("canvas")
+        .evaluate((element, old) => element === old, siblingCanvas),
+    ).toBe(true);
+    expect(
+      await viewer.getByRole("tablist").evaluate((list) => {
+        list.scrollLeft = 1000;
+        return list.scrollLeft;
+      }),
+    ).toBe(0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  } finally {
+    await backend.close();
+  }
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`compresses ${colorScheme} tabs at exact boundaries and keeps every target accessible without scrolling`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      await page.setViewportSize({ width: 1200, height: 850 });
+      const first = await remoteTab(
+        backend,
+        "Workspace · Planning and research",
+        true,
+      );
+      await remoteTab(backend, "Product notes · Quarterly objectives");
+      const last = await remoteTab(backend, "Inbox · Customer conversations");
+      const viewer = await host(page, {
+        cdpUrl: backend.endpoint,
+        windowA: first.windowId,
+        interactive: true,
+        colorSchemeA: colorScheme,
+        second: false,
+      });
+      await page.locator("#panels").evaluate((element) => {
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+      });
+      const size = async (width: number) =>
+        viewer.evaluate((root, value) => {
+          root.style.width = `${value}px`;
+        }, width);
+      await size(900);
+      await viewer.locator(`[data-target-id="${first.targetId}"]`).click();
+      await expect(viewer).toHaveAttribute("data-status", "streaming");
+      const canvas = await viewer.locator("canvas").elementHandle();
+      const proxy = await viewer
+        .getByLabel("Remote browser input")
+        .elementHandle();
+      const tabs = viewer.getByRole("tab");
+      const strip = viewer.getByRole("tablist");
+      const allTabs = viewer.getByRole("combobox", { name: "All tabs" });
+      const create = viewer.getByRole("button", {
+        name: "New tab",
+        exact: true,
+      });
+      await expect
+        .poll(() =>
+          viewer
+            .locator(".cdpv-tab-item")
+            .evaluateAll((items) =>
+              items.map((item) => item.getBoundingClientRect().width),
+            ),
+        )
+        .toEqual([232, 232, 232]);
+      await viewer.screenshot({ path: info.outputPath("comfortable.png") });
+      await viewer.locator(`[data-close-target="${last.targetId}"]`).focus();
+      await size(320);
+      await expect
+        .poll(() =>
+          viewer
+            .locator(".cdpv-tab-item")
+            .evaluateAll((items) =>
+              items.map((item) => item.getBoundingClientRect().width),
+            ),
+        )
+        .toEqual([85, 85, 85]);
+      await expect(
+        viewer.locator(`[data-close-target="${first.targetId}"]`),
+      ).toBeVisible();
+      await expect(
+        viewer.locator(`[data-close-target="${last.targetId}"]`),
+      ).toBeHidden();
+      await expect(viewer.getByRole("tab", { selected: true })).toBeFocused();
+      await expect(
+        viewer.locator(`[data-target-id="${last.targetId}"]`),
+      ).toHaveAccessibleName("Inbox · Customer conversations");
+      await viewer.screenshot({ path: info.outputPath("compressed.png") });
+      const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
+      for (const width of [178, 177, 176, 177, 178]) {
+        await size(width);
+        await expect(tabs).toHaveCount(width < 177 ? 1 : 3);
+        await expect(allTabs).toHaveCount(width < 177 ? 1 : 0);
+        expect(
+          await strip.evaluate((list) => {
+            list.scrollLeft = 500;
+            return list.scrollLeft;
+          }),
+        ).toBe(0);
+        await strip.hover();
+        await page.mouse.wheel(250, 0);
+        expect(await strip.evaluate((list) => list.scrollLeft)).toBe(0);
+        await expect(create).toBeInViewport({ ratio: 1 });
+        await expectTabBarAlignment(viewer);
+      }
+      await size(176);
+      await expect(allTabs).toBeVisible();
+      expect(
+        await allTabs.evaluate((select) => {
+          const rect = select.getBoundingClientRect();
+          return [
+            [rect.left + 1, rect.top + rect.height / 2],
+            [rect.right - 1, rect.top + rect.height / 2],
+          ].every(([x, y]) => document.elementFromPoint(x!, y!) === select);
+        }),
+      ).toBe(true);
+      await allTabs.selectOption(last.targetId);
+      await expect(tabs).toHaveCount(1);
+      await expect(tabs.first()).toHaveAttribute(
+        "data-target-id",
+        last.targetId,
+      );
+      await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+      await allTabs.focus();
+      await size(320);
+      await expect(allTabs).toHaveCount(0);
+      await expect(
+        viewer.locator(`[data-target-id="${last.targetId}"]`),
+      ).toBeFocused();
+      await viewer.getByRole("tab", { selected: false }).first().focus();
+      await size(176);
+      await expect(tabs).toHaveCount(1);
+      await expect(tabs.first()).toBeFocused();
+      await viewer.getByRole("img", { name: "Live browser view" }).click();
+      await page.keyboard.press("F8");
+      await expect(tabs.first()).toBeFocused();
+      await viewer.screenshot({ path: info.outputPath("narrow.png") });
+      const hostInput = page.getByLabel("Host input", { exact: true });
+      await hostInput.focus();
+      await size(900);
+      await expect(tabs).toHaveCount(3);
+      await expect(hostInput).toBeFocused();
+      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
+      expect(
+        await viewer
+          .locator("canvas")
+          .evaluate((element, old) => element === old, canvas),
+      ).toBe(true);
+      expect(
+        await viewer
+          .getByLabel("Remote browser input")
+          .evaluate((element, old) => element === old, proxy),
+      ).toBe(true);
+      await expect(viewer).toHaveAttribute("data-status", "streaming");
+    } finally {
+      await backend.close();
+    }
+  });
+
+  test(`keeps ${colorScheme} extreme-count tabs reachable through creation closure and metadata updates`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      const first = await remoteTab(backend, "Workspace", true);
+      const extras = [];
+      for (let index = 1; index <= 9; index++)
+        extras.push(await remoteTab(backend, `Project ${index}`));
+      const viewer = await host(page, {
+        cdpUrl: backend.endpoint,
+        windowA: first.windowId,
+        interactive: true,
+        colorSchemeA: colorScheme,
+        second: false,
+      });
+      await page.locator("#panels").evaluate((element) => {
+        element.style.gridTemplateColumns = "minmax(0, 1fr)";
+      });
+      await viewer.evaluate((root) => {
+        root.style.width = "320px";
+      });
+      const allTabs = viewer.getByRole("combobox", { name: "All tabs" });
+      await expect(allTabs.locator("option")).toHaveCount(11);
+      const ordered = await allTabs.locator("option").evaluateAll((options) =>
+        options.slice(1).map((option) => ({
+          id: (option as HTMLOptionElement).value,
+          title: option.textContent!,
+        })),
+      );
+      await allTabs.selectOption(ordered[0]!.id);
+      await allTabs.focus();
+      await page.keyboard.press("End");
+      const selected = viewer.getByRole("tab", { selected: true });
+      await expect(selected).toHaveAttribute(
+        "data-target-id",
+        ordered.at(-1)!.id,
+      );
+      await expect(selected).toHaveAccessibleName(ordered.at(-1)!.title);
+      await expect(selected).toBeInViewport({ ratio: 1 });
+      const ids = await viewer
+        .getByRole("tab")
+        .evaluateAll((items) =>
+          items.map((item) => item.getAttribute("data-target-id")),
+        );
+      await extras
+        .find((extra) => extra.targetId !== ordered.at(-1)!.id)!
+        .remote.evaluate(() => {
+          document.title = "Updated background";
+        });
+      await expect(
+        allTabs.locator("option", { hasText: "Updated background" }),
+      ).toHaveCount(1);
+      expect(
+        await viewer
+          .getByRole("tab")
+          .evaluateAll((items) =>
+            items.map((item) => item.getAttribute("data-target-id")),
+          ),
+      ).toEqual(ids);
+      await viewer.screenshot({ path: info.outputPath("extreme.png") });
+      await viewer
+        .getByRole("button", { name: "New tab", exact: true })
+        .click();
+      await expect(allTabs.locator("option")).toHaveCount(12);
+      await expect(selected).not.toHaveAttribute(
+        "data-target-id",
+        ordered.at(-1)!.id,
+      );
+      await expect(viewer.getByLabel("Remote page address")).toBeFocused();
+      const created = await selected.getAttribute("data-target-id");
+      await viewer.locator(`[data-close-target="${created}"]`).click();
+      await expect(allTabs.locator("option")).toHaveCount(11);
+      await expect(selected).toBeFocused();
+      await expect(selected).toBeInViewport({ ratio: 1 });
+      for (const extra of extras) await extra.remote.close();
+      await expect(viewer.getByRole("tab")).toHaveCount(1);
+      await expect(allTabs).toHaveCount(0);
+      await expect(viewer.getByRole("tab")).toHaveAttribute(
+        "data-target-id",
+        first.targetId,
+      );
+      expect(
+        await viewer.getByRole("tablist").evaluate((list) => list.scrollLeft),
+      ).toBe(0);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    } finally {
+      await backend.close();
+    }
+  });
+}

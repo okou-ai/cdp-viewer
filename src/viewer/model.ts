@@ -1,5 +1,7 @@
 import { command, computed, state } from "ccstate";
 import { createInstance } from "../state/instance";
+import { layoutTabs } from "./tab-layout";
+import type { TabSpace } from "./tab-layout";
 import type { ViewerError, ViewerSnapshot } from "./types";
 
 export interface ViewerActions {
@@ -58,6 +60,7 @@ function createViewerSignals() {
   const actions$ = state<ViewerActions | null>(null);
   const draft$ = state<AddressDraft | null>(null);
   const pendingTab$ = state<TabAction | null>(null);
+  const tabSpace$ = state<TabSpace | null>(null);
   const internalNotification$ = state<ViewerNotification | null>(null);
   const notificationSequence$ = state(0);
   const internalConnected$ = state(false);
@@ -77,6 +80,26 @@ function createViewerSignals() {
     set(pendingTab$, action);
   });
   const snapshot$ = computed((get) => get(internalSnapshot$));
+  const tabLayout$ = computed((get) => {
+    const snapshot = get(snapshot$);
+    return layoutTabs(
+      snapshot.targets,
+      snapshot.selectedTargetId,
+      get(configuration$).interactive,
+      get(tabSpace$),
+    );
+  });
+  const resizeTabs$ = command(({ get, set }, space: TabSpace) => {
+    const previous = get(tabSpace$);
+    if (
+      previous?.width === space.width &&
+      previous.gap === space.gap &&
+      previous.overflow === space.overflow
+    )
+      return false;
+    set(tabSpace$, Object.freeze({ ...space }));
+    return true;
+  });
   const notification$ = computed((get) => get(internalNotification$));
   const finishReplacement$ = command(({ get, set }, id: number) => {
     const notification = get(internalNotification$);
@@ -300,6 +323,8 @@ function createViewerSignals() {
   });
   return {
     snapshot$,
+    tabLayout$,
+    resizeTabs$,
     notification$,
     finishReplacement$,
     exitNotification$,

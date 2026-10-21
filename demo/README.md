@@ -48,13 +48,16 @@ The page-level **Appearance** setting selects **Light**, **Dark** or **System**.
 Viewers inherit this host setting by default. System follows the OS preference;
 changing appearance keeps the connection, current tab and local input nodes.
 
-The top row contains horizontally scrolling tabs, close buttons and a fixed **+**
+The top row contains compressible tabs, close buttons and a fixed **+**
 new-tab button. Arrow keys move tab focus; Enter or Space selects the focused tab.
 The tab row retains its height when there are no tabs, keeping the page area in place.
-Its scrollbar is hidden; horizontal scrolling remains available.
-Focused tabs are brought into view within the tab strip.
+Tabs shrink from a comfortable maximum as space decreases; the row never scrolls
+horizontally. Narrow tabs omit titles and inactive close buttons, while the selected
+tab keeps its close action. When useful minimum widths no longer fit, **All tabs**
+lists every page and the selected page remains in the strip whenever it can fit.
+The native list is an embedded-viewer fallback, not Chrome's full Tab Search UI.
 Discovery updates keep existing tabs in place and append newly discovered tabs.
-Background updates preserve the tab strip's manual scroll position.
+Background updates preserve selection and the visible target order.
 Creating a tab opens `about:blank` in the selected page's window and focuses the
 address bar unless you focused another control while creation was pending.
 Popup/sandbox policy can block this action; check the browser before
