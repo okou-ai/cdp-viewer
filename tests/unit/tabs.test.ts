@@ -193,6 +193,26 @@ it("closes an inactive tab without replacing the active session, then closes the
   ).toBe(false);
 });
 
+it("does not open a tab after its source moves during isolated-world creation", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model, socket } = await mount(browser, 0);
+  browser.holdMethod = "Page.createIsolatedWorld";
+  controller.createTab();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  browser.targets[0]!.windowId = 2;
+  const held = browser.heldCommands[0]!;
+  held.socket.reply(held.command, { executionContextId: 42 });
+  await vi.waitFor(() => expect(model.read(model.tabAction$)).toBeNull());
+  expect(browser.targets).toHaveLength(2);
+  expect(
+    socket.commands.some(
+      (command) =>
+        command.method === "Runtime.evaluate" &&
+        String(command.params?.expression).includes("const tab = window.open("),
+    ),
+  ).toBe(false);
+});
+
 it("selects a neighbour after explicit active close while external close stays unavailable", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = await mount(browser);

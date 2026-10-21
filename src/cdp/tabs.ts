@@ -39,6 +39,8 @@ export async function openTab(
       source.sessionId,
     );
     check();
+    await directory.assertMember(source.targetId);
+    check();
     // getRandomValues also works in HTTP hosts where randomUUID is unavailable.
     const token = Array.from(
       crypto.getRandomValues(new Uint8Array(16)),
