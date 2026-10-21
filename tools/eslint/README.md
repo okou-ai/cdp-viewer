@@ -29,6 +29,9 @@ Library adaptations:
 - Signal suffix violations are diagnostic-only. Rename the symbol and its
   references together in an editor; changing only the declaration can leave
   dangling references or collide with an existing suffixed name.
+- Render-effect checks recognize default TSX components and custom hooks.
+  Immediately invoked functions inherit their enclosing render or handler
+  scope; deferred event callbacks remain valid places for side effects.
 - The Store-construction rule is enabled here with one definition capability;
   it was registered but not enabled in the inspected Okou Platform config.
 - `instance-boundaries.js` adds local factory/scope ownership, view mutation,

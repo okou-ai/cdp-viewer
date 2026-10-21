@@ -15,6 +15,42 @@ async function lint(code, file = model) {
 
 const rejected = [
   [
+    "microtask in default function render",
+    "export default function() { queueMicrotask(work); return null; }",
+    "ccstate/no-side-effect-in-render",
+    view,
+  ],
+  [
+    "microtask in default arrow render",
+    "export default () => { queueMicrotask(work); return null; };",
+    "ccstate/no-side-effect-in-render",
+    view,
+  ],
+  [
+    "microtask in custom hook render",
+    "function useAction() { queueMicrotask(work); }",
+    "ccstate/no-side-effect-in-render",
+    view,
+  ],
+  [
+    "microtask in arrow hook render",
+    "const useAction = () => { queueMicrotask(work); };",
+    "ccstate/no-side-effect-in-render",
+    view,
+  ],
+  [
+    "microtask in default hook outside TSX",
+    "export default function useAction() { queueMicrotask(work); }",
+    "ccstate/no-side-effect-in-render",
+    "src/viewer/helper.ts",
+  ],
+  [
+    "microtask in render IIFE",
+    "export function View() { (() => queueMicrotask(work))(); return null; }",
+    "ccstate/no-side-effect-in-render",
+    view,
+  ],
+  [
     "renamed cancellation unchecked await",
     "import { command } from 'ccstate'; const work$ = command(async (_, lifetime: AbortSignal) => { await perform(); update(); });",
     "ccstate/signal-check-await",
@@ -335,6 +371,31 @@ for (const [name, code, rule, file] of rejected) {
 }
 
 const accepted = [
+  [
+    "default component event microtask",
+    "export default function() { return <button type='button' onClick={() => queueMicrotask(work)}>Go</button>; }",
+    view,
+  ],
+  [
+    "custom hook returns deferred microtask callback",
+    "function useAction() { return () => queueMicrotask(work); }",
+    view,
+  ],
+  [
+    "IIFE inside deferred event handler",
+    "export function View() { return <button type='button' onClick={() => (() => queueMicrotask(work))()}>Go</button>; }",
+    view,
+  ],
+  [
+    "named IIFE inside deferred event handler",
+    "export function View() { return <button type='button' onClick={() => (function Run() { queueMicrotask(work); })()}>Go</button>; }",
+    view,
+  ],
+  [
+    "non-React default helper microtask",
+    "export default function() { queueMicrotask(work); }",
+    "src/viewer/helper.ts",
+  ],
   [
     "renamed cancellation checked await",
     "import { command } from 'ccstate'; const work$ = command(async (_, lifetime: AbortSignal) => { await perform(); lifetime.throwIfAborted(); update(); });",

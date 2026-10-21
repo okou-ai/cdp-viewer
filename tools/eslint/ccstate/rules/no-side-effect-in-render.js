@@ -2,37 +2,28 @@
 /** Library policy: no-side-effect-in-render. See docs/state-architecture.md. */
 import { createRule } from "../utils.js";
 const DEFAULT_FORBIDDEN_CALLS = ["detach", "queueMicrotask"];
-function isComponentOrHookFunction(node) {
-  // PascalCase function declaration: function MyView() {}
-  if (node.type === "FunctionDeclaration" && node.id) {
-    return /^[A-Z]/.test(node.id.name);
+function isComponentOrHookFunction(node, filename) {
+  // Default exports in TSX are components, including anonymous arrows and
+  // functions whose local name does not follow the component convention.
+  if (
+    node.parent?.type === "ExportDefaultDeclaration" &&
+    filename.endsWith(".tsx")
+  ) {
+    return true;
   }
-  // Arrow function or function expression assigned to PascalCase variable:
-  // const MyView = () => {} or const MyView = function() {}
+  const renderName = /^(?:[A-Z]|use[A-Z])/;
+  if (node.type === "FunctionDeclaration" && node.id) {
+    return renderName.test(node.id.name);
+  }
+  // Arrow/function expressions assigned to component or custom-hook names.
   const parent = node.parent;
   if (
     parent?.type === "VariableDeclarator" &&
     parent.id.type === "Identifier"
   ) {
-    return /^[A-Z]/.test(parent.id.name);
-  }
-  // export default function() {} — treat as component if in a .tsx file
-  if (
-    node.type === "FunctionDeclaration" &&
-    node.parent?.type === "ExportDefaultDeclaration"
-  ) {
-    const filename = getCurrentFilename(node);
-    return filename.endsWith(".tsx");
+    return renderName.test(parent.id.name);
   }
   return false;
-}
-function getCurrentFilename(node) {
-  let current = node;
-  while (current.parent) {
-    current = current.parent;
-  }
-  // The root node doesn't have filename, we rely on context instead
-  return "";
 }
 export default createRule({
   name: "no-side-effect-in-render",
@@ -67,17 +58,22 @@ export default createRule({
     const forbiddenCalls = new Set(
       options.forbiddenCalls ?? DEFAULT_FORBIDDEN_CALLS,
     );
-    // Track function nesting: [isComponent, isComponent, ...]
-    // When we enter a component function, push true. For nested functions, push false.
-    // A call is "in render" when the innermost function scope is a component (stack top === true).
+    // Deferred callbacks start a separate scope; an IIFE executes in the
+    // enclosing scope and must retain its render/handler classification.
     const scopeStack = [];
     // Track variable names that hold useSet() return values, per component scope
     const setterNamesStack = [];
     function enterFunction(node) {
-      const isComponent = isComponentOrHookFunction(node);
-      scopeStack.push(isComponent);
-      if (isComponent) {
-        setterNamesStack.push(new Set());
+      const immediate =
+        node.parent?.type === "CallExpression" && node.parent.callee === node;
+      const inRender = immediate
+        ? isInRenderScope()
+        : isComponentOrHookFunction(node, context.filename);
+      scopeStack.push(inRender);
+      if (inRender) {
+        setterNamesStack.push(
+          immediate ? new Set(getCurrentSetterNames()) : new Set(),
+        );
       }
     }
     function exitFunction() {
