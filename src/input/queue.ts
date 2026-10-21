@@ -16,7 +16,7 @@ type InputMethod =
 
 export interface InputJob {
   readonly owner: InputOwner;
-  text?: string;
+  readonly text?: string;
   wheel?: Wheel;
   request<M extends keyof ProtocolMapping.Commands>(
     method: M,
@@ -42,7 +42,6 @@ export class InputQueue {
   private readonly pending = new Set<Promise<void>>();
   private running = false;
   private active: QueuedJob | null = null;
-  private collecting: QueuedJob | null = null;
 
   constructor(
     private readonly client: CdpClient,
@@ -53,7 +52,6 @@ export class InputQueue {
 
   clear(): void {
     this.jobs.length = 0;
-    this.collecting = null;
   }
 
   capture(): InputJob {
@@ -84,14 +82,8 @@ export class InputQueue {
       this.failed();
       return;
     }
-    const tail = this.jobs.at(-1) ?? this.collecting;
-    if (
-      tail?.text !== undefined &&
-      this.lifecycle.owns(tail.owner) &&
-      tail.text.length + text.length <= 64 * 1024
-    ) {
-      tail.text += text;
-    } else this.add(run, { text });
+    // Each native commit may change the page's focus before the next commit.
+    this.add(run, { text });
   }
 
   wheel(
@@ -159,19 +151,11 @@ export class InputQueue {
       this.failed();
       return;
     }
-    const captured = this.capture();
     const job: QueuedJob = {
-      ...captured,
+      ...this.capture(),
       run,
       move,
       ...rest,
-      dispatch: (method, params, acknowledged) => {
-        // Arguments capture the payload now. Later text belongs to a new job,
-        // even while this write is awaiting acknowledgement.
-        if (method === "Input.insertText" && this.collecting === job)
-          this.collecting = null;
-        captured.dispatch(method, params, acknowledged);
-      },
     };
     this.jobs.push(job);
     if (!this.running)
@@ -234,7 +218,6 @@ export class InputQueue {
         const job = this.jobs.shift()!;
         if (!this.lifecycle.owns(job.owner)) continue;
         this.active = job;
-        this.collecting = job.text === undefined ? null : job;
         try {
           if (job.barrier) await Promise.allSettled(this.pending);
           if (!this.lifecycle.owns(job.owner)) continue;
@@ -249,7 +232,6 @@ export class InputQueue {
           if (this.lifecycle.owns(job.owner)) this.failed(error);
         } finally {
           this.active = null;
-          if (this.collecting === job) this.collecting = null;
         }
       }
     } finally {

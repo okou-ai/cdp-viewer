@@ -80,7 +80,7 @@ it("sends native text while optional caret metadata is still pending", async () 
   held.socket.reply(held.command, focusResult());
 });
 
-it("collects text while fresh window membership is being verified", async () => {
+it("preserves distinct text commits while fresh window membership is pending", async () => {
   const { browser, socket, input } = await mount(0);
   browser.holdMethod = "Browser.getWindowForTarget";
   input.text("a");
@@ -94,7 +94,7 @@ it("collects text while fresh window membership is being verified", async () => 
       socket.commands
         .filter((c) => c.method === "Input.insertText")
         .map((c) => c.params?.text),
-    ).toEqual(["abc"]),
+    ).toEqual(["a", "bc"]),
   );
 });
 
@@ -158,7 +158,7 @@ it("does not merge a preflight text batch across a queued key", async () => {
   );
 });
 
-it("discards collected old-owner text while retaining the per-payload bound", async () => {
+it("discards queued old-owner text while retaining the per-payload bound", async () => {
   const { browser, socket, input } = await mount(0);
   browser.holdMethod = "Browser.getWindowForTarget";
   input.text("a".repeat(64 * 1024));
@@ -179,7 +179,7 @@ it("discards collected old-owner text while retaining the per-payload bound", as
   );
 });
 
-it("keeps batches bounded while text is collected during scoped preparation", async () => {
+it("keeps commits bounded and separate during scoped preparation", async () => {
   const { browser, socket, input } = await mount(0);
   browser.holdMethod = "Browser.getWindowForTarget";
   input.text("a".repeat(64 * 1024 - 1));

@@ -46,6 +46,8 @@ events. Completed Unicode composition and native text input use
 `Input.insertText`. Preedit stays local. Composition/input event
 ordering is consumed as a value boundary so a trailing final input does not
 duplicate committed text or suppress a subsequent identical character.
+Separate native text commits retain their event boundaries while waiting to be
+sent, so a control can move focus before the next commit arrives.
 Cancellation sends no text. IME/229/composing Enter is kept separate from a later
 ordinary Enter, which can submit the remote form or insert a newline.
 Late composition values after blur or target replacement are discarded, including

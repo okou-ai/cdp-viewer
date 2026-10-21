@@ -529,6 +529,68 @@ test("native keyboard input follows automatic focus handoff and replaced control
   }
 });
 
+test("native text commits retain focus handoff across a delayed window check", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const releases: (() => void)[] = [];
+  let armed = false;
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.evaluate(() => {
+      const first = document.querySelector<HTMLInputElement>("#plain")!;
+      const second = document.createElement("input");
+      second.id = "next-code";
+      first.maxLength = 1;
+      first.after(second);
+      first.addEventListener("input", () => second.focus());
+    });
+    const writes: string[] = [];
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      const windows = new Set<number>();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+          params?: { text?: string };
+        };
+        if (armed && command.method === "Browser.getWindowForTarget")
+          windows.add(command.id);
+        if (command.method === "Input.insertText")
+          writes.push(command.params?.text ?? "");
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        const windowReply =
+          response.id !== undefined && windows.delete(response.id);
+        if (armed && windowReply) releases.push(() => socket.send(message));
+        else socket.send(message);
+      });
+    });
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    armed = true;
+    await page.keyboard.insertText("1");
+    await expect.poll(() => releases.length).toBeGreaterThan(0);
+    await page.keyboard.insertText("2");
+    expect(writes).toEqual([]);
+    armed = false;
+    for (const release of releases.splice(0)) release();
+    await expect(remote.locator("#plain")).toHaveValue("1");
+    await expect(remote.locator("#next-code")).toHaveValue("2");
+    expect(writes).toEqual(["1", "2"]);
+  } finally {
+    armed = false;
+    for (const release of releases) release();
+    await backend.close();
+  }
+});
+
 for (const crossOrigin of [false, true]) {
   test(`native key and text input reach ${crossOrigin ? "cross-origin OOPIF" : "same-origin iframe"} controls`, async ({
     page,
