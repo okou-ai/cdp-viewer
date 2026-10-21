@@ -30,7 +30,7 @@ function DemoView() {
           </p>
         </div>
         <nav aria-label="Project">
-          <a href="https://github.com/okou-ai/cdp-viewer/blob/main/docs/demo.md">
+          <a href="https://github.com/okou-ai/cdp-viewer/blob/main/demo/README.md">
             Connection guide
           </a>
           <a href="https://github.com/okou-ai/cdp-viewer">GitHub ↗</a>

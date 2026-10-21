@@ -1,100 +1,68 @@
 # State and React boundaries
 
-Ordinary views read ccstate projections and invoke bound commands from event
-handlers. They do not construct stores, define signals, retain mutable refs,
-synchronize state with effects, or control browser resources. This applies to
-both `src/react/CdpViewer.tsx` and the demo views.
+Keep state ownership, presentation and external resources separate. Views read
+projections and dispatch commands; models express state transitions; runtime
+adapters connect committed UI lifetimes to external resources.
+
+## Layers
+
+| Layer                | Responsibility                                                |
+| -------------------- | ------------------------------------------------------------- |
+| Instance entry       | Construct an independent Store and signal graph               |
+| Model                | Own private writable state, computed projections and commands |
+| Private React bridge | Provide instance context, subscriptions and bound commands    |
+| View                 | Render projections and dispatch commands from event handlers  |
+| Runtime adapter      | Own DOM references, external resources and cleanup            |
+
+Keep dependency direction explicit. Models must not depend on React or acquire
+DOM resources. Views must not reach through their model to control a transport.
+The bridge and runtime adapters are narrow infrastructure boundaries, not
+general exemptions from code-quality rules.
 
 ## Instance ownership
 
-`src/state/instance.ts` is the only Store construction definition. Each call
-creates a fresh Store and signal graph. `src/viewer/model.ts` and `demo/model.ts`
-define their own graphs inside factories, keeping writable atoms private and
-returning computed projections and commands. The demo owns panel configuration;
-each mounted public `CdpViewer` still owns a separate library instance.
+Allocate a fresh Store and graph for each instance. Share immutable context
+metadata or pure definitions, not mutable models, active resources or an implicit
+global registry. The host application's state provider must remain independent
+of library state.
 
-`src/state/react.tsx` defines a private context/subscription bridge. The named
-context modules pass model factories into `createScope`; they share only context
-metadata. A provider allocates and retains its own model. This is a narrow pure
-bootstrap exception: allocation during render must perform no I/O, install no
-listeners or watchers, and start no timers or subscriptions. Abandoned renders,
-Strict Mode's repeated initialization and source SSR must be harmless.
+Bootstrap allocation must be pure: no I/O, listeners, watchers or timers before
+commit. Abandoned renders, repeated initialization under Strict Mode and server
+rendering must be harmless. Subscriptions and external resources belong to
+committed consumers and must have matching cleanup.
 
-The bridge uses `useSyncExternalStore` with the same read for server rendering.
-Subscriptions belong to committed React consumers. Runtime `ccstate-react`
-imports are forbidden in production so the host's provider cannot accidentally
-own viewer state. There is no global viewer Store, endpoint registry or implicit
-connection pool. Supporting several independent viewers is a required invariant.
+Keep writable atoms private. Expose computed projections for reads and commands
+for transitions. Create graph identities during instance initialization, not
+while running another command or rendering an ordinary view.
 
 ## Commands and runtime resources
 
-The viewer model owns reconnect revisions, target/navigation actions and address
-drafts. The demo model owns panel identities, draft validation, committed
-connections and reconnect generations. Editing a connection draft does not
-replace an applied connection. Reconnect uses committed settings; an invalid
-apply preserves the current viewer. Address editing survives remote URL updates
-while active; a completed draft is released on the next URL transition.
-Disabling interaction ends that address editor's lifetime and discards its
-draft; re-enabling starts from the current remote URL. Sibling drafts and
-connections retain their independent lifetimes.
+Views invoke bound commands from event handlers. Keep semantic transitions in
+the model rather than synchronizing duplicate state through React effects.
+Use React effects only in the runtime adapter to synchronize external resources
+with committed props and instance state.
 
-`src/react/runtime.tsx` is the exact DOM/resource adapter. It owns stable canvas
-and textarea refs, committed callbacks, layout effects, visibility observation,
-native input, controller binding and cleanup. It binds model actions to its own
-controller and removes only the matching binding during teardown. Changing a
-callback does not reconnect. Each socket, session, request, timer, renderer and
-native input lifetime remains owned by its viewer.
+Resource bindings belong to their instance and lifetime. Remove only a matching
+binding during cleanup, so an old owner cannot detach a replacement. Callback
+identity changes must not recreate unrelated resources. Keep required DOM node
+identities stable across ordinary state updates.
 
-Commands do not replace the serialized CDP input lane or its captured ownership
-checks. DOM resources start after commit and stop on ownership loss. Never retry
-uncertain input or close the remote browser as viewer cleanup. Read
-[input-lifecycle.md](input-lifecycle.md) before changing those boundaries.
+Asynchronous work must retain its original owner and check that owner before
+applying results or external writes. Cleanup must be idempotent and release only
+owned work. See [input lifecycle architecture](input-lifecycle.md).
 
 ## Lint policy
 
-`pnpm lint` runs type-aware Oxlint, ESLint and the real-config policy regressions.
-All architecture rules are errors; warnings also fail the command. Production
-code cannot disable ESLint/Oxlint checks or suppress TypeScript diagnostics.
-React hook and accessibility checks remain enabled.
+`pnpm lint` runs type-aware checks and real-config policy regressions. Architecture
+rules are errors; warnings also fail the command. Keep React hook, accessibility
+and strict type checks enabled. Fix violations rather than adding inline lint
+or type suppressions.
 
-The local ESLint plugin adapts 20 selected rules from
-[`okou-ai/okou` at 7354b16deac91ae677fa1edbfb82d16c5c6e5504](https://github.com/okou-ai/okou/tree/7354b16deac91ae677fa1edbfb82d16c5c6e5504/turbo/packages/eslint-rules/src/ccstate).
-It has no private workspace dependency. Selection and library-specific changes
-are documented in [the plugin notes](../tools/eslint/README.md).
-
-The rules enforce signal naming and canonical imports, private writable atoms,
-accessor/Store boundaries, render purity, async cancellation checks, explicit
-promise failure handling and instance construction. Additional local rules
-restrict graph factories and private scope definitions, reject view writes,
-block primitive import/forwarding bypasses and prevent suppressions. The Store
-rule is deliberately enabled here even though it was only registered in the
-inspected Okou configuration.
-
-Ordinary views may use type-only React/ccstate imports and private scope reads
-and commands. Runtime React imports are denied everywhere except the exact
-definitions below; namespace imports and aliases cannot acquire additional
-capabilities. ccstate constructors must use their canonical names and appear
-only in approved model definitions. A new model or primitive definition requires
-an explicit policy change with positive and negative regression coverage.
-
-| Definition                                        | Granted capability                                                                        |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `src/state/instance.ts`                           | Construct a Store inside `createInstance`                                                 |
-| `src/viewer/model.ts`, `demo/model.ts`            | Define a graph inside its factory; call `createInstance`                                  |
-| `src/react/context.ts`, `demo/context.ts`         | Create private scope metadata from a model factory                                        |
-| `src/state/react.tsx`                             | `createContext`, `useCallback`, `useContext`, `useId`, `useState`, `useSyncExternalStore` |
-| `src/react/runtime.tsx`                           | `createContext`, `useContext`, `useEffect`, `useLayoutEffect`, `useMemo`, `useRef`        |
-| `demo/main.tsx`                                   | `StrictMode` and the root document bootstrap                                              |
-| `src/cdp/client.ts`                               | Native cancellation owners and wire deferred Promises                                     |
-| `src/viewer/controller.ts`, `src/input/native.ts` | Native cancellation owners                                                                |
-
-These are per-rule capabilities, not directory-wide lint exemptions. All other
-ownership, naming, failure-handling and type checks still apply in these files.
-In signal graphs, caught failures must propagate; catching and immediately
-rethrowing is permitted. CDP parsing, native input and request cleanup instead
-use their existing protocol-specific error and cancellation contracts. Terminal
-async work must have an explicit rejection handler that checks the captured
-owner before reporting; empty catches and `void` discarding are forbidden.
+Use canonical ccstate imports and the signal naming convention. Keep primitive
+construction in its named definition site. Grant capabilities to the smallest
+necessary boundary rather than exempting a directory. The
+[lint configuration](../tools/eslint/policy.js) defines the exact capabilities;
+[plugin notes](../tools/eslint/README.md) record rule provenance and adaptations.
 
 ### Rule design and review
 
@@ -110,5 +78,5 @@ coding conventions. A constructed bypass alone is not a lint defect; unusual
 or intentionally evasive code belongs in code review.
 
 Lint supplements behavioral tests and review. They must still verify bootstrap
-purity, resource cleanup and independent viewer Stores, graphs and connections.
-Simplifying a rule must preserve the library's multi-instance behavior.
+purity, resource cleanup and independent instance state. Simplifying a rule must
+preserve the library's multi-instance behavior.

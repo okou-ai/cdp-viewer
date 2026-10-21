@@ -103,11 +103,11 @@ security or assert that permission-denied clients can connect.
 Revert and redeploy a known revision to roll back the demo. Consumer upgrades
 and rollbacks still use reviewed full-SHA dependency and lockfile changes.
 
-## Evidence and limits
+## Validation and limits
 
-The view-only Pages rollout is recorded in [validation](validation.md).
-Interaction requires a successful rollout receipt bound to its own deployed
-revision. Local production receipts use `local-production-fixture`; the workflow
+Follow the [validation strategy](../docs/validation.md). Interaction requires a
+successful rollout receipt bound to its own deployed revision. Local production
+receipts use `local-production-fixture`; the workflow
 labels actual deployed-page receipts `actual-pages-deployment` and checks the
 source revision to reject stale deployments. The same smoke file exercises
 native input, local focus, independent windows and navigation after deployment.

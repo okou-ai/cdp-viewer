@@ -4,7 +4,7 @@
 `demo/` code. `policy.test.mjs` exercises the actual repository ESLint config
 against valid and invalid virtual production paths. It runs as part of lint in
 CI. See [state architecture](../../docs/state-architecture.md) for the ownership
-contract and exact capability table.
+contract; `policy.js` defines the exact capabilities.
 
 The 20 rules under `ccstate/rules/` and their shared utility are adapted from
 `okou-ai/okou` commit `7354b16deac91ae677fa1edbfb82d16c5c6e5504`, specifically

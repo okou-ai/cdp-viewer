@@ -8,7 +8,8 @@ owner or document-wide keyboard handler is installed.
 
 Lifecycle transitions and cleanup use one coordinator, with separate native
 composition state and an owner-bound serial executor. See the
-[input lifecycle contract](input-lifecycle.md) for ownership and release rules.
+[input lifecycle architecture](../docs/input-lifecycle.md) for ownership and
+concurrency principles.
 
 Click the displayed page to establish remote focus and focus the local proxy.
 Pointer coordinates follow the contained image and remote CSS visual viewport,

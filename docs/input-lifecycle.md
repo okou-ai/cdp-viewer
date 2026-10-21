@@ -1,113 +1,60 @@
-# Input lifecycle
+# Input lifecycle architecture
 
-Input is private to one viewer's connection and selected CDP session. The public
-component/API and native textarea remain unchanged. Internal responsibilities are:
+Separate event adaptation, state transitions and protocol execution. Each layer
+should own one responsibility and expose explicit facts or effects to the next.
 
-- `NativeInput` adapts DOM keyboard, pointer, focus and composition events. Its
-  key/button sets describe local physical gestures and capture, not remote state.
-- `NativeComposition` represents idle, composing and awaiting-trailing-input
-  states. A composition captures its original input owner. Completion can commit
-  once to that owner; cancellation and late events cannot commit to a replacement.
-- `InputLifecycle` owns immutable document/focus tokens, pending/active remote
-  focus and the ledger of remotely sent pressed keys/buttons. Its transition
-  table decides cleanup without performing DOM or network effects.
-- `InputSession` normalizes protocol and local lifecycle facts, then executes the
-  coordinator's owned cleanup effects. `InputQueue` serializes input writes and
-  their required checks, and checks the job's captured owner before and after
-  each asynchronous request.
+## Responsibilities
 
-An owner token's identity binds it to its viewer/connection/session even when
-another connection reuses the same CDP session ID. Document loss invalidates all
-of its focus work. Local focus loss invalidates the current focus lifetime.
-Remote Tab/click handoffs within the same viewer run in FIFO order, so a later
-click does not erase earlier committed-text intent. Each subsequent write still
-checks the expected remote focused element.
+| Layer                 | Responsibility                                                           |
+| --------------------- | ------------------------------------------------------------------------ |
+| Native adapter        | Translate DOM events and own local listeners and references              |
+| Composition model     | Represent pending local input and its captured owner                     |
+| Lifecycle coordinator | Decide ownership transitions and required cleanup without performing I/O |
+| Session adapter       | Translate protocol facts and execute the coordinator's effects           |
+| Serial executor       | Order external writes and enforce their captured ownership               |
 
-## Transition rules
+Keep transition decisions in the coordinator instead of distributing policy
+across event handlers. Adapters report semantic facts rather than selecting
+cleanup flags. Publish a new ownership state before executing effects so
+reentrant callbacks observe the current lifetime.
 
-| Event                                         | Unsent work / composition                     | Remotely held keys and buttons                                                        |
-| --------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Local blur, F8 or window blur                 | Invalidate focus owner and reset native state | Release through the original live session                                             |
-| Navigation starts                             | Invalidate focus owner                        | Release before forgetting ownership: cancellation or HTTP 204 can retain the document |
-| Same-document URL/history change              | Invalidate focus owner                        | Release in the retained document                                                      |
-| Document commit / main execution-context loss | Invalidate document and focus work            | Forget old-document state without deliberately sending old actions to a replacement   |
-| Target replacement, pause or unmount          | Terminate this input owner                    | Release through the original live session before detach                               |
-| Disconnect                                    | Terminate the connection's input owner        | Clear locally; delivery through a closed socket cannot be promised                    |
-| Input failure or queue saturation             | Invalidate focus owner; discard unsent work   | Best-effort original-session release                                                  |
+## Ownership
 
-`Page.frameStartedLoading` alone establishes neither navigation type nor document
-loss. Protocol handlers report semantic facts instead of choosing a release
-boolean. The coordinator publishes the new owner before effects run; DOM reset
-suppresses its own synchronous blur feedback. Terminal cleanup is idempotent.
+Bind work to an immutable owner identity and its lifetime. External identifiers
+alone are insufficient: a later instance may reuse the same identifier. Every
+asynchronous continuation must check its captured owner before applying state
+or sending another write.
 
-A sent key/button remains in the remote ledger until its release response is
-acknowledged. Invalidating a pending release can therefore send an additional
-best-effort release when its outcome is unknown. Text and navigation are never
-replayed. A late focus-object result is released using its original session.
+Losing ownership invalidates pending work. Late results must not acquire the
+replacement's authority. Release unretained handles through the connection that
+created them, including results received after cancellation or timeout.
 
-Runtime replies can contain separate handles in their result and exception
-details, even for a by-value request. The executor releases every distinct
-unretained handle through the requesting session, including replies received
-after cancellation or timeout. Only a successful current by-reference focus
-result transfers ownership to the lifecycle; exception handles never do.
+Cleanup is explicit and idempotent. Separate releasing an owned external
+resource from clearing local bookkeeping. Release only resources the library
+owns; disposing one instance must not affect a sibling or its host.
 
-The queue holds at most 64 pending jobs. Adjacent movement or text belonging
-to the same owner can coalesce; text chunks retain the 64 KiB bound. Adjacent
-pending wheel jobs also sum their deltas when coordinates, modifiers and direction
-are compatible. Reversals and key/text/pointer boundaries remain separate; a
-running or sent wheel payload cannot change. Non-finite deltas are rejected.
-A running
-text batch can collect adjacent text while its window/focus checks are pending,
-provided no intervening job exists. The batch seals before `Input.insertText` is
-sent: later text cannot mutate its payload or cross a key/pointer boundary.
-Cancellation clears queued/collecting work, while an already running request
-settles under its original owner and cannot continue with a new one.
+## Concurrency and bounded work
 
-A button press supersedes an unflushed hover move at the same position. Held
-drag movement still flushes before release. Pointer geometry uses the displayed
-frame's CSS viewport (`deviceWidth`/`deviceHeight` divided by `pageScaleFactor`).
-Metadata becomes usable only when that exact frame paints, with its original
-session/document/geometry revision. Resize and document/navigation transitions
-invalidate it; old paint callbacks cannot restore it. Missing or invalid metadata
-falls back to fresh CSS layout metrics. Invalidation while a job is preparing
-also requires a fresh metrics read before dispatch.
+Serialize writes that act on the same ordered external resource. Independent
+read-only preparation may overlap, but join it before any write that depends on
+its results. Revalidate ownership after the join.
 
-Initial focus acquisition and pre-write focus/window checks remain blocking.
-Independent read-only focus/viewport preparation overlaps the job's fresh window
-check, but neither a remote write nor focus/caret state changes can start until
-both succeed under the original owner. Preparation replies after failure or
-cancellation retain the original executor's late-handle cleanup.
-Optional post-action caret geometry does not block later input: one background
-read and one newest desired refresh are retained per session. Results must match
-the owner, focused object and focus/refresh generation, including another click
-within the same owner. Stale or failed optional reads cannot move the caret,
-clear a newer error or authorize an input write. Their Runtime result handles
-retain the executor's original-session cleanup.
+Bound pending work and make overflow behavior explicit. Coalescing must preserve
+ordering and observable intent. A dispatched payload is immutable; later work
+must not change a request that is already awaiting acknowledgement.
 
-## Validation
+Optional background work must have a captured owner, bounded concurrency and a
+way to discard stale results. It must not authorize a write or overwrite newer
+state. Keep it off the critical path when correctness does not require it.
 
-State tests cover every transition policy, owner isolation, stale focus/release
-results, composition event orderings and cancellation. Bounded four-event
-press/acknowledge/cancel sequences check the pressed-input invariant. External
-wire tests exercise the controller's captured owners, queue saturation, delayed
-focus results and target/document changes during requests. Public-consumer
-Chromium fixtures retain real input/focus/geometry, multiple viewers, navigation
-and HTTP-204 release/recovery coverage.
+## Failure handling and validation
 
-Streaming starts alongside input initialization. A first frame alone cannot expose
-interactive availability: frame-tree/Runtime setup must also finish successfully.
-Each surface's offscreen observer, document visibility and explicit pause feed
-the same owned teardown/resume path. They cannot resume one another's paused work,
-and stale observer callbacks cannot change a replacement controller.
+Distinguish unsent, acknowledged and uncertain work. Cancellation can discard
+pending work but cannot undo an external effect that may already have happened.
+Never automatically replay a non-idempotent operation with an uncertain outcome.
+Handle failures at the layer that owns the operation and retain required cleanup.
 
-Latency regressions hold protocol responses explicitly to verify preflight
-batching, payload sealing, FIFO boundaries, bounded caret work and stale-result
-suppression. Owned-browser cases hold an actual remote guard response and verify
-native text reaches the remote control as one batch, both with and without
-window scope. Timing comparisons use separate controlled network-delay probes;
-CI assertions do not depend on tight wall-clock budgets.
-
-These are state/routing tests. Genuine macOS/Windows IME receipts are still needed
-for candidate-window placement, confirmation/cancellation and focus transitions.
-CDP cannot atomically combine a remote focus check and insertion, or undo input
-that a remote page has already accepted. See [interaction limits](interaction.md).
+Test lifecycle transitions independently from DOM and network adapters. Verify
+ownership across replacement, delayed replies and cancellation through the
+public integration boundaries. Use explicit synchronization rather than sleeps
+or tight timing budgets; see the [validation strategy](validation.md).
