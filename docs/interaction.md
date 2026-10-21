@@ -16,6 +16,9 @@ including page scale and panning; JPEG size and client DPR are not coordinates
 to send directly. Initial clicks in the letterbox are ignored. Captured drags
 continue to the image edge; release/cancel/blur releases owned pressed input.
 Mouse is the initial supported pointer type; touch and pen are not advertised.
+Coordinates use painted-frame metadata when available, with fresh layout queries
+after invalidation or missing metadata. Continuous wheel input combines only
+compatible adjacent pending deltas, preserving scroll distance and gesture order.
 
 Keyboard events belong only to the focused viewer's native textarea. Typing in a
 host field or the viewer's address/target controls stays local. **F8**, outside
@@ -29,6 +32,9 @@ on the proxy so its temporary text is not mistaken for a remote selection.
 The proxy stays disabled while connecting, paused, unavailable, disconnected or
 errored, so local Tab navigation can pass through the inactive viewer. It keeps
 the same textarea node and becomes focusable again when streaming resumes.
+Offscreen panels pause their owned stream where IntersectionObserver is available;
+returning to view revalidates the selected target. Explicit pause and document
+visibility still apply, and pausing discards unsent input as described below.
 
 ## Composition and candidate placement
 

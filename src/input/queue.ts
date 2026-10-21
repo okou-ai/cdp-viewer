@@ -2,10 +2,19 @@ import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import type { CdpClient } from "../cdp/client";
 import { isRecord } from "../cdp/errors";
 import type { InputLifecycle, InputOwner } from "./lifecycle";
+import type { Point } from "./geometry";
+
+interface Wheel {
+  point: Point;
+  modifiers: number;
+  deltaX: number;
+  deltaY: number;
+}
 
 export interface InputJob {
   readonly owner: InputOwner;
   text?: string;
+  wheel?: Wheel;
   request<M extends keyof ProtocolMapping.Commands>(
     method: M,
     params: ProtocolMapping.Commands[M]["paramsType"][0],
@@ -15,6 +24,7 @@ export interface InputJob {
 interface QueuedJob extends InputJob {
   run: (job: InputJob) => Promise<void>;
   move: boolean;
+  prepare?: (job: InputJob) => Promise<void>;
 }
 
 /** One serial lane; each request closes over its job's immutable owner. */
@@ -35,7 +45,11 @@ export class InputQueue {
     this.collecting = null;
   }
 
-  text(text: string, run: QueuedJob["run"]): void {
+  text(
+    text: string,
+    run: QueuedJob["run"],
+    prepare?: QueuedJob["prepare"],
+  ): void {
     if (!this.lifecycle.available || !text) return;
     if (text.length > 64 * 1024) {
       this.failed();
@@ -48,11 +62,64 @@ export class InputQueue {
       tail.text.length + text.length <= 64 * 1024
     ) {
       tail.text += text;
-    } else this.enqueue(run, false, text);
+    } else this.add(run, { text, ...(prepare ? { prepare } : {}) });
   }
 
-  enqueue(run: QueuedJob["run"], move = false, text?: string): void {
+  wheel(
+    wheel: Wheel,
+    run: QueuedJob["run"],
+    prepare: NonNullable<QueuedJob["prepare"]>,
+  ): void {
     if (!this.lifecycle.available) return;
+    const tail = this.jobs.at(-1);
+    const previous = tail?.wheel;
+    const compatible = (a: number, b: number) =>
+      !a || !b || Math.sign(a) === Math.sign(b);
+    if (![wheel.deltaX, wheel.deltaY].every(Number.isFinite)) {
+      this.failed();
+      return;
+    }
+    if (
+      previous &&
+      tail &&
+      this.lifecycle.owns(tail.owner) &&
+      previous.point.x === wheel.point.x &&
+      previous.point.y === wheel.point.y &&
+      previous.modifiers === wheel.modifiers &&
+      compatible(previous.deltaX, wheel.deltaX) &&
+      compatible(previous.deltaY, wheel.deltaY)
+    ) {
+      const deltaX = previous.deltaX + wheel.deltaX;
+      const deltaY = previous.deltaY + wheel.deltaY;
+      if (![deltaX, deltaY].every(Number.isFinite)) this.failed();
+      else {
+        previous.deltaX = deltaX;
+        previous.deltaY = deltaY;
+      }
+      return;
+    }
+    this.add(run, { wheel, prepare });
+  }
+
+  enqueue(
+    run: QueuedJob["run"],
+    move = false,
+    prepare?: QueuedJob["prepare"],
+  ): void {
+    this.add(run, { move, ...(prepare ? { prepare } : {}) });
+  }
+
+  private add(
+    run: QueuedJob["run"],
+    options: {
+      move?: boolean;
+      text?: string;
+      wheel?: Wheel;
+      prepare?: NonNullable<QueuedJob["prepare"]>;
+    },
+  ): void {
+    if (!this.lifecycle.available) return;
+    const { move = false, ...rest } = options;
     if (move && this.jobs.at(-1)?.move) this.jobs.pop();
     if (this.jobs.length >= 64) {
       this.failed();
@@ -63,7 +130,7 @@ export class InputQueue {
       owner,
       run,
       move,
-      ...(text === undefined ? {} : { text }),
+      ...rest,
       request: (method, params) => {
         // Arguments capture the payload now. Later text belongs to a new job,
         // even while this write is awaiting acknowledgement.
@@ -131,8 +198,13 @@ export class InputQueue {
         if (!this.lifecycle.owns(job.owner)) continue;
         this.collecting = job.text === undefined ? null : job;
         try {
-          if ((await this.member()) && this.lifecycle.owns(job.owner))
-            await job.run(job);
+          // Read-only preparation may overlap scope validation. Only this
+          // joined boundary permits the ordered job's state changes/writes.
+          const [member] = await Promise.all([
+            this.member(),
+            job.prepare?.(job),
+          ]);
+          if (member && this.lifecycle.owns(job.owner)) await job.run(job);
         } catch (error) {
           if (this.lifecycle.owns(job.owner)) this.failed(error);
         } finally {

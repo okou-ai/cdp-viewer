@@ -51,8 +51,12 @@ unretained handle through the requesting session, including replies received
 after cancellation or timeout. Only a successful current by-reference focus
 result transfers ownership to the lifecycle; exception handles never do.
 
-The queue holds at most 64 pending jobs. Only adjacent movement or text belonging
-to the same owner can coalesce; text chunks retain the 64 KiB bound. A running
+The queue holds at most 64 pending jobs. Adjacent movement or text belonging
+to the same owner can coalesce; text chunks retain the 64 KiB bound. Adjacent
+pending wheel jobs also sum their deltas when coordinates, modifiers and direction
+are compatible. Reversals and key/text/pointer boundaries remain separate; a
+running or sent wheel payload cannot change. Non-finite deltas are rejected.
+A running
 text batch can collect adjacent text while its window/focus checks are pending,
 provided no intervening job exists. The batch seals before `Input.insertText` is
 sent: later text cannot mutate its payload or cross a key/pointer boundary.
@@ -60,10 +64,19 @@ Cancellation clears queued/collecting work, while an already running request
 settles under its original owner and cannot continue with a new one.
 
 A button press supersedes an unflushed hover move at the same position. Held
-drag movement still flushes before release, and each forwarded pointer job reads
-fresh CSS viewport metrics rather than using a geometry cache.
+drag movement still flushes before release. Pointer geometry uses the displayed
+frame's CSS viewport (`deviceWidth`/`deviceHeight` divided by `pageScaleFactor`).
+Metadata becomes usable only when that exact frame paints, with its original
+session/document/geometry revision. Resize and document/navigation transitions
+invalidate it; old paint callbacks cannot restore it. Missing or invalid metadata
+falls back to fresh CSS layout metrics. Invalidation while a job is preparing
+also requires a fresh metrics read before dispatch.
 
 Initial focus acquisition and pre-write focus/window checks remain blocking.
+Independent read-only focus/viewport preparation overlaps the job's fresh window
+check, but neither a remote write nor focus/caret state changes can start until
+both succeed under the original owner. Preparation replies after failure or
+cancellation retain the original executor's late-handle cleanup.
 Optional post-action caret geometry does not block later input: one background
 read and one newest desired refresh are retained per session. Results must match
 the owner, focused object and focus/refresh generation, including another click
@@ -80,6 +93,12 @@ wire tests exercise the controller's captured owners, queue saturation, delayed
 focus results and target/document changes during requests. Public-consumer
 Chromium fixtures retain real input/focus/geometry, multiple viewers, navigation
 and HTTP-204 release/recovery coverage.
+
+Streaming starts alongside input initialization. A first frame alone cannot expose
+interactive availability: frame-tree/Runtime setup must also finish successfully.
+Each surface's offscreen observer, document visibility and explicit pause feed
+the same owned teardown/resume path. They cannot resume one another's paused work,
+and stale observer callbacks cannot change a replacement controller.
 
 Latency regressions hold protocol responses explicitly to verify preflight
 batching, payload sealing, FIFO boundaries, bounded caret work and stale-result

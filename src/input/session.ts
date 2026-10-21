@@ -2,7 +2,8 @@ import type { Protocol } from "devtools-protocol";
 import type { CdpClient, CdpEvent } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
-import type { Point } from "./geometry";
+import { frameViewport } from "./geometry";
+import type { Point, Viewport } from "./geometry";
 import { InputLifecycle } from "./lifecycle";
 import type { InputOwner, InputStop, InputTransition } from "./lifecycle";
 import { InputQueue } from "./queue";
@@ -10,6 +11,11 @@ import type { InputJob } from "./queue";
 
 type Mouse = Protocol.Input.DispatchMouseEventRequest;
 type Key = Protocol.Input.DispatchKeyEventRequest;
+interface FocusDetails {
+  editable: boolean;
+  range: boolean;
+  point: Point;
+}
 const focusedElement = `(() => {
   let e = document.activeElement;
   while (e?.shadowRoot?.activeElement) e = e.shadowRoot.activeElement;
@@ -43,6 +49,8 @@ const focusDetails = `function () {
 
 /** One selected session owns a bounded, non-retrying input queue. */
 export class InputSession {
+  private viewport: Viewport | null = null;
+  private viewportVersion = 0;
   private readonly lifecycle: InputLifecycle;
   private readonly queue: InputQueue;
   private historyOwner: InputOwner | null = null;
@@ -112,6 +120,7 @@ export class InputSession {
   private transition(reason: InputTransition): void {
     const cleanup = this.lifecycle.transition(reason);
     if (!cleanup) return;
+    if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
     this.invalidateCaret();
     this.queue.clear();
     this.releaseObject(cleanup.objectId);
@@ -139,6 +148,7 @@ export class InputSession {
   event(event: CdpEvent): void {
     if (!this.available || event.sessionId !== this.sessionId) return;
     const { method, params } = event;
+    if (method === "Page.frameResized") this.invalidateViewport();
     if (
       method === "Runtime.executionContextCreated" &&
       isRecord(params.context)
@@ -197,6 +207,41 @@ export class InputSession {
     }
   }
 
+  /** The renderer calls this only when this exact frame has been painted. */
+  frame(metadata: unknown): () => void {
+    const viewport = frameViewport(metadata);
+    const version = this.viewportVersion;
+    const document = this.lifecycle.owner.document;
+    return () => {
+      if (
+        this.available &&
+        version === this.viewportVersion &&
+        document === this.lifecycle.owner.document
+      )
+        this.viewport = viewport;
+    };
+  }
+
+  private invalidateViewport(): void {
+    this.viewportVersion++;
+    this.viewport = null;
+  }
+
+  private async readViewport(job: InputJob): Promise<Viewport> {
+    const viewport = (await job.request("Page.getLayoutMetrics", undefined))
+      .cssVisualViewport;
+    if (
+      ![viewport.clientWidth, viewport.clientHeight].every(
+        (v) => Number.isFinite(v) && v > 0,
+      )
+    )
+      throw new CdpFault(
+        "input",
+        "The remote viewport is unavailable for input.",
+      );
+    return { width: viewport.clientWidth, height: viewport.clientHeight };
+  }
+
   pointer(
     type: Mouse["type"],
     point: Point,
@@ -205,24 +250,20 @@ export class InputSession {
       "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
     >,
   ): void {
-    this.queue.enqueue(async (job) => {
-      const viewport = (await job.request("Page.getLayoutMetrics", undefined))
-        .cssVisualViewport;
-      if (
-        ![viewport.clientWidth, viewport.clientHeight].every(
-          (v) => Number.isFinite(v) && v > 0,
-        )
-      ) {
-        throw new CdpFault(
-          "input",
-          "The remote viewport is unavailable for input.",
-        );
-      }
+    let viewport: Viewport | null = null;
+    let version = this.viewportVersion;
+    const prepare = async (job: InputJob) => {
+      version = this.viewportVersion;
+      viewport = this.viewport ?? (await this.readViewport(job));
+    };
+    const run = async (job: InputJob) => {
+      if (!viewport || version !== this.viewportVersion)
+        viewport = await this.readViewport(job);
       const pointInViewport = {
         // Input coordinates are relative to the visible CSS viewport. Adding
         // its layout offset would apply pinch-pan translation a second time.
-        x: point.x * viewport.clientWidth,
-        y: point.y * viewport.clientHeight,
+        x: point.x * viewport.width,
+        y: point.y * viewport.height,
       };
       if (type === "mousePressed") this.beginFocus(job);
       this.lifecycle.pointer(
@@ -234,44 +275,73 @@ export class InputSession {
         type,
         ...pointInViewport,
         ...details,
+        ...(job.wheel
+          ? { deltaX: job.wheel.deltaX, deltaY: job.wheel.deltaY }
+          : {}),
       });
       if (type === "mouseReleased" && details.button) {
         this.lifecycle.releaseButton(job.owner, details.button);
         await this.readFocus(job);
         if (!this.navigationKnown) this.updateHistory();
       }
-    }, type === "mouseMoved");
+    };
+    if (type === "mouseWheel")
+      this.queue.wheel(
+        {
+          point,
+          modifiers: details.modifiers ?? 0,
+          deltaX: details.deltaX ?? 0,
+          deltaY: details.deltaY ?? 0,
+        },
+        run,
+        prepare,
+      );
+    else this.queue.enqueue(run, type === "mouseMoved", prepare);
   }
 
   text(text: string, owner: InputOwner = this.lifecycle.owner): void {
     if (!this.lifecycle.owns(owner)) return;
-    this.queue.text(text, async (job) => {
-      const details = await this.verifyFocus(job);
-      if (!details.editable)
-        throw new CdpFault(
-          "input",
-          "Focus a supported remote text control before typing.",
-        );
-      await job.request("Input.insertText", { text: job.text! });
-      if (details.range) this.refreshCaret(job);
-    });
+    let details: FocusDetails | null = null;
+    this.queue.text(
+      text,
+      async (job) => {
+        if (!details?.editable)
+          throw new CdpFault(
+            "input",
+            "Focus a supported remote text control before typing.",
+          );
+        this.setError(null);
+        await job.request("Input.insertText", { text: job.text! });
+        if (details.range) this.refreshCaret(job);
+      },
+      async (job) => {
+        details = await this.readFocusDetails(job);
+      },
+    );
   }
 
   key(key: Key): void {
-    this.queue.enqueue(async (job) => {
-      await this.verifyFocus(job);
-      if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
-      await job.request("Input.dispatchKeyEvent", key);
-      // Keep ownership until release is confirmed so failure/blur can still
-      // perform the original session's best-effort release cleanup.
-      if (key.type === "keyUp") this.lifecycle.releaseKey(job.owner, key);
-      if (key.key === "Tab" && key.type !== "keyUp") await this.readFocus(job);
-      else if (
-        key.type !== "keyUp" &&
-        !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
-      )
-        this.refreshCaret(job);
-    });
+    this.queue.enqueue(
+      async (job) => {
+        this.setError(null);
+        if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
+        await job.request("Input.dispatchKeyEvent", key);
+        // Keep ownership until release is confirmed so failure/blur can still
+        // perform the original session's best-effort release cleanup.
+        if (key.type === "keyUp") this.lifecycle.releaseKey(job.owner, key);
+        if (key.key === "Tab" && key.type !== "keyUp")
+          await this.readFocus(job);
+        else if (
+          key.type !== "keyUp" &&
+          !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
+        )
+          this.refreshCaret(job);
+      },
+      false,
+      async (job) => {
+        await this.readFocusDetails(job);
+      },
+    );
   }
 
   navigate(action: "back" | "forward" | "reload" | { url: string }): void {
@@ -322,11 +392,7 @@ export class InputSession {
     return detail;
   }
 
-  private async readFocusDetails(job: InputJob): Promise<{
-    editable: boolean;
-    range: boolean;
-    point: Point;
-  }> {
+  private async readFocusDetails(job: InputJob): Promise<FocusDetails> {
     const objectId = this.lifecycle.focusedObject(job.owner);
     if (!objectId)
       throw new CdpFault(

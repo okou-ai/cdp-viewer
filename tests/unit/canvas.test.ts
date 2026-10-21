@@ -2,7 +2,18 @@ import { afterEach, expect, it, vi } from "vitest";
 import { CanvasRenderer } from "../../src/render/canvas";
 import type { DecodedFrame } from "../../src/render/canvas";
 
-afterEach(() => vi.restoreAllMocks());
+const base64Descriptor = Object.getOwnPropertyDescriptor(
+  Uint8Array,
+  "fromBase64",
+);
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  if (base64Descriptor)
+    Object.defineProperty(Uint8Array, "fromBase64", base64Descriptor);
+  else Reflect.deleteProperty(Uint8Array, "fromBase64");
+});
 
 function context() {
   const drawing = { clearRect: vi.fn(), drawImage: vi.fn() };
@@ -81,3 +92,33 @@ it("reports invalid dimensions and closes the bitmap", async () => {
   expect(image.close).toHaveBeenCalledTimes(1);
   renderer.dispose();
 });
+
+it.each([true, false])(
+  "decodes JPEG bytes with native base64 available: %s",
+  async (native) => {
+    context();
+    const bytes = new Uint8Array([0, 127, 128, 255]);
+    const fromBase64 = vi.fn(() => bytes);
+    const from = vi.spyOn(Uint8Array, "from");
+    Object.defineProperty(Uint8Array, "fromBase64", {
+      configurable: true,
+      value: native ? fromBase64 : undefined,
+    });
+    const image = { width: 2, height: 2, close: vi.fn() };
+    const decode = vi.fn(async (blob: Blob) => {
+      expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+      return image;
+    });
+    vi.stubGlobal("createImageBitmap", decode);
+    const renderer = new CanvasRenderer(document.createElement("canvas"));
+    const painted = vi.fn();
+    const failed = vi.fn();
+    renderer.push("AH+A/w==", painted, failed);
+    await vi.waitFor(() => expect(painted).toHaveBeenCalledOnce());
+    expect(failed).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
+    expect(fromBase64).toHaveBeenCalledTimes(native ? 1 : 0);
+    expect(image.close).toHaveBeenCalledOnce();
+    renderer.dispose();
+  },
+);

@@ -29,6 +29,88 @@ function browser() {
   return fake;
 }
 
+it("pauses only an offscreen panel and respects explicit pause on re-entry", async () => {
+  const fake = browser();
+  const observations: {
+    callback: (entries: { isIntersecting: boolean }[]) => void;
+    disconnect: ReturnType<typeof vi.fn>;
+  }[] = [];
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      readonly disconnect = vi.fn();
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        observations.push({ callback, disconnect: this.disconnect });
+      }
+      observe() {}
+    },
+  );
+  const view = render(
+    <>
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={0} />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={2} />
+    </>,
+  );
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  expect(observations).toHaveLength(2);
+  act(() => observations[0]!.callback([{ isIntersecting: false }]));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="paused"]')).toHaveLength(1),
+  );
+  expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+    1,
+  );
+  view.rerender(
+    <>
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={0} paused />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={2} />
+    </>,
+  );
+  act(() => observations[0]!.callback([{ isIntersecting: true }]));
+  expect(document.querySelectorAll('[data-status="paused"]')).toHaveLength(1);
+  view.rerender(
+    <>
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={0} />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={2} />
+    </>,
+  );
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  expect(fake.sockets).toHaveLength(2);
+  view.rerender(
+    <>
+      <CdpViewer cdpUrl="wss://replacement.invalid" windowId={0} />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={2} />
+    </>,
+  );
+  await waitFor(() => expect(fake.sockets).toHaveLength(3));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  act(() => {
+    observations[0]!.callback([{ isIntersecting: false }]);
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+    2,
+  );
+  view.unmount();
+  expect(
+    observations.every(
+      (observer) => observer.disconnect.mock.calls.length === 1,
+    ),
+  ).toBe(true);
+});
+
 it("isolates library stores from host ccstate and survives Strict Mode teardown", async () => {
   const fake = browser();
   const host = createStore();

@@ -127,8 +127,10 @@ The required same-browser/different-window case has independent ownership.
 
 The local image uses contain fitting. The viewer does not resize/emulate the
 remote viewport. Frames use one active decode and one newest queued frame;
-old-generation images are discarded/closed. `document.hidden` and `paused`
-release stream work; resuming revalidates and attaches the selected target.
+old-generation images are discarded/closed. `document.hidden`, `paused`, and an
+offscreen viewer (when IntersectionObserver is available) release stream work;
+resuming revalidates and attaches the selected target. Re-entering the viewport
+does not override explicit pause or whole-document invisibility.
 Cleanup cannot cancel a native image decode already in progress, but its result
 is discarded and closed. No connection credentials are persisted by the library.
 

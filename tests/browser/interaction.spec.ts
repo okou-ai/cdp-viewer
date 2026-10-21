@@ -123,6 +123,126 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
+test("batches queued native wheel distance while a real dispatch response is held", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.evaluate(() => {
+      document.body.dataset.wheel = "0";
+      document.addEventListener("wheel", (event) => {
+        document.body.dataset.wheel = String(
+          Number(document.body.dataset.wheel) + event.deltaY,
+        );
+      });
+    });
+    const wheels: number[] = [];
+    let heldId: number | undefined;
+    let release: (() => void) | undefined;
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id?: number;
+          method?: string;
+          params?: { type?: string; deltaY?: number };
+        };
+        if (
+          command.method === "Input.dispatchMouseEvent" &&
+          command.params?.type === "mouseWheel"
+        ) {
+          wheels.push(command.params.deltaY!);
+          if (wheels.length === 1) heldId = command.id;
+        }
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        if (heldId !== undefined && response.id === heldId)
+          release = () => socket.send(message);
+        else socket.send(message);
+      });
+    });
+    const view = await host(page, backend, windowId);
+    const position = await imagePosition(view, 500, 300, remote);
+    const wheel = (count: number) =>
+      view.locator("canvas").evaluate(
+        (canvas, value) => {
+          for (let i = 0; i < value.count; i++)
+            canvas.dispatchEvent(
+              new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                clientX: value.x,
+                clientY: value.y,
+                deltaY: 12,
+              }),
+            );
+        },
+        { ...position, count },
+      );
+    await wheel(1);
+    await expect.poll(() => typeof release).toBe("function");
+    await wheel(20);
+    expect(wheels).toEqual([12]);
+    release!();
+    await expect(remote.locator("body")).toHaveAttribute("data-wheel", "252");
+    expect(wheels).toEqual([12, 240]);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("painted pointer geometry follows a viewport resize and page-scale change", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.insertText("before");
+    await expect(remote.locator("#plain")).toHaveValue("before");
+    const cdp = await backend.context.newCDPSession(remote);
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: 680,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1.25 });
+    await remote.evaluate(() => {
+      document.documentElement.style.background = "rgb(24,80,224)";
+    });
+    await expect
+      .poll(() =>
+        view.locator("canvas").evaluate((canvas: HTMLCanvasElement) => {
+          const value = canvas.getContext("2d")!.getImageData(0, 0, 1, 1).data;
+          return Math.max(
+            Math.abs(value[0]! - 24),
+            Math.abs(value[1]! - 80),
+            Math.abs(value[2]! - 224),
+          );
+        }),
+      )
+      .toBeLessThanOrEqual(4);
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(" after");
+    await expect(remote.locator("#plain")).toHaveValue("before after");
+    await cdp.detach();
+  } finally {
+    await backend.close();
+  }
+});
+
 test("interactive public viewers route native text, editing shortcuts and local focus independently", async ({
   page,
 }, info) => {
