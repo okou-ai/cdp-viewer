@@ -71,6 +71,7 @@ export function ViewerRuntime({
       error: null,
       navigation: null,
     });
+    let createFocus: Element | null = null;
     let controller: ViewerController;
     try {
       controller = new ViewerController(
@@ -84,7 +85,16 @@ export function ViewerRuntime({
           interactive,
           onInputReset: () => native.current?.reset(),
           onCaret: (point) => native.current?.place(point),
-          onTabCreated: () => address.current?.focus({ preventScroll: true }),
+          onTabCreated: () => {
+            // Disabling the initiating button can move focus to body. A later
+            // focused control still belongs to the user, including host fields.
+            if (
+              document.activeElement === createFocus ||
+              document.activeElement === document.body
+            )
+              address.current?.focus({ preventScroll: true });
+            createFocus = null;
+          },
           onTabClosed: (targetId) => {
             restoreTabFocus.current =
               closingFocusTarget.current === targetId &&
@@ -102,7 +112,10 @@ export function ViewerRuntime({
     runtime.current = controller;
     const actions: ViewerActions = {
       select: (id) => controller.select(id),
-      createTab: () => controller.createTab(),
+      createTab: () => {
+        createFocus = document.activeElement;
+        controller.createTab();
+      },
       closeTab: (id) => {
         closingFocusTarget.current =
           document.activeElement?.getAttribute("data-close-target") === id

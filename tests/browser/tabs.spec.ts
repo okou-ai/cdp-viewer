@@ -149,6 +149,53 @@ test("real tab actions preserve window placement, later selection and stable nat
   }
 });
 
+test("delayed tab creation preserves a later host input focus", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  let release: (() => void) | undefined;
+  await page.routeWebSocket(backend.endpoint, (socket) => {
+    const upstream = socket.connectToServer();
+    socket.onMessage((message) => {
+      const command = JSON.parse(String(message)) as { method: string };
+      if (command.method === "Page.createIsolatedWorld") {
+        release = () => upstream.send(message);
+        return;
+      }
+      upstream.send(message);
+    });
+  });
+  try {
+    const first = await remoteTab(backend, "Workspace", true);
+    const viewer = await host(page, {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      interactive: true,
+      second: false,
+    });
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    const create = viewer.getByRole("button", { name: "New tab", exact: true });
+    await create.click();
+    await expect.poll(() => typeof release).toBe("function");
+    const input = page.getByLabel("Host input", { exact: true });
+    await input.fill("Keep typing here");
+    release!();
+    await expect(
+      viewer.getByRole("tab", { selected: true }),
+    ).not.toHaveAttribute("data-target-id", first.targetId);
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    await expect(create).toHaveAttribute("aria-busy", "false");
+    await expect(input).toBeFocused();
+    await page.keyboard.type(" after creation");
+    await expect(input).toHaveValue("Keep typing here after creation");
+  } finally {
+    await backend.close();
+  }
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
   test(`captures rendered ${colorScheme} tab, recovery, pending and responsive states`, async ({
     page,
