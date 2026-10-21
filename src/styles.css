@@ -72,13 +72,15 @@
   align-items: center;
   gap: 4px;
   flex: none;
+  min-height: calc(var(--cdpv-tab-height) + 6px);
   min-width: 0;
-  padding: 6px 8px 0;
+  padding: 0 8px;
   background: var(--cdpv-tab-background);
 }
 
 .cdpv-root .cdpv-tabs {
   display: flex;
+  align-self: flex-end;
   flex: 0 1 auto;
   min-height: var(--cdpv-tab-height);
   min-width: 0;
