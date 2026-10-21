@@ -106,9 +106,7 @@ export class NativeInput {
       this.composition.reset();
       this.proxy.value = "";
       this.forwarded.clear();
-      this.latestMove = null;
-      if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
-      this.moveFrame = null;
+      this.clearMove();
       const pointer = this.pointerId;
       this.pointerId = null;
       this.pressedButtons.clear();
@@ -155,6 +153,15 @@ export class NativeInput {
       input.blur();
       this.reset();
     }
+    // The press already supplies this position. Do not insert a deferred hover
+    // between its press/release; held-button drag movement must still flush.
+    if (
+      !this.pressedButtons.size &&
+      this.latestMove?.buttons === 0 &&
+      this.latestMove.clientX === event.clientX &&
+      this.latestMove.clientY === event.clientY
+    )
+      this.clearMove();
     // Preserve queued gestures, held modifiers and the consumed composition
     // boundary for another click in the same viewer. The serialized press
     // changes remote focus after preceding committed input has completed.
@@ -188,10 +195,8 @@ export class NativeInput {
   };
 
   private readonly flushMove = () => {
-    if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
-    this.moveFrame = null;
     const event = this.latestMove;
-    this.latestMove = null;
+    this.clearMove();
     if (!event) return;
     const held = this.ownedButtons(event.buttons);
     const point = imagePoint(
@@ -208,6 +213,12 @@ export class NativeInput {
         modifiers: modifiers(event),
       });
   };
+
+  private clearMove(): void {
+    this.latestMove = null;
+    if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
+    this.moveFrame = null;
+  }
 
   private readonly pointerUp = (event: PointerEvent) => {
     if (event.pointerId !== this.pointerId) return;
