@@ -255,6 +255,57 @@ it("does not overwrite a user selection made while active close was pending", as
   ).toBe(true);
 });
 
+it.each(["a preceding tab closes", "a new following tab appears"])(
+  "keeps the close neighbour when %s",
+  async (change) => {
+    const browser = new FakeBrowser();
+    browser.targets.push(
+      { id: "page-c", windowId: 0, title: "C" },
+      { id: "page-d", windowId: 0, title: "D" },
+    );
+    const { controller, model, socket } = await mount(browser);
+    const closing = change === "a preceding tab closes" ? "page-b" : "page-d";
+    controller.select(closing);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.holdMethod = "Target.closeTarget";
+    controller.closeTab(closing);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    if (change === "a preceding tab closes") {
+      browser.targets = browser.targets.filter(
+        (target) => target.id !== "page-a",
+      );
+      socket.emit("Target.targetDestroyed", { targetId: "page-a" });
+    } else {
+      browser.targets.push({ id: "page-e", windowId: 0, title: "E" });
+      socket.emit("Target.targetCreated", {});
+    }
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().targets.map((target) => target.id)).toEqual(
+        browser.targets.map((target) => target.id),
+      ),
+    );
+    browser.targets = browser.targets.filter((target) => target.id !== closing);
+    socket.emit("Target.targetDestroyed", { targetId: closing });
+    await vi.waitFor(() =>
+      expect(
+        model.getSnapshot().targets.map((target) => target.id),
+      ).not.toContain(closing),
+    );
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command, { success: true });
+    await vi.waitFor(() => expect(model.read(model.tabAction$)).toBeNull());
+    await vi.waitFor(() =>
+      expect(model.getSnapshot()).toMatchObject({
+        selectedTargetId:
+          change === "a preceding tab closes" ? "page-c" : "page-e",
+        status: "streaming",
+      }),
+    );
+  },
+);
+
 it("rejects unlisted, moved and view-only closes without remote mutations", async () => {
   const browser = new FakeBrowser();
   const first = await mount(browser, 0);

@@ -230,7 +230,12 @@ export class ViewerController {
         });
       }
       if (selected && revision === this.selectionRevision) {
-        const next = targets[Math.min(index, targets.length - 1)];
+        // Discovery can remove preceding tabs while closure is pending.
+        const preceding = new Set(
+          snapshot.targets.slice(0, index).map((target) => target.id),
+        );
+        const next =
+          targets.find((target) => !preceding.has(target.id)) ?? targets.at(-1);
         if (next) this.select(next.id);
         else {
           this.stopSelection();
