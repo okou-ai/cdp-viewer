@@ -1201,6 +1201,244 @@ test("blur and target replacement discard composition while frame input stays na
   }
 });
 
+test("composition bursts skip obsolete previews after a delayed response", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const previews: string[] = [];
+    const commits: string[] = [];
+    let heldId: number | undefined;
+    let release: (() => void) | undefined;
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id?: number;
+          method?: string;
+          params?: { text: string };
+        };
+        if (command.method === "Input.imeSetComposition") {
+          previews.push(command.params!.text);
+          if (previews.length === 1) heldId = command.id;
+        } else if (command.method === "Input.insertText")
+          commits.push(command.params!.text);
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        if (heldId !== undefined && response.id === heldId)
+          release = () => socket.send(message);
+        else socket.send(message);
+      });
+    });
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    const proxy = view.getByRole("textbox", { name: "Remote browser input" });
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.value = "n";
+      element.setSelectionRange(1, 1);
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          isComposing: true,
+          inputType: "insertCompositionText",
+          data: "n",
+        }),
+      );
+    });
+    await expect.poll(() => typeof release).toBe("function");
+    await expect(remote.locator("#plain")).toHaveValue("n");
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      for (let index = 0; index < 200; index++) {
+        const text = `ni${index}`;
+        element.dispatchEvent(
+          new CompositionEvent("compositionupdate", {
+            bubbles: true,
+            data: text,
+          }),
+        );
+        element.value = text;
+        element.setSelectionRange(text.length, text.length);
+        element.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            isComposing: true,
+            inputType: "insertCompositionText",
+            data: text,
+          }),
+        );
+      }
+      element.value = "你";
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true, data: "你" }),
+      );
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertFromComposition",
+          data: "你",
+        }),
+      );
+    });
+    expect(previews).toEqual(["n"]);
+    expect(commits).toEqual([]);
+    release!();
+    await expect(remote.locator("#plain")).toHaveValue("你");
+    expect(previews).toEqual(["n"]);
+    expect(commits).toEqual(["你"]);
+  } finally {
+    await backend.close();
+  }
+});
+
+for (const [kind, selector] of [
+  ["input", "#plain"],
+  ["textarea", "#multiline"],
+  ["contenteditable", "#rich"],
+] as const) {
+  test(`shows preedit and replacing commits in ${kind}`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      const { remote, windowId } = await editor(backend);
+      const view = await host(page, backend, windowId);
+      const field = remote.locator(selector);
+      await field.fill("saved OLD suffix");
+      await clickRemote(page, view, remote, selector);
+      await field.evaluate((element) => {
+        if (
+          element instanceof HTMLInputElement ||
+          element instanceof HTMLTextAreaElement
+        )
+          element.setSelectionRange(6, 9);
+        else {
+          const range = document.createRange();
+          const text = document
+            .createTreeWalker(element, NodeFilter.SHOW_TEXT)
+            .nextNode()!;
+          range.setStart(text, 6);
+          range.setEnd(text, 9);
+          document.getSelection()!.removeAllRanges();
+          document.getSelection()!.addRange(range);
+        }
+      });
+      const value = () =>
+        field.evaluate((element) =>
+          element instanceof HTMLInputElement ||
+          element instanceof HTMLTextAreaElement
+            ? element.value
+            : element.textContent,
+        );
+      const proxy = view.getByRole("textbox", { name: "Remote browser input" });
+      const start = () =>
+        proxy.evaluate((element) => {
+          element.dispatchEvent(
+            new CompositionEvent("compositionstart", { bubbles: true }),
+          );
+        });
+      const update = (text: string) =>
+        proxy.evaluate((element: HTMLTextAreaElement, text) => {
+          element.dispatchEvent(
+            new CompositionEvent("compositionupdate", {
+              bubbles: true,
+              data: text,
+            }),
+          );
+          element.value = text;
+          element.setSelectionRange(text.length, text.length);
+          element.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              isComposing: true,
+              inputType: "insertCompositionText",
+              data: text,
+            }),
+          );
+        }, text);
+      const end = (text: string) =>
+        proxy.evaluate((element: HTMLTextAreaElement, text) => {
+          element.value = text;
+          element.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              bubbles: true,
+              key: "Enter",
+              code: "Enter",
+              keyCode: 229,
+              isComposing: true,
+            }),
+          );
+          element.dispatchEvent(
+            new CompositionEvent("compositionend", {
+              bubbles: true,
+              data: text,
+            }),
+          );
+          element.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertFromComposition",
+              data: text,
+            }),
+          );
+        }, text);
+      await start();
+      await update("n");
+      await expect.poll(value).toBe("saved n suffix");
+      await update("nihao");
+      await expect.poll(value).toBe("saved nihao suffix");
+      await proxy.evaluate((element: HTMLTextAreaElement) => {
+        element.setSelectionRange(1, 3);
+        element.dispatchEvent(new Event("select", { bubbles: true }));
+      });
+      await expect
+        .poll(() =>
+          field.evaluate((element) =>
+            element instanceof HTMLInputElement ||
+            element instanceof HTMLTextAreaElement
+              ? element.value.slice(
+                  element.selectionStart ?? 0,
+                  element.selectionEnd ?? 0,
+                )
+              : document.getSelection()?.toString(),
+          ),
+        )
+        .toBe("ih");
+      await end("你好");
+      await expect.poll(value).toBe("saved 你好 suffix");
+      await expect(remote.locator("#submits")).toHaveText("0");
+      await start();
+      await update("zhong");
+      await expect.poll(value).toBe("saved 你好zhong suffix");
+      await end("");
+      await expect.poll(value).toBe("saved 你好 suffix");
+      await start();
+      await update("discard");
+      await expect.poll(value).toBe("saved 你好discard suffix");
+      await page.getByLabel("Host input", { exact: true }).fill("local only");
+      await expect.poll(value).toBe("saved 你好 suffix");
+      await end("must not arrive");
+      await expect.poll(value).toBe("saved 你好 suffix");
+      await expect(page.getByLabel("Host input", { exact: true })).toHaveValue(
+        "local only",
+      );
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
 test("composition commits once, cancels locally and keeps candidate Enter separate", async ({
   page,
 }, info) => {

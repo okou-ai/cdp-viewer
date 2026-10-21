@@ -44,6 +44,7 @@ export class InputLifecycle {
   private readonly keys = new Map<string, Key>();
   private readonly buttons = new Map<Button, Point>();
   private point: Point = { x: 0, y: 0 };
+  private composing: object | null = null;
 
   constructor(sessionId: string) {
     this.current = Object.freeze({ sessionId, document: 0, focus: 0 });
@@ -59,6 +60,27 @@ export class InputLifecycle {
 
   owns(owner: InputOwner): boolean {
     return !this.closed && owner === this.current;
+  }
+
+  retainsDocument(owner: InputOwner): boolean {
+    return (
+      owner.sessionId === this.current.sessionId &&
+      owner.document === this.current.document
+    );
+  }
+
+  composition(owner: InputOwner): object | null {
+    return this.owns(owner) ? this.composing : null;
+  }
+
+  compose(owner: InputOwner): object | null {
+    if (!this.owns(owner)) return null;
+    this.composing = {};
+    return this.composing;
+  }
+
+  finishComposition(owner: InputOwner, token: object | null): void {
+    if (this.owns(owner) && this.composing === token) this.composing = null;
   }
 
   pressKey(owner: InputOwner, key: Key): void {
@@ -103,6 +125,7 @@ export class InputLifecycle {
       keys: rule.release ? [...this.keys.values()] : [],
       buttons: rule.release ? [...this.buttons.keys()] : [],
       point: this.point,
+      composition: rule.release && this.composing !== null,
     };
     // Publish the new owner before running any effects, including DOM blur.
     this.current = Object.freeze({
@@ -113,6 +136,7 @@ export class InputLifecycle {
     this.closed = rule.terminal;
     this.keys.clear();
     this.buttons.clear();
+    this.composing = null;
     return cleanup;
   }
 }

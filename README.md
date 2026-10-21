@@ -118,7 +118,9 @@ Click the remote image to focus its native input proxy. Local toolbar and host
 fields retain their own input. **F8** releases remote keyboard focus to the selected
 tab. Keyboard input follows Chromium's current focus, including automatic
 focus changes and focused frames. Composition stays in a stable local textarea
-and sends committed text once through CDP; candidate confirmation is distinct
+and mirrors preedit into the remote editor through CDP before committing the
+selected text once. Unsupported composition commands retain final-text-only
+input; candidate confirmation is distinct
 from a later remote Enter. Optional caret metadata does not block input.
 The tab strip scrolls horizontally and supports explicit tab selection. Interactive
 viewers add new/close actions. The new-tab button stays compact and shows a

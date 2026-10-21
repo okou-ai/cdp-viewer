@@ -43,12 +43,22 @@ A stable, uncontrolled, visually transparent textarea hosts the local OS input
 method. It remains rendered and focusable; `display:none`, `visibility:hidden`
 and `type=hidden` cannot do this. Ordinary desktop keys use native keyboard
 events. Completed Unicode composition and native text input use
-`Input.insertText`. Preedit stays local. Composition/input event
+`Input.insertText`. While composing, changed preedit is mirrored through
+`Input.imeSetComposition` so Pinyin and other temporary text appear in the remote
+editor. Confirmation replaces that native composition range once; cancellation
+removes it. Adjacent unsent updates coalesce without crossing a final commit or
+gesture, and late work stays bound to its original session/document/focus owner.
+Composition/input event
 ordering is consumed as a value boundary so a trailing final input does not
 duplicate committed text or suppress a subsequent identical character.
 Separate native text commits retain their event boundaries while waiting to be
 sent, so a control can move focus before the next commit arrives.
-Cancellation sends no text. IME/229/composing Enter is kept separate from a later
+Cancellation sends no committed text. Focus exit, pause and teardown cancel
+owned preedit while the original document is retained; confirmed document loss
+does not send old cancellation into the replacement. A definite unsupported
+composition command falls back to final-text-only input for that input session;
+ordinary keys and the local IME remain usable. Uncertain failures discard work
+without replaying text. IME/229/composing Enter is kept separate from a later
 ordinary Enter, which can submit the remote form or insert a newline.
 Late composition values after blur or target replacement are discarded, including
 events arriving after the native proxy has been refocused for another control.

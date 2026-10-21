@@ -66,13 +66,20 @@ export class NativeInput {
           document.activeElement === this.proxy
             ? (this.input()?.owner ?? null)
             : null,
+          this.proxy.value,
+          this.proxy.selectionStart,
+          this.proxy.selectionEnd,
         );
         // Leave the native value alone while an OS composition is starting.
       },
       { signal },
     );
+    proxy.addEventListener("compositionupdate", this.compositionUpdate, {
+      signal,
+    });
     proxy.addEventListener("compositionend", this.compositionEnd, { signal });
     proxy.addEventListener("input", this.text, { signal });
+    proxy.addEventListener("select", this.selection, { signal });
     for (const event of ["copy", "cut", "paste"] as const) {
       proxy.addEventListener(event, (e) => e.preventDefault(), { signal });
     }
@@ -249,15 +256,30 @@ export class NativeInput {
     });
   };
 
+  private readonly compositionUpdate = (event: CompositionEvent) => {
+    const input = this.input();
+    const owner =
+      document.activeElement === this.proxy ? (input?.owner ?? null) : null;
+    const preedit = this.composition.update(event.data, owner);
+    if (preedit && owner)
+      input?.preedit(
+        preedit.text,
+        owner,
+        preedit.selectionStart,
+        preedit.selectionEnd,
+      );
+  };
+
   private readonly compositionEnd = (event: CompositionEvent) => {
     const input = this.input();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
+    const composed = this.composition.owns(owner);
     const result = this.composition.end(event.data, owner);
     this.proxy.value = result.value;
     if (owner)
       this.proxy.setSelectionRange(result.value.length, result.value.length);
-    if (result.text && owner) input?.text(result.text, owner);
+    if (composed && owner) input?.commitComposition(result.text, owner);
   };
 
   private readonly text = (event: Event) => {
@@ -270,10 +292,25 @@ export class NativeInput {
       event instanceof InputEvent &&
         (event.isComposing || event.inputType.includes("Composition")),
       event instanceof InputEvent && event.isComposing,
+      this.proxy.selectionStart,
+      this.proxy.selectionEnd,
     );
-    if (result.keep) return;
+    if (result.keep) {
+      if (result.preedit && owner)
+        input?.preedit(
+          result.preedit.text,
+          owner,
+          result.preedit.selectionStart,
+          result.preedit.selectionEnd,
+        );
+      return;
+    }
     this.proxy.value = "";
     if (result.text && owner) input?.text(result.text, owner);
+  };
+
+  private readonly selection = (event: Event) => {
+    if (this.composition.composing) this.text(event);
   };
 
   private readonly keyDown = (event: KeyboardEvent) => {

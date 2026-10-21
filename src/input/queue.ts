@@ -2,6 +2,7 @@ import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import type { CdpClient } from "../cdp/client";
 import { isRecord } from "../cdp/errors";
 import { releaseRuntimeObjects } from "../cdp/runtime-objects";
+import type { Preedit } from "./composition";
 import type { InputLifecycle, InputOwner } from "./lifecycle";
 import type { Point } from "./geometry";
 
@@ -18,6 +19,7 @@ type InputMethod =
 export interface InputJob {
   readonly owner: InputOwner;
   readonly text?: string;
+  preedit?: Preedit;
   wheel?: Wheel;
   request<M extends keyof ProtocolMapping.Commands>(
     method: M,
@@ -33,6 +35,8 @@ export interface InputJob {
 interface QueuedJob extends InputJob {
   run: (job: InputJob) => void | Promise<void>;
   move: boolean;
+  started: boolean;
+  cancelled?: boolean;
   prepare?: (job: InputJob) => Promise<void>;
   barrier?: boolean;
 }
@@ -85,6 +89,29 @@ export class InputQueue {
     }
     // Each native commit may change the page's focus before the next commit.
     this.add(run, { text });
+  }
+
+  preedit(value: Preedit, run: QueuedJob["run"]): void {
+    if (!this.lifecycle.available) return;
+    if (value.text.length > 64 * 1024) {
+      this.failed();
+      return;
+    }
+    const tail =
+      this.jobs.at(-1) ?? (this.active?.started ? null : this.active);
+    if (tail?.preedit !== undefined && this.lifecycle.owns(tail.owner)) {
+      tail.preedit = value;
+      return;
+    }
+    this.add(run, { preedit: value });
+  }
+
+  discardPreedit(): void {
+    const tail =
+      this.jobs.at(-1) ?? (this.active?.started ? null : this.active);
+    if (!tail?.preedit || !this.lifecycle.owns(tail.owner)) return;
+    if (tail === this.active) tail.cancelled = true;
+    else this.jobs.pop();
   }
 
   wheel(
@@ -140,6 +167,7 @@ export class InputQueue {
     options: {
       move?: boolean;
       text?: string;
+      preedit?: Preedit;
       wheel?: Wheel;
       prepare?: NonNullable<QueuedJob["prepare"]>;
       barrier?: boolean;
@@ -156,6 +184,7 @@ export class InputQueue {
       ...this.capture(),
       run,
       move,
+      started: false,
       ...rest,
     };
     this.jobs.push(job);
@@ -211,7 +240,10 @@ export class InputQueue {
             this.member(),
             job.prepare?.(job),
           ]);
-          if (member && this.lifecycle.owns(job.owner)) await job.run(job);
+          if (member && this.lifecycle.owns(job.owner) && !job.cancelled) {
+            job.started = true;
+            await job.run(job);
+          }
         } catch (error) {
           if (this.lifecycle.owns(job.owner)) this.failed(error);
         } finally {
