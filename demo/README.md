@@ -55,7 +55,10 @@ Tabs shrink from a comfortable maximum as space decreases; the row never scrolls
 horizontally. Narrow tabs omit titles and inactive close buttons, while the selected
 tab keeps its close action. When useful minimum widths no longer fit, **All tabs**
 lists every page and the selected page remains in the strip whenever it can fit.
-The native list is an embedded-viewer fallback, not Chrome's full Tab Search UI.
+The styled popup follows each viewer's theme, marks the current tab and wraps full
+titles. It fits inside the viewer and scrolls vertically for long lists. Arrow
+keys navigate, Enter selects, and Escape closes; clicking outside also dismisses
+it. It is an embedded-viewer fallback without a search field.
 Discovery updates keep existing tabs in place and append newly discovered tabs.
 Background updates preserve selection and the visible target order.
 Creating a tab opens `about:blank` in the selected page's window and focuses the

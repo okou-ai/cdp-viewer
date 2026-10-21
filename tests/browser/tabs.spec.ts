@@ -49,6 +49,22 @@ async function host(
   return page.locator("#viewer-a .cdpv-root");
 }
 
+async function overflowOptions(viewer: Locator) {
+  const trigger = viewer.getByRole("combobox", { name: "All tabs" });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click();
+  await expect(viewer.getByRole("listbox", { name: "All tabs" })).toBeVisible();
+  return viewer.getByRole("option");
+}
+
+async function selectOverflowTab(viewer: Locator, targetId: string) {
+  await overflowOptions(viewer);
+  await viewer.locator(`[data-tab-option="${targetId}"]`).click();
+  const trigger = viewer.getByRole("combobox", { name: "All tabs" });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toBeFocused();
+}
+
 test("real tab actions preserve window placement, later selection and stable native nodes", async ({
   page,
 }, info) => {
@@ -1282,7 +1298,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       ).toBe(true);
       await a.screenshot({ path: info.outputPath("04-compressed.png") });
       await page.setViewportSize({ width: 390, height: 844 });
-      await expect(allTabs.locator("option")).toHaveCount(14);
+      await expect(await overflowOptions(a)).toHaveCount(13);
+      await page.keyboard.press("Escape");
       await expect(a.getByLabel("Remote page address")).toBeVisible();
       expect(
         await page.evaluate(
@@ -1441,6 +1458,173 @@ test("inherits host appearance and isolates explicit and system overrides withou
   }
 });
 
+test("styles and bounds overflow popups per viewer without stealing later host focus", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    await page.setViewportSize({ width: 1200, height: 850 });
+    let connections = 0;
+    page.on("websocket", () => connections++);
+    const first = await remoteTab(backend, "Workspace", true);
+    const extras = [];
+    for (let index = 1; index <= 7; index++)
+      extras.push(await remoteTab(backend, `Research ${index}`));
+    await extras[0]!.remote.evaluate(() => {
+      document.title = "Quarterly planning and customer research ".repeat(6);
+    });
+    const other = await remoteTab(backend, "Other window", true);
+    for (let index = 1; index <= 7; index++)
+      await remoteTab(backend, `Other project ${index}`);
+    const viewer = await host(page, {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      windowB: other.windowId,
+      interactive: true,
+      hostForm: true,
+      colorSchemeA: "light",
+      colorSchemeB: "dark",
+    });
+    const sibling = page.locator("#viewer-b .cdpv-root");
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    await expect(sibling).toHaveAttribute("data-status", "streaming");
+    for (const root of [viewer, sibling])
+      await root.evaluate((element) => {
+        element.style.width = "220px";
+        element.style.height = "256px";
+      });
+    await selectOverflowTab(viewer, first.targetId);
+    const canvas = await viewer.locator("canvas").elementHandle();
+    const proxy = await viewer
+      .getByLabel("Remote browser input")
+      .elementHandle();
+    const socketCount = connections;
+    const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
+    const bodyOverflow = await page.evaluate(
+      () => document.body.style.overflow,
+    );
+    const picker = viewer.getByRole("combobox", { name: "All tabs" });
+    const popup = viewer.locator(".cdpv-tab-popup");
+    const selected = viewer.getByRole("tab", { selected: true });
+    const selectedId = await selected.getAttribute("data-target-id");
+    await expect(await overflowOptions(viewer)).toHaveCount(8);
+    await expect(
+      viewer.getByRole("option", { selected: true }),
+    ).toHaveAttribute("data-tab-option", selectedId!);
+    const geometry = await popup.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const root = element.closest(".cdpv-root")!.getBoundingClientRect();
+      const list = element.querySelector('[role="listbox"]')!;
+      return {
+        inside:
+          bounds.left >= root.left &&
+          bounds.right <= root.right &&
+          bounds.top >= root.top &&
+          bounds.bottom <= root.bottom,
+        scrolls: list.scrollHeight > list.clientHeight,
+        background: getComputedStyle(element).backgroundColor,
+        foreground: getComputedStyle(element).color,
+        font: getComputedStyle(element).fontFamily,
+      };
+    });
+    expect(geometry.inside).toBe(true);
+    expect(geometry.scrolls).toBe(true);
+    expect(geometry.background).toBe("rgb(255, 255, 255)");
+    expect(geometry.foreground).toBe("rgb(32, 33, 36)");
+    expect(geometry.font).toContain("system-ui");
+    const longTitle = viewer.locator(
+      `[data-tab-option="${extras[0]!.targetId}"]`,
+    );
+    await longTitle.scrollIntoViewIfNeeded();
+    expect((await longTitle.boundingBox())!.height).toBeGreaterThan(60);
+    expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe(
+      bodyOverflow,
+    );
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeFocused();
+    await expect(selected).toHaveAttribute("data-target-id", selectedId!);
+    await picker.press("Enter");
+    await expect(viewer.getByRole("listbox")).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(picker).toBeFocused();
+    await expect(selected).toHaveAttribute("data-target-id", selectedId!);
+    await expect(page.locator("#host-submissions")).toHaveText("0");
+    await overflowOptions(viewer);
+    const hostInput = page.getByLabel("Host input", { exact: true });
+    await hostInput.click();
+    await expect(viewer.getByRole("listbox")).toHaveCount(0);
+    await expect(hostInput).toBeFocused();
+    await expect(selected).toHaveAttribute("data-target-id", selectedId!);
+    await overflowOptions(sibling);
+    await expect(sibling.locator(".cdpv-tab-popup")).toHaveCSS(
+      "background-color",
+      "rgb(53, 54, 58)",
+    );
+    await expect(
+      sibling.getByRole("option", { name: "Workspace" }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await viewer.evaluate((element) => {
+      element.style.setProperty("--cdpv-background", "rgb(244, 248, 255)");
+      element.style.setProperty("--cdpv-foreground", "rgb(12, 34, 56)");
+    });
+    await overflowOptions(viewer);
+    await expect(popup).toHaveCSS("background-color", "rgb(244, 248, 255)");
+    await expect(popup).toHaveCSS("color", "rgb(12, 34, 56)");
+    await backend.session.send("Target.closeTarget", { targetId: selectedId! });
+    await expect(viewer.getByRole("option")).toHaveCount(7);
+    await expect(selected).toHaveCount(0);
+    await selectOverflowTab(viewer, extras[0]!.targetId);
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    await overflowOptions(viewer);
+    await viewer.evaluate((element) => {
+      element.style.width = "900px";
+    });
+    await expect(picker).toHaveCount(0);
+    await expect(selected).toBeFocused();
+    await viewer.evaluate((element) => {
+      element.style.width = "220px";
+    });
+    expect(
+      await viewer
+        .locator("canvas")
+        .evaluate((element, old) => element === old, canvas),
+    ).toBe(true);
+    expect(
+      await viewer
+        .getByLabel("Remote browser input")
+        .evaluate((element, old) => element === old, proxy),
+    ).toBe(true);
+    await overflowOptions(viewer);
+    await page.evaluate(() => window.removeFirstViewer!());
+    await expect(viewer).toHaveCount(0);
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(sibling).toHaveAttribute("data-status", "streaming");
+    await overflowOptions(sibling);
+    await page.keyboard.press("Escape");
+    expect(connections).toBe(socketCount);
+    // The saved elements belonged only to the removed viewer.
+    expect(await canvas!.evaluate((element) => element.isConnected)).toBe(
+      false,
+    );
+    expect(await proxy!.evaluate((element) => element.isConnected)).toBe(false);
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe(
+      bodyOverflow,
+    );
+    expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
+    await page
+      .getByRole("button", { name: "Host submit", exact: true })
+      .click();
+    await expect(page.locator("#host-submissions")).toHaveText("1");
+  } finally {
+    await backend.close();
+  }
+});
+
 test("keeps view-only overflow lists and resizing scoped to their own window and viewer", async ({
   page,
 }, info) => {
@@ -1469,11 +1653,11 @@ test("keeps view-only overflow lists and resizing scoped to their own window and
       root.style.width = "220px";
     });
     const allTabs = viewer.getByRole("combobox", { name: "All tabs" });
-    await expect(allTabs.locator("option")).toHaveCount(9);
+    await expect(await overflowOptions(viewer)).toHaveCount(8);
     await expect(
-      allTabs.locator("option", { hasText: "Other window" }),
+      viewer.getByRole("option", { name: "Other window" }),
     ).toHaveCount(0);
-    await allTabs.selectOption(extras.at(-1)!.targetId);
+    await selectOverflowTab(viewer, extras.at(-1)!.targetId);
     await expect(
       viewer.getByRole("tab", { selected: true }),
     ).toHaveAccessibleName("Research 7");
@@ -1618,7 +1802,7 @@ for (const colorScheme of ["light", "dark"] as const) {
           ].every(([x, y]) => document.elementFromPoint(x!, y!) === select);
         }),
       ).toBe(true);
-      await allTabs.selectOption(last.targetId);
+      await selectOverflowTab(viewer, last.targetId);
       await expect(tabs).toHaveCount(1);
       await expect(tabs.first()).toHaveAttribute(
         "data-target-id",
@@ -1687,17 +1871,21 @@ for (const colorScheme of ["light", "dark"] as const) {
         root.style.width = "320px";
       });
       const allTabs = viewer.getByRole("combobox", { name: "All tabs" });
-      await expect(allTabs.locator("option")).toHaveCount(11);
-      const ordered = await allTabs.locator("option").evaluateAll((options) =>
-        options.slice(1).map((option) => ({
-          id: (option as HTMLOptionElement).value,
+      const options = await overflowOptions(viewer);
+      await expect(options).toHaveCount(10);
+      const ordered = await options.evaluateAll((options) =>
+        options.map((option) => ({
+          id: option.getAttribute("data-tab-option")!,
           title: option.textContent!,
         })),
       );
-      await allTabs.selectOption(ordered[0]!.id);
-      await allTabs.focus();
+      await selectOverflowTab(viewer, ordered[0]!.id);
+      await allTabs.press("ArrowDown");
       await page.keyboard.press("End");
       const selected = viewer.getByRole("tab", { selected: true });
+      await expect(selected).toHaveAttribute("data-target-id", ordered[0]!.id);
+      await page.keyboard.press("Enter");
+      await expect(allTabs).toBeFocused();
       await expect(selected).toHaveAttribute(
         "data-target-id",
         ordered.at(-1)!.id,
@@ -1714,8 +1902,9 @@ for (const colorScheme of ["light", "dark"] as const) {
         .remote.evaluate(() => {
           document.title = "Updated background";
         });
+      await overflowOptions(viewer);
       await expect(
-        allTabs.locator("option", { hasText: "Updated background" }),
+        viewer.getByRole("option", { name: "Updated background", exact: true }),
       ).toHaveCount(1);
       expect(
         await viewer
@@ -1724,21 +1913,26 @@ for (const colorScheme of ["light", "dark"] as const) {
             items.map((item) => item.getAttribute("data-target-id")),
           ),
       ).toEqual(ids);
+      await viewer.screenshot({ path: info.outputPath("all-tabs-open.png") });
+      await page.keyboard.press("Escape");
+      await expect(allTabs).toBeFocused();
       await viewer.screenshot({ path: info.outputPath("extreme.png") });
       await viewer
         .getByRole("button", { name: "New tab", exact: true })
         .click();
-      await expect(allTabs.locator("option")).toHaveCount(12);
       await expect(selected).not.toHaveAttribute(
         "data-target-id",
         ordered.at(-1)!.id,
       );
       await expect(viewer.getByLabel("Remote page address")).toBeFocused();
+      await expect(await overflowOptions(viewer)).toHaveCount(11);
+      await page.keyboard.press("Escape");
       const created = await selected.getAttribute("data-target-id");
       await viewer.locator(`[data-close-target="${created}"]`).click();
-      await expect(allTabs.locator("option")).toHaveCount(11);
       await expect(selected).toBeFocused();
       await expect(selected).toBeInViewport({ ratio: 1 });
+      await expect(await overflowOptions(viewer)).toHaveCount(10);
+      await page.keyboard.press("Escape");
       for (const extra of extras) await extra.remote.close();
       await expect(viewer.getByRole("tab")).toHaveCount(1);
       await expect(allTabs).toHaveCount(0);

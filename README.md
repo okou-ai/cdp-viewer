@@ -125,10 +125,12 @@ from a later remote Enter. Optional caret metadata does not block input.
 The tab strip compresses to fit its container and never scrolls horizontally.
 Titles truncate, then narrow inactive tabs omit their close buttons; the selected
 interactive tab prioritizes its close action. Full tab names remain accessible.
-If the tabs cannot all fit at useful minimum widths, an **All tabs** selector
-keeps every page reachable while the strip retains the selected page. This compact
-fallback is intended for an embedded viewer rather than reproducing native Chrome
-Tab Search. Interactive viewers add new/close actions. The compact new-tab button
+If the tabs cannot all fit at useful minimum widths, an **All tabs** popup
+keeps every page reachable while the strip retains the selected page. Its styled
+list inherits the viewer's theme, marks the current tab and wraps full titles.
+Arrow keys move through the list; Enter selects, and Escape closes it. The popup
+fits inside the viewer and scrolls vertically for long lists. This compact
+fallback has no search field. Interactive viewers add new/close actions. The compact new-tab button
 follows the tabs and stays reachable, showing a spinner during creation.
 Enter in the address bar navigates to an absolute
 HTTP(S) address. The navigation toolbar supports reload and

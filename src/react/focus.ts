@@ -60,7 +60,7 @@ export class ToolbarFocus {
       this.selected() ??
       list?.querySelector<HTMLElement>('[role="tab"]') ??
       list?.parentElement?.querySelector<HTMLElement>(
-        ".cdpv-tab-picker select",
+        ".cdpv-tab-picker-trigger",
       ) ??
       list?.parentElement?.querySelector<HTMLElement>(".cdpv-new-tab")
     )?.focus({ preventScroll: true });

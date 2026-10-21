@@ -463,10 +463,17 @@ it("owns tab measurement per viewer and keeps hidden tabs accessible without rec
   const second = within(viewers[1]!);
   expect(first.getAllByRole("tab")).toHaveLength(6);
   expect(second.getAllByRole("tab")).toHaveLength(6);
-  await userEvent.selectOptions(
-    first.getByRole("combobox", { name: "All tabs" }),
-    "page-9",
+  const picker = first.getByRole("combobox", { name: "All tabs" });
+  await userEvent.click(picker);
+  expect(first.getAllByRole("option")).toHaveLength(10);
+  expect(second.queryByRole("listbox")).toBeNull();
+  await userEvent.click(
+    first.getByRole("option", {
+      name: "Project 9 with a complete accessible name",
+    }),
   );
+  await waitFor(() => expect(first.queryByRole("listbox")).toBeNull());
+  expect(picker).toHaveAttribute("aria-expanded", "false");
   expect(first.getByRole("tab", { selected: true })).toHaveAccessibleName(
     "Project 9 with a complete accessible name",
   );

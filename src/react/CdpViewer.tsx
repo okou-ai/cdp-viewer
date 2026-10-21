@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   ArrowRight,
   CircleAlert,
-  ChevronDown,
   Monitor,
   Globe,
   Plus,
@@ -14,6 +13,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
+import { AllTabs } from "./AllTabs";
 import { viewerScope } from "./context";
 import { ViewerRuntime, useViewerElements } from "./runtime";
 
@@ -118,27 +118,7 @@ function ViewerSurface({
             </div>
           ))}
         </Tabs.List>
-        {tabLayout.overflow && (
-          <div className="cdpv-tab-picker">
-            <select
-              aria-label="All tabs"
-              title="All tabs"
-              value={snapshot.selectedTargetId ?? ""}
-              disabled={controls.tabsDisabled}
-              onChange={(event) => select(event.target.value)}
-            >
-              <option value="" disabled>
-                Choose a tab
-              </option>
-              {snapshot.targets.map((target) => (
-                <option key={target.id} value={target.id}>
-                  {target.title}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={16} aria-hidden="true" />
-          </div>
-        )}
+        {tabLayout.overflow && <AllTabs />}
         {interactive && (
           <Button
             type="button"
