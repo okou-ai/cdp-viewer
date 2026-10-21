@@ -51,6 +51,7 @@ acknowledged. The local clipboard write starts in the original gesture with a
 deferred text payload, so remote-read latency does not by itself lose that
 gesture. The focused document/control chain is checked again before text is
 returned. Owner changes cancel pending reads; uncertain writes are never replayed.
+A new copy supersedes earlier pending copies and discards their unsent reads.
 An empty selection preserves the previous clipboard content.
 
 If automatic local writing is denied or unavailable, the viewer displays the

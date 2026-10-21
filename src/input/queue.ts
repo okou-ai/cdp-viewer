@@ -40,6 +40,7 @@ interface QueuedJob extends InputJob {
   prepare?: (job: InputJob) => Promise<void>;
   barrier?: boolean;
   cancel?: () => void;
+  valid?: () => boolean;
 }
 
 /** Preparation and sends are ordered; bounded acknowledgements settle separately. */
@@ -63,11 +64,24 @@ export class InputQueue {
   }
 
   /** Read failures/cancellation settle their caller without disabling input. */
-  read<T>(owner: InputOwner, run: (job: InputJob) => Promise<T>): Promise<T> {
+  read<T>(
+    owner: InputOwner,
+    run: (job: InputJob) => Promise<T>,
+    valid: () => boolean,
+  ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const cancel = () => reject(new Error("Selection cancelled"));
       if (!this.lifecycle.owns(owner)) cancel();
-      else
+      else {
+        // A newer copy can supersede queued reads without accumulating stale
+        // barriers or spending scope/selection requests on discarded results.
+        for (let index = this.jobs.length - 1; index >= 0; index--) {
+          const job = this.jobs[index]!;
+          if (job.valid && !job.valid()) {
+            job.cancel?.();
+            this.jobs.splice(index, 1);
+          }
+        }
         this.add(
           async (job) => {
             try {
@@ -76,8 +90,9 @@ export class InputQueue {
               reject(error);
             }
           },
-          { barrier: true, cancel },
+          { barrier: true, cancel, valid },
         );
+      }
     });
   }
 
@@ -194,6 +209,7 @@ export class InputQueue {
       prepare?: NonNullable<QueuedJob["prepare"]>;
       barrier?: boolean;
       cancel?: () => void;
+      valid?: () => boolean;
     },
   ): void {
     if (!this.lifecycle.available) {
@@ -256,14 +272,14 @@ export class InputQueue {
     try {
       while (this.jobs.length && this.lifecycle.available) {
         const job = this.jobs.shift()!;
-        if (!this.lifecycle.owns(job.owner)) {
+        if (!this.lifecycle.owns(job.owner) || job.valid?.() === false) {
           job.cancel?.();
           continue;
         }
         this.active = job;
         try {
           if (job.barrier) await Promise.allSettled(this.pending);
-          if (!this.lifecycle.owns(job.owner)) {
+          if (!this.lifecycle.owns(job.owner) || job.valid?.() === false) {
             job.cancel?.();
             continue;
           }
@@ -273,7 +289,12 @@ export class InputQueue {
             this.member(),
             job.prepare?.(job),
           ]);
-          if (member && this.lifecycle.owns(job.owner) && !job.cancelled) {
+          if (
+            member &&
+            this.lifecycle.owns(job.owner) &&
+            job.valid?.() !== false &&
+            !job.cancelled
+          ) {
             job.started = true;
             await job.run(job);
           } else job.cancel?.();

@@ -271,3 +271,29 @@ it("preserves clipboard diagnostics through shortcut release until a new input a
   input.text("next owned input");
   await vi.waitFor(() => expect(error).toHaveBeenLastCalledWith(null));
 });
+
+it("supersedes queued copies without filling the queue or reading every obsolete selection", async () => {
+  const { input, socket, held, hold, error } = await fixture();
+  hold("Runtime.evaluate");
+  const reads = [input.selection(input.owner!).catch(() => null)];
+  await vi.waitFor(() => expect(held).toHaveLength(1));
+  for (let index = 0; index < 100; index++)
+    reads.push(input.selection(input.owner!).catch(() => null));
+  hold("");
+  socket.reply(held[0]!, {
+    result: { type: "object", objectId: "superseded-selection" },
+  });
+  const results = await Promise.all(reads);
+  expect(results.filter((value) => value !== null)).toEqual([
+    { status: "ok", text: "owned text" },
+  ]);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Page.createIsolatedWorld",
+    ),
+  ).toHaveLength(2);
+  expect(
+    socket.commands.filter((command) => command.method === "Runtime.evaluate"),
+  ).toHaveLength(2);
+  expect(error).not.toHaveBeenCalled();
+});

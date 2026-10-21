@@ -418,22 +418,26 @@ export class InputSession {
   }
 
   selection(owner: InputOwner): Promise<SelectionResult> {
-    const version = this.clipboardVersion;
+    if (!this.lifecycle.owns(owner))
+      return Promise.reject(new Error("Selection cancelled"));
+    const version = ++this.clipboardVersion;
     const frameId = this.frameId;
-    return this.queue.read(owner, async (job) => {
-      if (!frameId) throw new Error("Selection unavailable");
-      return readSelection(
-        job,
-        frameId,
-        () => this.lifecycle.owns(owner) && version === this.clipboardVersion,
-        (objectId) =>
+    const current = () =>
+      this.lifecycle.owns(owner) && version === this.clipboardVersion;
+    return this.queue.read(
+      owner,
+      async (job) => {
+        if (!frameId) throw new Error("Selection unavailable");
+        return readSelection(job, frameId, current, (objectId) =>
           this.client.notify(
             "Runtime.releaseObject",
             { objectId },
             this.sessionId,
           ),
-      );
-    });
+        );
+      },
+      current,
+    );
   }
 
   clipboardError(message: string): void {

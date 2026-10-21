@@ -108,19 +108,15 @@ async function copy(page: Page, view: Locator) {
   );
 }
 
-function gateSelection(
-  page: Page,
-  endpoint: string,
-  method = "Runtime.evaluate",
-) {
+function gateSelection(page: Page, endpoint: string) {
   const gate = {
     release: null as (() => void) | null,
     releases: 0,
-    insertions: 0,
   };
   const ready = page.routeWebSocket(endpoint, (socket) => {
     const upstream = socket.connectToServer();
     let heldId: number | undefined;
+    let armed = true;
     let frozen = false;
     const delayed: (string | Buffer)[] = [];
     socket.onMessage((message) => {
@@ -130,13 +126,14 @@ function gateSelection(
         params?: { expression?: string };
       };
       if (command.method === "Runtime.releaseObject") gate.releases++;
-      if (command.method === "Input.insertText") gate.insertions++;
       if (
-        command.method === method &&
-        (method !== "Runtime.evaluate" ||
-          command.params?.expression?.startsWith("/* cdp-viewer selection */"))
-      )
+        armed &&
+        command.method === "Runtime.evaluate" &&
+        command.params?.expression?.startsWith("/* cdp-viewer selection */")
+      ) {
         heldId = command.id;
+        armed = false;
+      }
       upstream.send(message);
     });
     upstream.onMessage((message) => {
@@ -622,6 +619,41 @@ test("bounds paste and refuses unresolved synthetic composition without duplicat
     await proxy.dispatchEvent("compositionend", { data: "" });
     await page.keyboard.press("ControlOrMeta+v");
     await expect(remote.locator("#plain")).toHaveValue("owned paste");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("a newer copy supersedes a delayed copy and writes only the latest selection", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const { gate, ready } = gateSelection(page, backend.endpoint);
+    await ready;
+    const view = await host(page, backend.endpoint, windowId);
+    await seed(page, "owned baseline");
+    await remote.locator("#plain").fill("obsolete owned selection");
+    await remote.locator("#plain").selectText();
+    await view.getByRole("textbox", { name: "Remote browser input" }).focus();
+    await page.keyboard.press("ControlOrMeta+c");
+    await expect.poll(() => typeof gate.release).toBe("function");
+    await remote.locator("#plain").fill("latest owned selection");
+    await remote.locator("#plain").selectText();
+    await page.keyboard.press("ControlOrMeta+c");
+    gate.release!();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-clipboard-settled",
+      "2",
+    );
+    expect(await localText(page)).toBe("latest owned selection");
+    await expect(
+      view.getByRole("textbox", { name: "Text to copy" }),
+    ).toHaveCount(0);
   } finally {
     await backend.close();
   }
