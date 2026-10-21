@@ -323,7 +323,7 @@ compatibility claim is added by these measurements.
 
 ## State architecture validation
 
-On 2026-10-21, the strict React/ccstate migration passed 69 real-config lint
+On 2026-10-21, the strict React/ccstate migration passed 75 real-config lint
 regressions and 26 focused cases across the model, component, controller and
 Canvas test files. Coverage includes independent drafts and reconnect revisions,
 stale runtime unbinding, valid zero window IDs, invalid applied settings,

@@ -6,23 +6,20 @@
  * to properly handle cancellation.
  *
  * Good:
- *   command(async ({ signal }) => {
+ *   command(async (_, signal: AbortSignal) => {
  *     const data = await fetch(url);
  *     signal.throwIfAborted();
  *     // process data
  *   })
  *
  * Bad:
- *   command(async ({ signal }) => {
+ *   command(async (_, signal: AbortSignal) => {
  *     const data = await fetch(url);
  *     // missing signal check after await
  *     processData(data);
  *   })
  */
-import { ESLintUtils } from "@typescript-eslint/utils";
-const createRule = ESLintUtils.RuleCreator(
-  (name) => `https://github.com/okou-ai/okou/blob/main/docs/eslint/${name}.md`,
-);
+import { createRule } from "../utils.js";
 export default createRule({
   name: "signal-check-await",
   meta: {
@@ -34,7 +31,7 @@ export default createRule({
     schema: [],
     messages: {
       missingSignalCheck:
-        "Consider checking signal.throwIfAborted() after await to handle cancellation",
+        "Check the owner signal after await before continuing command work",
     },
   },
   defaultOptions: [],
@@ -48,31 +45,15 @@ export default createRule({
       return callee.type === "Identifier" && callee.name === "command";
     }
     function getSignalParamName(node) {
-      // Iterate all parameters, not just the first one
-      for (const param of node.params) {
-        // Case 1: standalone parameter signal: AbortSignal
-        if (param.type === "Identifier" && param.name === "signal") {
-          return "signal";
-        }
-        // Case 2: destructured parameter { signal } or { signal: customName }
-        if (param.type !== "ObjectPattern") {
-          continue;
-        }
-        for (const prop of param.properties) {
-          if (prop.type !== "Property") {
-            continue;
-          }
-          if (prop.key.type !== "Identifier" || prop.key.name !== "signal") {
-            continue;
-          }
-          // Found the signal property
-          if (prop.value.type === "Identifier") {
-            return prop.value.name;
-          }
-          return "signal";
-        }
-      }
-      return null;
+      // Match command-async-signal's typed last parameter, independent of name.
+      const param = node.params.at(-1);
+      const annotation = param?.typeAnnotation?.typeAnnotation;
+      return param?.type === "Identifier" &&
+        annotation?.type === "TSTypeReference" &&
+        annotation.typeName.type === "Identifier" &&
+        annotation.typeName.name === "AbortSignal"
+        ? param.name
+        : null;
     }
     function isSignalCheck(node) {
       if (!signalParamName) {

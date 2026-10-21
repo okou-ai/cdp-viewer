@@ -8,10 +8,7 @@
  * Good: const count$ = state(0)
  * Bad: const count = state(0)
  */
-import { ESLintUtils } from "@typescript-eslint/utils";
-const createRule = ESLintUtils.RuleCreator(
-  (name) => `https://github.com/okou-ai/okou/blob/main/docs/eslint/${name}.md`,
-);
+import { createRule } from "../utils.js";
 const SIGNAL_FUNCTIONS = new Set(["state", "computed", "command"]);
 export default createRule({
   name: "signal-dollar-suffix",

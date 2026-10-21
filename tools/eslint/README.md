@@ -24,6 +24,8 @@ Library adaptations:
 - Signal-graph catches must propagate the caught failure. There is no private
   `throwIfAbort` dependency. Wire/native parser and cleanup catches keep their
   separate protocol contracts.
+- Await ownership follows the typed final `AbortSignal` parameter, including
+  names other than `signal`, matching the async-command signature rule.
 - The Store-construction rule is enabled here with one definition capability;
   it was registered but not enabled in the inspected Okou Platform config.
 - `instance-boundaries.js` adds local factory/scope ownership, view mutation,

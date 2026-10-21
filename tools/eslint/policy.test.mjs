@@ -15,6 +15,23 @@ async function lint(code, file = model) {
 
 const rejected = [
   [
+    "renamed cancellation unchecked await",
+    "import { command } from 'ccstate'; const work$ = command(async (_, lifetime: AbortSignal) => { await perform(); update(); });",
+    "ccstate/signal-check-await",
+  ],
+  [
+    "view controller extension",
+    "import { ViewerController } from '../viewer/controller.js';",
+    "@typescript-eslint/no-restricted-imports",
+    view,
+  ],
+  [
+    "view nested input resource",
+    "import { acquire } from '../input/internal/session';",
+    "@typescript-eslint/no-restricted-imports",
+    view,
+  ],
+  [
     "global IIFE instance",
     "import { createInstance } from '../state/instance'; const shared = (() => createInstance(() => ({})))();",
     "ccstate/instance-boundaries",
@@ -318,6 +335,20 @@ for (const [name, code, rule, file] of rejected) {
 }
 
 const accepted = [
+  [
+    "renamed cancellation checked await",
+    "import { command } from 'ccstate'; const work$ = command(async (_, lifetime: AbortSignal) => { await perform(); lifetime.throwIfAborted(); update(); });",
+  ],
+  [
+    "type-only resource in view",
+    "import type { ViewerController } from '../viewer/controller.js';",
+    view,
+  ],
+  [
+    "runtime resource definition",
+    "import { ViewerController } from '../viewer/controller.js';",
+    "src/react/runtime.tsx",
+  ],
   [
     "one factory can construct independent instances",
     "import { createInstance } from '../state/instance'; export function createViewerModel() { return createInstance(() => ({})); }",

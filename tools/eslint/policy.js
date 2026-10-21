@@ -142,6 +142,7 @@ export const architecture = [
                 "**/input/*",
                 "**/render/*",
                 "**/viewer/controller",
+                "**/viewer/controller.*",
               ],
               allowTypeImports: true,
               message: "Views must not acquire or control runtime resources.",
