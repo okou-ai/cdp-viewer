@@ -112,6 +112,61 @@ async function sampleMotion(notice: Locator) {
   });
 }
 
+async function holdNextArrival(viewer: Locator) {
+  await viewer.evaluate((root) => {
+    const observer = new MutationObserver(() => {
+      const notice = root.querySelector("[role=alert][data-replacing]");
+      if (!notice) return;
+      for (const animation of notice.getAnimations()) animation.pause();
+      observer.disconnect();
+    });
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["data-notification-id"],
+    });
+  });
+}
+
+async function sampleCover(viewer: Locator) {
+  return viewer.evaluate(async (root) => {
+    const previous = root.querySelector<HTMLElement>(".cdpv-error-previous")!;
+    const current = root.querySelector<HTMLElement>("[role=alert]")!;
+    const animation = current.getAnimations()[0];
+    if (!animation)
+      throw new Error("The incoming notification has no animation.");
+    animation.pause();
+    await animation.ready;
+    const duration = Number(animation.effect!.getComputedTiming().duration);
+    const samples = [0.25, 0.75].map((progress) => {
+      animation.currentTime = duration * progress;
+      const oldRect = previous.getBoundingClientRect();
+      const newRect = current.getBoundingClientRect();
+      return {
+        previousTop: oldRect.top,
+        previousHeight: oldRect.height,
+        currentTop: newRect.top,
+        // Layout sizes avoid transform-matrix float rounding during travel.
+        previousLayoutHeight: previous.offsetHeight,
+        currentLayoutHeight: current.offsetHeight,
+        previousOpacity: getComputedStyle(previous).opacity,
+        currentOpacity: getComputedStyle(current).opacity,
+        previousTransform: getComputedStyle(previous).transform,
+        previousZ: getComputedStyle(previous).zIndex,
+        currentZ: getComputedStyle(current).zIndex,
+        previousBackground: getComputedStyle(previous).backgroundColor,
+        currentBackground: getComputedStyle(current).backgroundColor,
+      };
+    });
+    return {
+      duration,
+      samples,
+      previousAnimations: previous.getAnimations().length,
+    };
+  });
+}
+
 async function finishMotion(notice: Locator) {
   await notice.evaluate((node) => {
     for (const animation of node.getAnimations()) animation.finish();
@@ -223,16 +278,20 @@ test("replaces an exiting notice immediately and isolates sibling and unmount li
         node.getAnimations().map((animation) => animation.finished),
       ).then(complete, complete);
     });
+    await holdNextArrival(a);
     await warn(a);
     await expect
       .poll(() =>
         old.evaluate((node) => node.getAttribute("data-test-exit-settled")),
       )
       .toBe("true");
-    expect(await old.evaluate((node) => node.isConnected)).toBe(false);
+    expect(await old.evaluate((node) => node.isConnected)).toBe(true);
     await expect(a.getByRole("alert")).toHaveCount(1);
     await expect(notice).not.toHaveAttribute("data-notification-id", oldId!);
     await expect(notice).toHaveAttribute("data-phase", "visible");
+    await finishMotion(notice);
+    await expect(a.locator(".cdpv-error-previous")).toHaveCount(0);
+    expect(await old.evaluate((node) => node.isConnected)).toBe(false);
     await warn(b);
     await holdNextExit(a);
     await expect(notice).toHaveAttribute("data-phase", "exiting", {
@@ -265,6 +324,166 @@ test("replaces an exiting notice immediately and isolates sibling and unmount li
   }
 });
 
+for (const [colorScheme, width] of [
+  ["light", 960],
+  ["dark", 320],
+] as const) {
+  test(`slides the new ${colorScheme} ${width}px notification over the stationary old one until arrival`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      const { windowId } = await remoteWindow(backend);
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            id: number;
+            method: string;
+          };
+          if (command.method === "Target.closeTarget") {
+            socket.send(
+              JSON.stringify({
+                id: command.id,
+                error: { code: -32000, message: "Synthetic denial" },
+              }),
+            );
+          } else upstream.send(message);
+        });
+      });
+      const viewer = await host(page, {
+        cdpUrl: backend.endpoint,
+        windowA: windowId,
+        interactive: true,
+        second: false,
+        colorSchemeA: colorScheme,
+      });
+      await viewer.evaluate((root, size) => {
+        root.style.width = `${size}px`;
+        document.querySelector<HTMLElement>(
+          "#panels",
+        )!.style.gridTemplateColumns = "minmax(0, 1fr)";
+      }, width);
+      const before = await geometry(viewer);
+      await warn(viewer);
+      const notice = viewer.getByRole("alert");
+      await finishMotion(notice);
+      const first = await notice.elementHandle();
+      const firstBounds = await notice.boundingBox();
+      if (!first || !firstBounds)
+        throw new Error("The first notification is missing.");
+      await holdNextArrival(viewer);
+      await viewer
+        .getByRole("button", { name: /^Close / })
+        .first()
+        .click();
+      await expect(notice).toContainText("tab operation");
+      const previous = viewer.locator(".cdpv-error-previous");
+      await expect(previous).toHaveAttribute("aria-hidden", "true");
+      expect(await first.evaluate((node) => node.isConnected)).toBe(true);
+      const accessible = await viewer.ariaSnapshot();
+      expect(accessible).toContain("tab operation");
+      expect(accessible).not.toContain("Enter an absolute");
+      const sampled = await sampleCover(viewer);
+      expect(sampled.duration).toBe(160);
+      expect(sampled.previousAnimations).toBe(0);
+      const [early, late] = sampled.samples;
+      expect(late!.currentTop).toBeGreaterThan(early!.currentTop);
+      for (const sample of sampled.samples) {
+        expect(sample.previousTop).toBe(firstBounds.y);
+        expect(sample.previousHeight).toBe(firstBounds.height);
+        expect(sample.previousOpacity).toBe("1");
+        expect(sample.currentOpacity).toBe("1");
+        expect(sample.previousTransform).toBe("none");
+        expect(Number(sample.currentZ)).toBeGreaterThan(
+          Number(sample.previousZ),
+        );
+        expect(sample.currentLayoutHeight).toBeGreaterThanOrEqual(
+          sample.previousLayoutHeight,
+        );
+        expect(sample.currentBackground).toBe(sample.previousBackground);
+        expect(sample.currentBackground).not.toBe("rgba(0, 0, 0, 0)");
+      }
+      expect(await geometry(viewer)).toEqual(before);
+      await viewer.screenshot({ path: info.outputPath("covering.png") });
+      // A paused incoming animation must retain the previous plate.
+      await expect(previous).toHaveCount(1);
+      const interrupted = await notice.elementHandle();
+      if (!interrupted)
+        throw new Error("The incoming notification is missing.");
+      await interrupted.evaluate((node) => {
+        const complete = () =>
+          node.setAttribute("data-test-arrival-settled", "true");
+        Promise.allSettled(
+          node.getAnimations().map((animation) => animation.finished),
+        ).then(complete, complete);
+      });
+      await holdNextArrival(viewer);
+      const started = await page.evaluate(() => performance.now());
+      await warn(viewer);
+      await expect
+        .poll(() =>
+          interrupted.evaluate((node) =>
+            node.getAttribute("data-test-arrival-settled"),
+          ),
+        )
+        .toBe("true");
+      expect(await first.evaluate((node) => node.isConnected)).toBe(false);
+      expect(await interrupted.evaluate((node) => node.isConnected)).toBe(true);
+      await expect(previous).toHaveCount(1);
+      await expect(previous).toContainText("tab operation");
+      await expect(viewer.locator(".cdpv-error")).toHaveCount(2);
+      expect(await viewer.ariaSnapshot()).not.toContain("tab operation");
+      const arrived = await notice.evaluate((node) => {
+        const old = node.parentElement!.querySelector(".cdpv-error-previous")!;
+        for (const animation of node.getAnimations()) animation.finish();
+        const front = node.getBoundingClientRect();
+        const back = old.getBoundingClientRect();
+        return {
+          previousConnected: old.isConnected,
+          opacity: getComputedStyle(node).opacity,
+          covers:
+            front.top <= back.top &&
+            front.bottom >= back.bottom &&
+            front.left <= back.left &&
+            front.right >= back.right,
+        };
+      });
+      expect(arrived).toEqual({
+        previousConnected: true,
+        opacity: "1",
+        covers: true,
+      });
+      await expect(previous).toHaveCount(0);
+      expect(
+        await notice.evaluate((node) =>
+          node
+            .getAnimations()
+            .map((animation) =>
+              animation instanceof CSSAnimation
+                ? animation.animationName
+                : null,
+            ),
+        ),
+      ).toEqual(["cdpv-error-cover"]);
+      expect(await interrupted.evaluate((node) => node.isConnected)).toBe(
+        false,
+      );
+      expect(await geometry(viewer)).toEqual(before);
+      await expect(notice).toHaveCount(0, { timeout: 7000 });
+      expect(
+        await page.evaluate((time) => performance.now() - time, started),
+      ).toBeGreaterThanOrEqual(5000);
+      expect(await geometry(viewer)).toEqual(before);
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
 test("dismisses reduced-motion notices without animation events and retains recovery controls", async ({
   page,
 }, info) => {
@@ -283,10 +502,19 @@ test("dismisses reduced-motion notices without animation events and retains reco
     });
     const before = await geometry(viewer);
     await warn(viewer);
+    const firstId = await viewer
+      .getByRole("alert")
+      .getAttribute("data-notification-id");
+    await warn(viewer);
+    await expect(viewer.getByRole("alert")).not.toHaveAttribute(
+      "data-notification-id",
+      firstId!,
+    );
+    await expect(viewer.locator(".cdpv-error-previous")).toHaveCount(0);
     expect(
       await viewer
         .getByRole("alert")
-        .evaluate((node) => node.getAnimations().length),
+        .evaluate((node) => node.getAnimations({ subtree: true }).length),
     ).toBe(0);
     expect(await geometry(viewer)).toEqual(before);
     await expect(viewer.getByRole("alert")).toHaveCount(0, { timeout: 7000 });

@@ -149,13 +149,25 @@ function ViewerSurface({
         </canvas>
         {notification && (
           <div className="cdpv-notification-viewport">
+            {notification.previous && (
+              <div
+                key={notification.previous.id}
+                className="cdpv-error cdpv-error-previous"
+                aria-hidden="true"
+              >
+                <CircleAlert size={16} aria-hidden="true" />
+                <span>{notification.previous.error.message}</span>
+              </div>
+            )}
             <div
               key={notification.id}
               ref={notice}
-              className="cdpv-error"
+              className="cdpv-error cdpv-error-current"
               role="alert"
               data-notification-id={notification.id}
               data-phase={notification.exiting ? "exiting" : "visible"}
+              data-entrance={notification.entrance}
+              data-replacing={notification.previous ? "" : undefined}
             >
               <CircleAlert size={16} aria-hidden="true" />
               <span>{notification.error.message}</span>

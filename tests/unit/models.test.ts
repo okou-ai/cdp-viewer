@@ -53,6 +53,43 @@ it("replaces identical notifications and rejects stale expiry or exit completion
   expect(model.read(model.notification$)).toBeNull();
 });
 
+it("bounds covering arrivals to the current and previous report and ignores stale completion", () => {
+  const model = streamingViewer();
+  const report = (message: string) => {
+    model.update({ error: { kind: "input", message } });
+    return model.read(model.notification$)!;
+  };
+  const first = report("First warning");
+  expect(first.previous).toBeNull();
+  expect(first.entrance).toBe("initial");
+  const second = report("Second warning");
+  expect(second).toMatchObject({
+    previous: { id: first.id, error: first.error },
+  });
+  const third = report("Third warning");
+  expect(third.previous).toEqual({ id: second.id, error: second.error });
+  model.run(model.finishReplacement$, second.id);
+  expect(model.read(model.notification$)).toBe(third);
+  const diagnostic = model.getSnapshot();
+  model.run(model.finishReplacement$, third.id);
+  expect(model.read(model.notification$)).toMatchObject({
+    id: third.id,
+    entrance: "replacement",
+    previous: null,
+    exiting: false,
+  });
+  expect(model.getSnapshot()).toBe(diagnostic);
+  const fourth = report("Fourth warning");
+  model.run(model.exitNotification$, fourth.id);
+  const exiting = model.read(model.notification$);
+  expect(exiting?.previous).toBeNull();
+  model.run(model.finishReplacement$, fourth.id);
+  expect(model.read(model.notification$)).toBe(exiting);
+  model.transition({ type: "reset" });
+  model.run(model.finishReplacement$, fourth.id);
+  expect(model.read(model.notification$)).toBeNull();
+});
+
 it("exits cleared warnings and keeps sibling notification lifetimes independent", () => {
   const first = streamingViewer();
   const second = streamingViewer();

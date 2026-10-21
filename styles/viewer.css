@@ -247,6 +247,9 @@
 .cdpv-root .cdpv-notification-viewport {
   z-index: 1;
   pointer-events: none;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  display: grid;
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -256,15 +259,38 @@
   background: var(--cdpv-error-background);
   border-bottom: 1px solid var(--cdpv-border);
   flex: none;
+  grid-area: 1/1;
   align-items: flex-start;
   gap: 8px;
   padding: 8px 12px;
   font-size: 12px;
   animation: 0.16s cubic-bezier(0.2, 0, 0, 1) both cdpv-error-enter;
   display: flex;
+  overflow: hidden;
+}
+.cdpv-root .cdpv-error[data-entrance="replacement"] {
+  animation-name: cdpv-error-cover;
 }
 .cdpv-root .cdpv-error[data-phase="exiting"] {
   animation-name: cdpv-error-exit;
+}
+.cdpv-root .cdpv-error-current {
+  z-index: 1;
+}
+.cdpv-root .cdpv-error-previous {
+  z-index: 0;
+  align-self: start;
+  animation: none;
+}
+@keyframes cdpv-error-cover {
+  0% {
+    opacity: 1;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes cdpv-error-enter {
   0% {
@@ -333,6 +359,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .cdpv-root .cdpv-error,
+  .cdpv-root .cdpv-error-previous,
   .cdpv-root .cdpv-spinning {
     animation: none;
   }

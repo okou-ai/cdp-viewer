@@ -50,6 +50,8 @@ export function ViewerRuntime({
   const snapshot = viewerScope.useValue(model.snapshot$);
   const revision = viewerScope.useValue(model.revision$);
   const notification = viewerScope.useValue(model.notification$);
+  const notificationId = notification?.id;
+  const notificationExiting = notification?.exiting ?? false;
   const canvas = useRef<HTMLCanvasElement>(null);
   const proxy = useRef<HTMLTextAreaElement>(null);
   const address = useRef<HTMLInputElement>(null);
@@ -142,17 +144,24 @@ export function ViewerRuntime({
     focus.restoreAfterClose();
   }, [focus, snapshot.selectedTargetId, snapshot.targets]);
   useLayoutEffect(() => {
-    if (!notification || !notice.current) return;
+    if (notificationId === undefined || notificationExiting) return;
     let active = true;
-    if (!notification.exiting) {
-      const timer = window.setTimeout(() => {
-        if (active) model.run(model.exitNotification$, notification.id);
-      }, 5000);
-      return () => {
-        active = false;
-        window.clearTimeout(timer);
-      };
-    }
+    const timer = window.setTimeout(() => {
+      if (active) model.run(model.exitNotification$, notificationId);
+    }, 5000);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [model, notificationId, notificationExiting]);
+  useLayoutEffect(() => {
+    if (
+      !notification ||
+      !notice.current ||
+      (!notification.exiting && !notification.previous)
+    )
+      return;
+    let active = true;
     const animations = (notice.current.getAnimations?.() ?? []).filter(
       (animation) => {
         const timing = animation.effect?.getTiming();
@@ -160,7 +169,13 @@ export function ViewerRuntime({
       },
     );
     const complete = () => {
-      if (active) model.run(model.removeNotification$, notification.id);
+      if (active)
+        model.run(
+          notification.exiting
+            ? model.removeNotification$
+            : model.finishReplacement$,
+          notification.id,
+        );
     };
     Promise.allSettled(animations.map((animation) => animation.finished)).then(
       complete,

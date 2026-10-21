@@ -374,12 +374,18 @@ it("replaces identical warnings with fresh owned timers and releases them on unm
   const firstIndex = timers.mock.calls.map(([, ms]) => ms).lastIndexOf(5000);
   expect(firstIndex).toBeGreaterThanOrEqual(0);
   const firstTimer = timers.mock.results[firstIndex]!.value;
+  const firstTimerCount = timers.mock.calls.filter(
+    ([, ms]) => ms === 5000,
+  ).length;
   await userEvent.keyboard("{Enter}");
   const second = screen.getByRole("alert");
   expect(second).not.toBe(first);
-  expect(first).not.toBeInTheDocument();
   expect(second).not.toHaveAttribute("data-notification-id", firstId);
   expect(second).toHaveAttribute("data-phase", "visible");
+  await waitFor(() => expect(first).not.toBeInTheDocument());
+  expect(timers.mock.calls.filter(([, ms]) => ms === 5000)).toHaveLength(
+    firstTimerCount + 1,
+  );
   expect(screen.getByRole("img", { name: "Live browser view" })).toBe(image);
   expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
     proxy,
