@@ -198,11 +198,14 @@ for (const colorScheme of ["light", "dark"] as const) {
         expect(idle).not.toBeNull();
         const pages = backend.context.pages().length;
         await viewer.screenshot({ path: info.outputPath("idle.png") });
+        const opened = backend.context.waitForEvent("page");
         await create.click();
         await expect.poll(() => typeof release).toBe("function");
+        await opened;
         await expect(viewer.getByRole("tab")).toHaveCount(2);
         await expect(create).toHaveAttribute("aria-busy", "true");
         await expect(create).toBeDisabled();
+        await expect(create.locator(".cdpv-spinning")).toBeVisible();
         await expect(viewer.getByRole("status")).toContainText("Creating tab");
         expect(backend.context.pages()).toHaveLength(pages + 1);
         await viewer.screenshot({ path: info.outputPath("pending.png") });
@@ -215,6 +218,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         release!();
         await expect(create).toHaveAttribute("aria-busy", "false");
         await expect(create).toBeEnabled();
+        await expect(create.locator(".cdpv-spinning")).toHaveCount(0);
         await expect(
           viewer.getByRole("tab", { selected: true }),
         ).not.toHaveAttribute("data-target-id", first.targetId);
