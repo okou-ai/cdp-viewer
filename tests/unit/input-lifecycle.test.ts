@@ -456,12 +456,13 @@ describe("owned remote input", () => {
 
   it("waits for dispatched input before sending toolbar navigation without replay", async () => {
     const { browser, controller, socket } = await mount();
+    vi.useFakeTimers();
     const input = controller.input!;
     browser.holdMethod = "Input.insertText";
     input.text("accepted once");
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
     input.navigate({ url: "https://fixture.invalid/next" });
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     expect(socket.commands.some((c) => c.method === "Page.navigate")).toBe(
       false,
     );
