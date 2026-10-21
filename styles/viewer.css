@@ -79,6 +79,7 @@
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
   --cdpv-tab-inset: 6px;
+  --cdpv-tab-corner: 8px;
   min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
   background: var(--cdpv-tab-background);
   flex: none;
@@ -90,15 +91,18 @@
 }
 .cdpv-root .cdpv-tabs {
   min-height: var(--cdpv-tab-height);
+  min-width: 0;
+  padding-inline: var(--cdpv-tab-corner);
+  margin-left: calc(-1 * var(--cdpv-tab-corner));
   scrollbar-width: none;
   flex: 0 auto;
   align-self: flex-end;
   gap: 3px;
-  min-width: 0;
   display: flex;
   overflow-x: auto;
 }
 .cdpv-root .cdpv-tab-item {
+  isolation: isolate;
   width: 204px;
   min-width: 140px;
   max-width: 204px;
@@ -110,8 +114,49 @@
   position: relative;
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
+  z-index: 1;
   color: var(--cdpv-foreground);
   background: var(--cdpv-background);
+}
+.cdpv-root .cdpv-tab-item:before,
+.cdpv-root .cdpv-tab-item:after {
+  content: "";
+  z-index: -1;
+  pointer-events: none;
+  position: absolute;
+}
+.cdpv-root .cdpv-tab-item:not([data-selected]):before {
+  inset: 0 0 var(--cdpv-tab-inset);
+  border-radius: 9px;
+}
+.cdpv-root
+  .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover:before {
+  background: var(--cdpv-foreground);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root
+    .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover:before {
+    background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  }
+}
+.cdpv-root .cdpv-tab-item[data-selected]:before,
+.cdpv-root .cdpv-tab-item[data-selected]:after {
+  width: var(--cdpv-tab-corner);
+  height: var(--cdpv-tab-corner);
+  background: radial-gradient(
+    circle at var(--cdpv-curve-origin) 0,
+    transparent var(--cdpv-tab-corner),
+    var(--cdpv-background) calc(var(--cdpv-tab-corner) + 0.5px)
+  );
+  bottom: 0;
+}
+.cdpv-root .cdpv-tab-item[data-selected]:before {
+  --cdpv-curve-origin: 0%;
+  left: calc(-1 * var(--cdpv-tab-corner));
+}
+.cdpv-root .cdpv-tab-item[data-selected]:after {
+  --cdpv-curve-origin: 100%;
+  right: calc(-1 * var(--cdpv-tab-corner));
 }
 .cdpv-root .cdpv-tab {
   min-width: 0;
@@ -172,11 +217,11 @@
   padding: 6px;
   display: inline-flex;
 }
-.cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
+.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
   background: var(--cdpv-foreground);
 }
 @supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
+  .cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
     background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
   }
 }

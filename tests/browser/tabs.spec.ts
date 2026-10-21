@@ -427,6 +427,152 @@ async function expectTabBarAlignment(viewer: Locator) {
   expect(geometry.hostOverflow).toBe(false);
 }
 
+async function tabSurfacePixels(viewer: Locator) {
+  const sample = await viewer.evaluate((root) => {
+    const row = root.querySelector(".cdpv-toolbar")!.getBoundingClientRect();
+    const navigation = root.querySelector(".cdpv-navigation");
+    const selected = root
+      .querySelector('[role="tab"][aria-selected="true"]')!
+      .parentElement!.getBoundingClientRect();
+    const inactive = root
+      .querySelector('[role="tab"][aria-selected="false"]')!
+      .parentElement!.getBoundingClientRect();
+    const points = [
+      [
+        selected.left + selected.width / 2 - row.left,
+        selected.top + 4 - row.top,
+      ],
+      [
+        inactive.left + inactive.width / 2 - row.left,
+        inactive.top + 4 - row.top,
+      ],
+      [selected.left - 2 - row.left, selected.bottom - 1 - row.top],
+      [selected.right + 1 - row.left, selected.bottom - 1 - row.top],
+      [row.width - 2, 2],
+    ];
+    if (navigation) points.push([row.width - 2, row.height + 1]);
+    return {
+      points,
+      clip: {
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height + (navigation ? 3 : 0),
+      },
+    };
+  });
+  const image = await viewer.page().screenshot({ clip: sample.clip });
+  return viewer.evaluate(
+    async (_, { bytes, points }) => {
+      const bitmap = await createImageBitmap(
+        new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+      );
+      try {
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const context = canvas.getContext("2d")!;
+        context.drawImage(bitmap, 0, 0);
+        return points.map(([x, y]) =>
+          Array.from(
+            context.getImageData(Math.floor(x!), Math.floor(y!), 1, 1).data,
+          ),
+        );
+      } finally {
+        bitmap.close();
+      }
+    },
+    { bytes: Array.from(image), points: sample.points },
+  );
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+  for (const interactive of [true, false]) {
+    test(`paints distinct ${colorScheme} ${interactive ? "interactive" : "view-only"} selected and hovered tab surfaces`, async ({
+      page,
+    }, info) => {
+      const backend = await launchBackend(
+        info.outputPath("backend"),
+        server.origin,
+      );
+      try {
+        await page.emulateMedia({ colorScheme });
+        const first = await remoteTab(backend, "Workspace", true);
+        await remoteTab(backend, "Product notes");
+        const viewer = await host(page, {
+          cdpUrl: backend.endpoint,
+          windowA: first.windowId,
+          interactive,
+          second: false,
+        });
+        await expect(viewer).toHaveAttribute("data-status", "streaming");
+        await page.evaluate(() => {
+          document.documentElement.style.colorScheme = "light dark";
+          document.querySelector<HTMLElement>(
+            "#panels",
+          )!.style.gridTemplateColumns = "minmax(0, 1fr)";
+          document.querySelector<HTMLElement>(".cdpv-root")!.style.width =
+            "960px";
+        });
+        const tabs = viewer.getByRole("tab");
+        for (const selected of [0, 1]) {
+          await tabs.nth(selected).click();
+          await expect(tabs.nth(selected)).toHaveAttribute(
+            "aria-selected",
+            "true",
+          );
+          await expect(viewer).toHaveAttribute("data-status", "streaming");
+          await tabs.nth(selected).blur();
+          await page.mouse.move(0, 0);
+          const idle = await tabSurfacePixels(viewer);
+          expect(idle[0]).not.toEqual(idle[4]);
+          if (interactive)
+            expect(
+              idle[0],
+              "Selected surface connects into navigation",
+            ).toEqual(idle[5]);
+          expect(idle[1]).toEqual(idle[4]);
+          expect(
+            idle[2],
+            "Selected left curve remains visible at strip edges",
+          ).toEqual(idle[0]);
+          expect(
+            idle[3],
+            "Selected right curve remains visible at strip edges",
+          ).toEqual(idle[0]);
+          await viewer.screenshot({
+            path: info.outputPath(`${selected}-idle.png`),
+          });
+          await tabs.nth(selected).hover();
+          expect(await tabSurfacePixels(viewer)).toEqual(idle);
+          await tabs.nth(1 - selected).hover();
+          const hovered = await tabSurfacePixels(viewer);
+          expect(hovered[0]).toEqual(idle[0]);
+          expect(hovered[1]).not.toEqual(idle[1]);
+          expect(hovered[1]).not.toEqual(idle[0]);
+          expect(hovered[2]).toEqual(idle[2]);
+          expect(hovered[3]).toEqual(idle[3]);
+          await viewer.screenshot({
+            path: info.outputPath(`${selected}-inactive-hover.png`),
+          });
+          if (interactive) {
+            await viewer
+              .getByRole("button", {
+                name: `Close ${selected === 0 ? "Workspace" : "Product notes"}`,
+                exact: true,
+              })
+              .hover();
+            await viewer.screenshot({
+              path: info.outputPath(`${selected}-close-hover.png`),
+            });
+          }
+          await expectTabBarAlignment(viewer);
+        }
+      } finally {
+        await backend.close();
+      }
+    });
+  }
+}
+
 for (const nativeScrollbars of [false, true]) {
   for (const colorScheme of ["light", "dark"] as const) {
     for (const interactive of [true, false]) {

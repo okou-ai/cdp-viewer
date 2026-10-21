@@ -69,6 +69,7 @@
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
   --cdpv-tab-inset: 6px;
+  --cdpv-tab-corner: 8px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -86,6 +87,9 @@
   min-height: var(--cdpv-tab-height);
   min-width: 0;
   gap: 3px;
+  /* Leave room for the first and last selected tab's outward curves. */
+  padding-inline: var(--cdpv-tab-corner);
+  margin-left: calc(-1 * var(--cdpv-tab-corner));
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -93,6 +97,7 @@
   display: flex;
   align-items: center;
   position: relative;
+  isolation: isolate;
   flex: 0 0 204px;
   width: 204px;
   min-width: 140px;
@@ -101,8 +106,43 @@
   color: var(--cdpv-muted);
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
+  z-index: 1;
   color: var(--cdpv-foreground);
   background: var(--cdpv-background);
+}
+.cdpv-root .cdpv-tab-item::before,
+.cdpv-root .cdpv-tab-item::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+.cdpv-root .cdpv-tab-item:not([data-selected])::before {
+  inset: 0 0 var(--cdpv-tab-inset);
+  border-radius: 9px;
+}
+.cdpv-root
+  .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover::before {
+  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+}
+.cdpv-root .cdpv-tab-item[data-selected]::before,
+.cdpv-root .cdpv-tab-item[data-selected]::after {
+  bottom: 0;
+  width: var(--cdpv-tab-corner);
+  height: var(--cdpv-tab-corner);
+  background: radial-gradient(
+    circle at var(--cdpv-curve-origin) 0,
+    transparent var(--cdpv-tab-corner),
+    var(--cdpv-background) calc(var(--cdpv-tab-corner) + 0.5px)
+  );
+}
+.cdpv-root .cdpv-tab-item[data-selected]::before {
+  --cdpv-curve-origin: 0%;
+  left: calc(-1 * var(--cdpv-tab-corner));
+}
+.cdpv-root .cdpv-tab-item[data-selected]::after {
+  --cdpv-curve-origin: 100%;
+  right: calc(-1 * var(--cdpv-tab-corner));
 }
 .cdpv-root .cdpv-tab {
   display: flex;
@@ -166,7 +206,7 @@
   flex: none;
 }
 
-.cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
+.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
   background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
 }
 .cdpv-root
