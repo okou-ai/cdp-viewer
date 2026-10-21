@@ -404,6 +404,7 @@ describe("owned remote input", () => {
 
   it("retains a later key press when an earlier key-up reply arrives", async () => {
     const { browser, controller, socket } = await mount();
+    vi.useFakeTimers();
     const input = controller.input!;
     browser.holdMethod = "Input.dispatchKeyEvent";
     const key = { key: "Shift", code: "ShiftLeft", modifiers: 8 };
@@ -413,16 +414,8 @@ describe("owned remote input", () => {
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(3));
     const oldRelease = browser.heldCommands[1]!;
     oldRelease.socket.reply(oldRelease.command);
-    await vi.waitFor(() =>
-      expect(
-        oldRelease.socket.commands.filter(
-          (c) => c.method === "Input.dispatchKeyEvent",
-        ),
-      ).toHaveLength(3),
-    );
-    // Drain the reply continuation before cleanup inspects the later press.
-    await Promise.resolve();
-    await Promise.resolve();
+    // Process acknowledgement continuations before inspecting the later press.
+    await vi.advanceTimersByTimeAsync(0);
     input.blur();
     expect(
       socket.commands
@@ -435,6 +428,7 @@ describe("owned remote input", () => {
 
   it("retains a later mouse press when an earlier release reply arrives", async () => {
     const { browser, controller, socket } = await mount();
+    vi.useFakeTimers();
     const input = controller.input!;
     browser.holdMethod = "Input.dispatchMouseEvent";
     const point = { x: 0.25, y: 0.5 };
@@ -444,8 +438,7 @@ describe("owned remote input", () => {
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(3));
     const oldRelease = browser.heldCommands[1]!;
     oldRelease.socket.reply(oldRelease.command);
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     input.blur();
     expect(
       socket.commands
@@ -487,6 +480,7 @@ describe("owned remote input", () => {
 
   it("ignores an old write failure after a new local input owner takes over", async () => {
     const { browser, controller, socket, model } = await mount();
+    vi.useFakeTimers();
     const input = controller.input!;
     browser.holdMethod = "Input.insertText";
     input.text("old uncertain input");
@@ -501,8 +495,7 @@ describe("owned remote input", () => {
     );
     const old = browser.heldCommands[0]!;
     old.socket.reject(old.command, -32000);
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     expect(model.getSnapshot().error).toBeNull();
   });
 
