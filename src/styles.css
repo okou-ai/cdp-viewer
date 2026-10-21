@@ -67,6 +67,7 @@
 }
 
 .cdpv-root .cdpv-toolbar {
+  --cdpv-tab-height: 35px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -79,11 +80,11 @@
 .cdpv-root .cdpv-tabs {
   display: flex;
   flex: 0 1 auto;
+  min-height: var(--cdpv-tab-height);
   min-width: 0;
   gap: 3px;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--cdpv-border) transparent;
+  scrollbar-width: none;
 }
 .cdpv-root .cdpv-tab-item {
   display: flex;
@@ -106,7 +107,7 @@
   gap: 9px;
   flex: 1;
   min-width: 0;
-  height: 35px;
+  height: var(--cdpv-tab-height);
   padding: 0 12px;
   border: 0;
   color: inherit;
