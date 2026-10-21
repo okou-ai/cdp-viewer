@@ -187,6 +187,7 @@ function ViewerSurface({
         {interactive && (
           <textarea
             ref={proxy}
+            id={`${selectId}-input`}
             className="cdpv-input-proxy"
             aria-label="Remote browser input"
             disabled={snapshot.status !== "streaming"}
@@ -241,6 +242,7 @@ function NavigationToolbar({
   navigation: ViewerNavigation | null;
   disabled: boolean;
 }) {
+  const addressId = useId();
   const [address, setAddress] = useState("");
   const editing = useRef(false);
   useEffect(() => {
@@ -284,6 +286,7 @@ function NavigationToolbar({
         <RotateCw size={16} aria-hidden="true" />
       </Button>
       <input
+        id={addressId}
         type="text"
         className="cdpv-address"
         aria-label="Remote page address"
