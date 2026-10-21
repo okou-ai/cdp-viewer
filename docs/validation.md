@@ -255,6 +255,72 @@ including existing pointer DPR/scale/pan, composition, navigation, owner cleanup
 and independent-viewer behavior. These results add no genuine system-IME,
 focused-frame, clipboard, provider or deployed-Origin compatibility claim.
 
+## Whole-viewer performance validation
+
+On 2026-10-21, a second audit measured main source
+`386a0ab72ea9c9857c59a050ecbe9997b8a323b2` against the subsequent performance
+changes, using the same owned Chromium 156.0.8078.4 and independently installed
+public-source consumer. It compared the currently deployed Browser Use live
+viewer, whose page asset SHA-256 was
+`55b2aa5d0efc99ff25b51d3944b75787fc9541bd6613a638271b2027f1a571b5`.
+
+The input probe again adds 100ms RTT, uses three click trials and fifteen typed
+characters at 80ms spacing, and measures actual remote DOM delivery rather than
+returned pixels. A wheel burst sends twenty synthetic DOM events over twenty
+animation frames, totaling 240 CSS pixels. Completion requires all scroll delta
+to be transmitted, so a temporary gap between proxy response and client receipt
+cannot falsely establish an empty input queue.
+
+| Configuration    | Click before / after | Character before / after | Last wheel delivery after burst before / after |
+| ---------------- | -------------------: | -----------------------: | ---------------------------------------------: |
+| No window filter |        375ms / 164ms |            161ms / 160ms |                                  3921ms / 84ms |
+| With windowId    |        587ms / 372ms |            252ms / 161ms |                                 6200ms / 291ms |
+
+Click medians improved 56.3% and 36.6%; scoped character latency improved 36.1%,
+while unscoped typing remained similar. All 240 wheel-delta units were retained,
+with 20 dispatches reduced to 4 and 3 respectively. These improvements come from
+painted-frame viewport metadata, overlapping independent scope/read preparation
+and combining compatible pending wheel work. Required scope/focus checks and
+ordered input acknowledgements remain; the official direct-forwarding path still
+has lower ordinary input latency (about 54–60ms in the comparison).
+
+First-frame receipt after the first CDP command improved from 771ms to 564ms
+unscoped, and from 998ms to 759ms scoped, by overlapping stream and input setup.
+These are single connection samples, not startup percentiles or physical paint
+latency. Interactive availability still waits for both initialization and paint.
+
+A separate conversion microbenchmark used fifteen iterations per path, discarding
+the first three. Native base64 conversion of a deliberately high-entropy
+1920x1080 JPEG (1,049,008 bytes) took a median 1.3ms versus 56.1ms with
+`atob`/callback-based conversion in the same run. The baseline run measured
+54.85ms versus 1.2ms. JPEG decoding remains separate, around 21–23ms; a typical
+11,502-byte editor frame needed only about 0.6ms for the old conversion. This is
+a CPU stress case, not a claim that every page saves 55ms. Older clients use a
+portable byte loop; both paths verify identical bytes, and the fallback painted
+actual JPEGs in the public-consumer browser test.
+
+Deterministic regressions cover painted versus arriving geometry, missing/invalid
+metadata, resize/document invalidation and late paints, scope/read overlap with
+no early writes, late-handle cleanup after failed scope, wheel distance/barriers,
+sent-payload immutability and finite bounds, startup overlap/readiness, and
+independent visibility/explicit pause. Six initial protocol regression cases and
+three component/conversion cases failed on the previous implementation.
+
+All sixteen focused interaction/viewer browser scenarios passed, including
+dynamic viewport resize/page scale, a held real wheel acknowledgement, real
+offscreen pause/resume, independent panel painting and the existing
+DPR/contain/drag/pan/composition/navigation ownership cases. Frame metadata was
+also cross-checked against fresh CSS viewport metrics at DPR 1/2, page scale 1.5,
+and portrait dimensions; fractional rounding differed by less than 0.001 CSS px.
+CI assertions use protocol/event boundaries, not tight wall-clock thresholds.
+
+The audit retained fixed JPEG quality/resolution, per-instance sockets and fresh
+target discovery: there is no representative quality/bandwidth evidence for an
+adaptive transport or mandatory provider mechanism. Offscreen surfaces release
+only their owned stream/session through existing pause semantics. No full local
+Vitest suite, development server, physical OS IME, provider or deployed-Origin
+compatibility claim is added by these measurements.
+
 ## Remaining compatibility boundaries
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider

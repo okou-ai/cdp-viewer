@@ -58,6 +58,7 @@ function ViewerSurface({
   const proxy = useRef<HTMLTextAreaElement>(null);
   const native = useRef<NativeInput | null>(null);
   const runtime = useRef<ViewerController | null>(null);
+  const inViewport = useRef(true);
   const committed = useRef({ paused, onStatusChange, onError });
   const [retry, setRetry] = useState(0);
   const selectId = useId();
@@ -83,7 +84,8 @@ function ViewerSurface({
         {
           url: cdpUrl,
           ...(windowId === undefined ? {} : { windowId }),
-          paused: committed.current.paused || document.hidden,
+          paused:
+            committed.current.paused || document.hidden || !inViewport.current,
           interactive,
           onInputReset: () => native.current?.reset(),
           onCaret: (point) => native.current?.place(point),
@@ -94,12 +96,28 @@ function ViewerSurface({
       return;
     }
     runtime.current = controller;
+    let active = true;
     const visibility = () =>
-      controller.setPaused(committed.current.paused || document.hidden);
+      controller.setPaused(
+        committed.current.paused || document.hidden || !inViewport.current,
+      );
+    const observer =
+      typeof IntersectionObserver === "function"
+        ? new IntersectionObserver((entries) => {
+            if (!active) return;
+            const entry = entries.at(-1);
+            if (!entry) return;
+            inViewport.current = entry.isIntersecting;
+            visibility();
+          })
+        : null;
+    observer?.observe(canvas.current);
     document.addEventListener("visibilitychange", visibility);
     controller.start();
     return () => {
+      active = false;
       document.removeEventListener("visibilitychange", visibility);
+      observer?.disconnect();
       controller.close();
       if (runtime.current === controller) runtime.current = null;
     };
@@ -120,7 +138,9 @@ function ViewerSurface({
   }, [interactive]);
 
   useEffect(() => {
-    runtime.current?.setPaused(paused || document.hidden);
+    runtime.current?.setPaused(
+      paused || document.hidden || !inViewport.current,
+    );
   }, [paused]);
 
   useEffect(() => {

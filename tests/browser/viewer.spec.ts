@@ -40,6 +40,74 @@ async function expectColor(
     .toBeLessThanOrEqual(4);
 }
 
+test("offscreen panels release only their own stream and resume with portable frame decoding", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const first = await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/red",
+      newWindow: true,
+    });
+    const second = await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/blue",
+      newWindow: true,
+    });
+    const aWindow = await backend.session.send("Browser.getWindowForTarget", {
+      targetId: first.targetId,
+    });
+    const bWindow = await backend.session.send("Browser.getWindowForTarget", {
+      targetId: second.targetId,
+    });
+    // Exercise the documented fallback in a real browser, not only a fake bitmap.
+    await page.addInitScript(() => {
+      Reflect.deleteProperty(Uint8Array, "fromBase64");
+    });
+    await page.goto(server.origin);
+    await page.waitForFunction(
+      () => typeof window.configureViewers === "function",
+    );
+    await page.evaluate((settings) => window.configureViewers!(settings), {
+      cdpUrl: backend.endpoint,
+      windowA: aWindow.windowId,
+      windowB: bWindow.windowId,
+    });
+    const a = page.locator("#viewer-a section");
+    const b = page.locator("#viewer-b section");
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await expect(b).toHaveAttribute("data-status", "streaming");
+    await page.locator("#viewer-a").evaluate((element) => {
+      element.style.transform = "translateY(200vh)";
+    });
+    await expect(a).toHaveAttribute("data-status", "paused");
+    await expect(b).toHaveAttribute("data-status", "streaming");
+    const blue = backend.context
+      .pages()
+      .find((p) => p.url() === server.origin + "/fixture/blue")!;
+    await blue.evaluate(() => {
+      document.body.style.background = "rgb(24,224,80)";
+    });
+    await expectColor(b.locator("canvas"), [24, 224, 80]);
+    await page.locator("#viewer-a").evaluate((element) => {
+      element.style.transform = "";
+    });
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await expectColor(a.locator("canvas"), [232, 32, 48]);
+    expect(
+      (
+        await backend.session.send("Browser.getWindowForTarget", {
+          targetId: first.targetId,
+        })
+      ).windowId,
+    ).toBe(aWindow.windowId);
+  } finally {
+    await backend.close();
+  }
+});
+
 test("installed viewers stream separate windows, detect a real moved tab, and isolate cleanup", async ({
   page,
 }, info) => {

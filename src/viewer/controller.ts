@@ -20,6 +20,7 @@ interface Selection {
   deadline: AbortController;
   painted: boolean;
   input: InputSession | null;
+  inputReady: boolean;
 }
 
 interface ControllerOptions {
@@ -65,6 +66,7 @@ export class ViewerController {
   get input(): InputSession | null {
     const selection = this.selection;
     return selection?.painted &&
+      selection.inputReady &&
       selection.input?.available &&
       this.isCurrent(selection)
       ? selection.input
@@ -93,6 +95,7 @@ export class ViewerController {
       deadline: new AbortController(),
       painted: false,
       input: null,
+      inputReady: !this.options.interactive,
     };
     this.selection = selection;
     void this.attach(selection).catch((error: unknown) => {
@@ -246,6 +249,7 @@ export class ViewerController {
     }
     await client.request("Page.enable", undefined, attached.sessionId);
     if (!this.isCurrent(selection)) return;
+    let inputReady: Promise<void> = Promise.resolve();
     if (this.options.interactive) {
       const input = new InputSession(
         client,
@@ -272,14 +276,20 @@ export class ViewerController {
         },
       );
       selection.input = input;
-      await input.start();
-      if (!this.isCurrent(selection)) return;
+      inputReady = input.start().then(() => {
+        if (!this.isCurrent(selection)) return;
+        selection.inputReady = true;
+        this.streaming(selection);
+      });
     }
-    await client.request(
-      "Page.startScreencast",
-      { format: "jpeg", quality: 70, maxWidth: 1920, maxHeight: 1080 },
-      attached.sessionId,
-    );
+    await Promise.all([
+      inputReady,
+      client.request(
+        "Page.startScreencast",
+        { format: "jpeg", quality: 70, maxWidth: 1920, maxHeight: 1080 },
+        attached.sessionId,
+      ),
+    ]);
     if (!this.isCurrent(selection) || selection.painted) return;
     timeout(
       () => {
@@ -305,6 +315,11 @@ export class ViewerController {
       !this.paused &&
       this.selection === selection
     );
+  }
+
+  private streaming(selection: Selection): void {
+    if (this.isCurrent(selection) && selection.painted && selection.inputReady)
+      this.model.update({ status: "streaming", error: null });
   }
 
   private stopSelection(reason: InputStop = "target-replaced"): void {
@@ -357,14 +372,16 @@ export class ViewerController {
         typeof params.data !== "string"
       )
         return;
+      const paintedViewport = selection.input?.frame(params.metadata);
       this.sink.push(
         params.data,
         () => {
-          if (this.isCurrent(selection) && !selection.painted) {
-            selection.painted = true;
-            selection.deadline.abort();
-            this.model.update({ status: "streaming", error: null });
-          }
+          if (!this.isCurrent(selection)) return;
+          paintedViewport?.();
+          if (selection.painted) return;
+          selection.painted = true;
+          selection.deadline.abort();
+          this.streaming(selection);
         },
         (error) => {
           if (this.isCurrent(selection)) this.fail(error);
