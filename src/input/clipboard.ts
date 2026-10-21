@@ -31,9 +31,14 @@ export class NativeClipboard {
   ) {
     proxy.addEventListener("copy", this.copy, { signal });
     proxy.addEventListener("paste", this.paste, { signal });
-    proxy.addEventListener("cut", (event) => event.preventDefault(), {
-      signal,
-    });
+    proxy.addEventListener(
+      "cut",
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      { signal },
+    );
   }
 
   reset(keepRecovery = false): void {
@@ -54,6 +59,7 @@ export class NativeClipboard {
 
   private readonly paste = (event: ClipboardEvent) => {
     event.preventDefault();
+    event.stopPropagation();
     const input = this.focused();
     const owner = input?.owner;
     if (!event.isTrusted || !input || !owner) return;
@@ -79,6 +85,7 @@ export class NativeClipboard {
 
   private readonly copy = (event: ClipboardEvent) => {
     event.preventDefault();
+    event.stopPropagation();
     const input = this.focused();
     const owner = input?.owner;
     if (!event.isTrusted || !input || !owner) return;

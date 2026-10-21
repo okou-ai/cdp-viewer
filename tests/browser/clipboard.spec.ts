@@ -68,6 +68,7 @@ async function host(
   await page.evaluate(async (settings) => window.configureViewers!(settings), {
     cdpUrl: endpoint,
     interactive: true,
+    hostForm: true,
     windowA,
     ...(windowB === undefined ? { second: false } : { windowB }),
   });
@@ -654,6 +655,74 @@ test("a newer copy supersedes a delayed copy and writes only the latest selectio
     await expect(
       view.getByRole("textbox", { name: "Text to copy" }),
     ).toHaveCount(0);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("owns remote clipboard bubbling while host form clipboard controls remain native", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend.endpoint, windowId);
+    await seed(page, "owned clipboard baseline");
+    await remote.locator("#plain").fill("owned remote selection");
+    await remote.locator("#plain").selectText();
+    await page.evaluate(() => {
+      for (const type of [
+        "keydown",
+        "keyup",
+        "copy",
+        "paste",
+        "cut",
+      ] as const) {
+        document.body.dataset["host" + type] = "0";
+        document.addEventListener(type, (event) => {
+          if (
+            event instanceof KeyboardEvent &&
+            !["c", "v", "x"].includes(event.key.toLowerCase())
+          )
+            return;
+          const key = "host" + type;
+          document.body.dataset[key] = String(
+            Number(document.body.dataset[key]) + 1,
+          );
+        });
+      }
+    });
+    await copy(page, view);
+    await page.keyboard.press("ControlOrMeta+x");
+    await expect(remote.locator("#plain")).toHaveValue(
+      "owned remote selection",
+    );
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(remote.locator("#plain")).toHaveValue(
+      "owned remote selection",
+    );
+    for (const type of ["keydown", "keyup", "copy", "paste", "cut"])
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-host" + type,
+        "0",
+      );
+    const local = page.locator("#clipboard-fixture");
+    await local.fill("ordinary owned host text");
+    await local.press("ControlOrMeta+a");
+    await local.press("ControlOrMeta+c");
+    await local.fill("");
+    await local.press("ControlOrMeta+v");
+    await expect(local).toHaveValue("ordinary owned host text");
+    await expect(page.locator("body")).toHaveAttribute("data-hostcopy", "1");
+    await expect(page.locator("body")).toHaveAttribute("data-hostpaste", "1");
+    await expect(page.locator("#host-submissions")).toHaveText("0");
+    await page
+      .getByRole("button", { name: "Host submit", exact: true })
+      .click();
+    await expect(page.locator("#host-submissions")).toHaveText("1");
   } finally {
     await backend.close();
   }

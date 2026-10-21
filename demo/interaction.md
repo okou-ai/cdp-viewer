@@ -53,6 +53,8 @@ gesture. The focused document/control chain is checked again before text is
 returned. Owner changes cancel pending reads; uncertain writes are never replayed.
 A new copy supersedes earlier pending copies and discards their unsent reads.
 An empty selection preserves the previous clipboard content.
+Handled proxy clipboard events and shortcut releases do not bubble into host
+handlers. Local recovery controls and host fields retain their native events.
 
 If automatic local writing is denied or unavailable, the viewer displays the
 completed selection in a readonly **Text to copy** field. Focus it to select the
