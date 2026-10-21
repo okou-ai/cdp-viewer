@@ -51,6 +51,7 @@ changing appearance keeps the connection, current tab and local input nodes.
 The top row contains horizontally scrolling tabs, close buttons and a fixed **+**
 new-tab button. Arrow keys move tab focus; Enter or Space selects the focused tab.
 Discovery updates keep existing tabs in place and append newly discovered tabs.
+Background updates preserve the tab strip's manual scroll position.
 Creating a tab opens `about:blank` in the selected page's window and focuses the
 address bar unless you focused another control while creation was pending.
 Popup/sandbox policy can block this action; check the browser before

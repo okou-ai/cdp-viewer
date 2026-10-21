@@ -165,10 +165,15 @@ export function ViewerRuntime({
       else if (item.right > strip.right)
         list.scrollLeft += item.right - strip.right;
     }
+  }, [snapshot.selectedTargetId]);
+  useLayoutEffect(() => {
     if (restoreTabFocus.current) {
       restoreTabFocus.current = false;
+      const list = tabs.current;
       (
-        selected ??
+        list?.querySelector<HTMLElement>(
+          '[role="tab"][aria-selected="true"]',
+        ) ??
         list?.querySelector<HTMLElement>('[role="tab"]') ??
         list?.parentElement?.querySelector<HTMLElement>(
           '[aria-label="New tab"]',

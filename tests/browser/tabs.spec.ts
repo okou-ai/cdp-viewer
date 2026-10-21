@@ -196,6 +196,58 @@ test("delayed tab creation preserves a later host input focus", async ({
   }
 });
 
+test("tab discovery preserves manual scrolling and reveals a new selection", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const first = await remoteTab(backend, "Workspace", true);
+    const background = await remoteTab(backend, "Background");
+    await remoteTab(backend, "Notes");
+    await remoteTab(backend, "Inbox");
+    const viewer = await host(page, {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      interactive: true,
+      second: false,
+    });
+    await viewer.evaluate((element) => {
+      element.style.width = "360px";
+    });
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    const firstTab = viewer.getByRole("tab").first();
+    await firstTab.click();
+    await expect(firstTab).toHaveAttribute("aria-selected", "true");
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    const strip = viewer.getByRole("tablist");
+    const scrolled = await strip.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+      return element.scrollLeft;
+    });
+    expect(scrolled).toBeGreaterThan(0);
+    await background.remote.evaluate(() => {
+      document.title = "Updated background";
+    });
+    await expect(
+      viewer.getByRole("tab", { name: "Updated background", exact: true }),
+    ).toBeVisible();
+    expect(await strip.evaluate((element) => element.scrollLeft)).toBe(
+      scrolled,
+    );
+    await firstTab.focus();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    const lastTab = viewer.getByRole("tab").last();
+    await expect(lastTab).toHaveAttribute("aria-selected", "true");
+    await expect(lastTab).toBeInViewport({ ratio: 1 });
+  } finally {
+    await backend.close();
+  }
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
   test(`captures rendered ${colorScheme} tab, recovery, pending and responsive states`, async ({
     page,
