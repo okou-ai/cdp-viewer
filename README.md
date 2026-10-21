@@ -85,7 +85,8 @@ This is presentation scope, **not a server authorization boundary**.
 
 A new connection initially chooses its first confirmed page. Losing an established
 selection clears the image and requires explicit selection/recovery; it does not
-guess a page by title, URL or list position. Reconnect starts a fresh connection.
+guess a page by title, URL or list position. Viewing activates the selected tab in
+its remote window so Chromium can produce live frames. Reconnect starts a fresh connection.
 Changing callbacks does not reconnect. Unmounting releases this viewer's sessions
 and connection without closing the remote browser or its tabs.
 
