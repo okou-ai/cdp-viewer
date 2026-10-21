@@ -21,6 +21,7 @@ interface Elements {
   proxy: RefObject<HTMLTextAreaElement | null>;
   address: RefObject<HTMLInputElement | null>;
   tabs: RefObject<HTMLDivElement | null>;
+  notice: RefObject<HTMLDivElement | null>;
 }
 const ElementsContext = createContext<Elements | null>(null);
 
@@ -48,13 +49,17 @@ export function ViewerRuntime({
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
   const revision = viewerScope.useValue(model.revision$);
+  const notification = viewerScope.useValue(model.notification$);
+  const notificationId = notification?.id;
+  const notificationExiting = notification?.exiting ?? false;
   const canvas = useRef<HTMLCanvasElement>(null);
   const proxy = useRef<HTMLTextAreaElement>(null);
   const address = useRef<HTMLInputElement>(null);
   const tabs = useRef<HTMLDivElement>(null);
+  const notice = useRef<HTMLDivElement>(null);
   const elements = useMemo(
-    () => ({ canvas, proxy, address, tabs }),
-    [canvas, proxy, address, tabs],
+    () => ({ canvas, proxy, address, tabs, notice }),
+    [canvas, proxy, address, tabs, notice],
   );
   const focus = useMemo(() => new ToolbarFocus(tabs, address), [tabs, address]);
   const native = useRef<NativeInput | null>(null);
@@ -138,6 +143,48 @@ export function ViewerRuntime({
   useLayoutEffect(() => {
     focus.restoreAfterClose();
   }, [focus, snapshot.selectedTargetId, snapshot.targets]);
+  useLayoutEffect(() => {
+    if (notificationId === undefined || notificationExiting) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      if (active) model.run(model.exitNotification$, notificationId);
+    }, 5000);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [model, notificationId, notificationExiting]);
+  useLayoutEffect(() => {
+    if (
+      !notification ||
+      !notice.current ||
+      (!notification.exiting && !notification.previous)
+    )
+      return;
+    let active = true;
+    const animations = (notice.current.getAnimations?.() ?? []).filter(
+      (animation) => {
+        const timing = animation.effect?.getTiming();
+        return timing?.duration !== Infinity && timing?.iterations !== Infinity;
+      },
+    );
+    const complete = () => {
+      if (active)
+        model.run(
+          notification.exiting
+            ? model.removeNotification$
+            : model.finishReplacement$,
+          notification.id,
+        );
+    };
+    Promise.allSettled(animations.map((animation) => animation.finished)).then(
+      complete,
+      complete,
+    );
+    return () => {
+      active = false;
+    };
+  }, [model, notification]);
   useLayoutEffect(() => {
     if (!interactive || !canvas.current || !proxy.current) return;
     const input = new NativeInput(

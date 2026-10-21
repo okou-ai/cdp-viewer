@@ -1,11 +1,168 @@
 import { expect, it, vi } from "vitest";
 import { createDemoModel } from "../../demo/model";
 import { createViewerModel } from "../../src/viewer/model";
+import type { ViewerTransition } from "../../src/viewer/model";
+import type { ViewerError } from "../../src/viewer/types";
 
 const navigation = (url: string) => ({
   url,
   canGoBack: false,
   canGoForward: false,
+});
+
+function streamingViewer() {
+  const model = createViewerModel();
+  model.update({ targets: [{ id: "page-a", title: "A" }] });
+  model.transition({ type: "select", targetId: "page-a", paused: false });
+  model.transition({ type: "streaming" });
+  return model;
+}
+
+it("replaces identical notifications and rejects stale expiry or exit completion", () => {
+  const model = streamingViewer();
+  const error: ViewerError = { kind: "input", message: "Synthetic warning" };
+  model.update({ error });
+  const first = model.read(model.notification$)!;
+  expect(first).toMatchObject({ error, exiting: false });
+  model.update({ navigation: navigation("https://one.invalid/") });
+  model.update({ targets: [{ id: "page-a", title: "Updated" }] });
+  expect(model.read(model.notification$)).toBe(first);
+  model.run(model.removeNotification$, first.id);
+  expect(model.read(model.notification$)).toBe(first);
+  model.update({ error });
+  const second = model.read(model.notification$)!;
+  expect(second.id).not.toBe(first.id);
+  model.run(model.exitNotification$, first.id);
+  model.run(model.removeNotification$, first.id);
+  expect(model.read(model.notification$)).toBe(second);
+  model.run(model.exitNotification$, second.id);
+  expect(model.read(model.notification$)?.exiting).toBe(true);
+  model.update({ error });
+  const replacement = model.read(model.notification$)!;
+  expect(replacement).toMatchObject({ error, exiting: false });
+  expect(replacement.id).not.toBe(second.id);
+  model.run(model.removeNotification$, second.id);
+  expect(model.read(model.notification$)).toBe(replacement);
+  model.run(model.exitNotification$, replacement.id);
+  const diagnostic = model.getSnapshot();
+  model.run(model.removeNotification$, replacement.id);
+  expect(model.read(model.notification$)).toBeNull();
+  expect(model.getSnapshot()).toBe(diagnostic);
+  expect(model.getSnapshot().error).toBe(error);
+  model.update({ navigation: navigation("https://two.invalid/") });
+  expect(model.read(model.notification$)).toBeNull();
+});
+
+it("bounds covering arrivals to the current and previous report and ignores stale completion", () => {
+  const model = streamingViewer();
+  const report = (message: string) => {
+    model.update({ error: { kind: "input", message } });
+    return model.read(model.notification$)!;
+  };
+  const first = report("First warning");
+  expect(first.previous).toBeNull();
+  expect(first.entrance).toBe("initial");
+  const second = report("Second warning");
+  expect(second).toMatchObject({
+    previous: { id: first.id, error: first.error },
+  });
+  const third = report("Third warning");
+  expect(third.previous).toEqual({ id: second.id, error: second.error });
+  model.run(model.finishReplacement$, second.id);
+  expect(model.read(model.notification$)).toBe(third);
+  const diagnostic = model.getSnapshot();
+  model.run(model.finishReplacement$, third.id);
+  expect(model.read(model.notification$)).toMatchObject({
+    id: third.id,
+    entrance: "replacement",
+    previous: null,
+    exiting: false,
+  });
+  expect(model.getSnapshot()).toBe(diagnostic);
+  const fourth = report("Fourth warning");
+  model.run(model.exitNotification$, fourth.id);
+  const exiting = model.read(model.notification$);
+  expect(exiting?.previous).toBeNull();
+  model.run(model.finishReplacement$, fourth.id);
+  expect(model.read(model.notification$)).toBe(exiting);
+  model.transition({ type: "reset" });
+  model.run(model.finishReplacement$, fourth.id);
+  expect(model.read(model.notification$)).toBeNull();
+});
+
+it("exits cleared warnings and keeps sibling notification lifetimes independent", () => {
+  const first = streamingViewer();
+  const second = streamingViewer();
+  const error: ViewerError = { kind: "tab", message: "Synthetic tab warning" };
+  first.update({ error });
+  second.update({ error });
+  const sibling = second.read(second.notification$);
+  const notice = first.read(first.notification$)!;
+  first.update({ error: null });
+  expect(first.read(first.notification$)).toMatchObject({
+    id: notice.id,
+    exiting: true,
+  });
+  expect(first.getSnapshot().error).toBeNull();
+  first.run(first.removeNotification$, notice.id);
+  expect(first.read(first.notification$)).toBeNull();
+  expect(second.read(second.notification$)).toBe(sibling);
+  expect(second.getSnapshot().error).toBe(error);
+});
+
+const notificationResets: readonly ViewerTransition[] = [
+  { type: "reset" },
+  { type: "select", targetId: "page-b", paused: false },
+  { type: "paused" },
+  { type: "stopped" },
+  { type: "target-lost", error: null },
+  {
+    type: "discovery-failed",
+    error: { kind: "scope", message: "Synthetic scope" },
+  },
+  { type: "failed", error: { kind: "frame", message: "Synthetic frame" } },
+  {
+    type: "disconnected",
+    established: true,
+    error: { kind: "connection", message: "Synthetic disconnect" },
+  },
+];
+it.each(notificationResets)(
+  "discards notification presentation when its session is $type",
+  (transition) => {
+    const model = streamingViewer();
+    model.update({ error: { kind: "input", message: "Synthetic warning" } });
+    const previous = model.read(model.notification$)!;
+    model.transition(transition);
+    expect(model.read(model.notification$)).toBeNull();
+    model.transition({ type: "streaming" });
+    model.update({ error: { kind: "input", message: "Replacement warning" } });
+    const next = model.read(model.notification$)!;
+    expect(next.id).not.toBe(previous.id);
+    model.run(model.exitNotification$, previous.id);
+    model.run(model.removeNotification$, previous.id);
+    expect(model.read(model.notification$)).toBe(next);
+  },
+);
+
+it("only clears notifications when the owning runtime unbinds", () => {
+  const model = streamingViewer();
+  const actions = () => ({
+    select: vi.fn(),
+    navigate: vi.fn(),
+    createTab: vi.fn(),
+    closeTab: vi.fn(),
+  });
+  const original = actions();
+  const replacement = actions();
+  model.run(model.bind$, original);
+  model.run(model.bind$, replacement);
+  model.update({ error: { kind: "input", message: "Replacement warning" } });
+  const notice = model.read(model.notification$);
+  model.run(model.unbind$, original);
+  expect(model.read(model.notification$)).toBe(notice);
+  model.run(model.unbind$, replacement);
+  expect(model.read(model.notification$)).toBeNull();
 });
 
 it("keeps action eligibility independent across scope, stream errors and pending work", () => {
