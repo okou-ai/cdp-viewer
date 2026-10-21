@@ -42,10 +42,20 @@ the model rather than synchronizing duplicate state through React effects.
 Use React effects only in the runtime adapter to synchronize external resources
 with committed props and instance state.
 
+Express related visible-state changes as semantic transitions owned by the model.
+Derive shared interaction capabilities from committed configuration and runtime
+facts in readonly projections. Execution still validates current ownership and
+external scope at the point of use; a rendered capability is not write authority.
+
 Resource bindings belong to their instance and lifetime. Remove only a matching
 binding during cleanup, so an old owner cannot detach a replacement. Callback
 identity changes must not recreate unrelated resources. Keep required DOM node
 identities stable across ordinary state updates.
+
+Keep local focus policy in its DOM runtime owner. Native adapters report semantic
+intent through supplied callbacks rather than depending on surrounding control
+markup. Shared cleanup helpers take the originating resource explicitly, while
+the caller retains the decision about when that resource may be released.
 
 Asynchronous work must retain its original owner and check that owner before
 applying results or external writes. Cleanup must be idempotent and release only

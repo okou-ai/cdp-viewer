@@ -1,6 +1,7 @@
 import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import type { CdpClient } from "../cdp/client";
 import { isRecord } from "../cdp/errors";
+import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import type { InputLifecycle, InputOwner } from "./lifecycle";
 import type { Point } from "./geometry";
 
@@ -172,25 +173,8 @@ export class InputQueue {
     if (!this.lifecycle.owns(owner)) throw new Error("Input cancelled");
     const runtime =
       method === "Runtime.evaluate" || method === "Runtime.callFunctionOn";
-    const releaseResult = (result: unknown) => {
-      if (!isRecord(result)) return;
-      const objects = [
-        result.result,
-        isRecord(result.exceptionDetails)
-          ? result.exceptionDetails.exception
-          : undefined,
-      ];
-      const ids = new Set<string>();
-      for (const object of objects)
-        if (isRecord(object) && typeof object.objectId === "string")
-          ids.add(object.objectId);
-      for (const objectId of ids)
-        this.client.notify(
-          "Runtime.releaseObject",
-          { objectId },
-          owner.sessionId,
-        );
-    };
+    const releaseResult = (result: unknown) =>
+      releaseRuntimeObjects(this.client, owner.sessionId, result);
     const result = await this.client.request(
       method,
       params,

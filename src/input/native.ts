@@ -30,6 +30,7 @@ export class NativeInput {
     private readonly canvas: HTMLCanvasElement,
     private readonly proxy: HTMLTextAreaElement,
     private readonly input: () => InputSession | null,
+    private readonly releaseFocus: () => void,
   ) {
     const signal = this.lifetime.signal;
     const stage = canvas.parentElement;
@@ -286,12 +287,7 @@ export class NativeInput {
     if (event.key === "F8") {
       event.preventDefault();
       this.cancel();
-      this.canvas
-        .closest(".cdpv-root")
-        ?.querySelector<HTMLElement>(
-          '[role="tab"][aria-selected="true"], .cdpv-new-tab',
-        )
-        ?.focus({ preventScroll: true });
+      this.releaseFocus();
       return;
     }
     const shortcut =

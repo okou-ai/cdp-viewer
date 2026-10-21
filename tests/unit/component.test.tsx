@@ -315,6 +315,28 @@ it("keeps imports and server rendering free of browser connections", () => {
   expect(socket).not.toHaveBeenCalled();
 });
 
+it("offers creation only for a confirmed empty browser, not failed discovery", async () => {
+  const fake = browser();
+  fake.targets = [];
+  render(<CdpViewer cdpUrl="wss://fixture.invalid" interactive />);
+  await screen.findByText("No tabs open");
+  expect(screen.getByRole("button", { name: "New tab" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Create new tab" })).toBeEnabled();
+  fake.holdMethod = "Target.getTargets";
+  act(() => fake.sockets[0]!.emit("Target.targetInfoChanged", {}));
+  await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+  const held = fake.heldCommands[0]!;
+  act(() => held.socket.reject(held.command));
+  await screen.findByText("Browser view unavailable");
+  expect(screen.getByRole("button", { name: "New tab" })).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Create new tab" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Reconnect viewer" }),
+  ).toBeEnabled();
+});
+
 it("can close a broken page while its browser connection is still established", async () => {
   const fake = browser();
   fake.unsupportedStream = true;
