@@ -53,6 +53,8 @@ export function ViewerRuntime({
   }, [paused, onStatusChange, onError]);
   useLayoutEffect(() => {
     if (!canvas.current) return;
+    // The conditional address editor's lifetime ends in view-only mode.
+    if (!interactive) model.run(model.resetAddress$);
     model.update({
       status: "connecting",
       targets: Object.freeze([]),

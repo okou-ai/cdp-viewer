@@ -58,6 +58,9 @@ function createViewerSignals() {
       get(actions$)?.navigate(action);
     },
   );
+  const resetAddress$ = command(({ set }) => {
+    set(draft$, null);
+  });
   const focusAddress$ = command(({ get, set }) => {
     set(draft$, {
       value: get(address$),
@@ -93,6 +96,7 @@ function createViewerSignals() {
     reconnect$,
     select$,
     navigate$,
+    resetAddress$,
     focusAddress$,
     editAddress$,
     blurAddress$,

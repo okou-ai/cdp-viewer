@@ -324,17 +324,24 @@ compatibility claim is added by these measurements.
 ## State architecture validation
 
 On 2026-10-21, the strict React/ccstate migration passed 75 real-config lint
-regressions and 26 focused cases across the model, component, controller and
+regressions and 27 focused cases across the model, component, controller and
 Canvas test files. Coverage includes independent drafts and reconnect revisions,
 stale runtime unbinding, valid zero window IDs, invalid applied settings,
 monotonic panel identities, host ccstate isolation, Strict Mode cleanup,
 callback-only updates and stable native textarea nodes.
+The mode-toggle regression failed before the fix: disabling interaction with
+the address field still focused retained an unfinished URL when re-enabled.
+It now verifies the current URL is restored, the sibling's draft/node/socket is
+preserved, and no navigation is sent.
 
-Seven owned Chromium 156.0.8078.4 scenarios passed through the production demo
+Eight owned Chromium 156.0.8078.4 scenarios passed through the production demo
 and the explicitly packed public-source consumer: independent-window input and
 navigation, explicit apply/reconnect/removal, invalid drafts retaining a live
-connection, local toolbar focus, composition committing once, and moving a real
-tab between window scopes. There was no development server or full local Vitest
+connection, local toolbar focus, composition committing once, restoring the
+address/native input after mode changes, and moving a real tab between window
+scopes. The mode-toggle browser case also failed against the GitHub-installed
+pre-fix source, confirming the same stale draft outside the simulated DOM.
+There was no development server or full local Vitest
 run. Broad unit/browser checks remain owned by the PR pipeline.
 
 The independent tarball consumer passed with pnpm 10.33.4 and React 19.2.6,

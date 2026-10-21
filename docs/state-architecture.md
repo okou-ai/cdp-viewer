@@ -34,6 +34,9 @@ connections and reconnect generations. Editing a connection draft does not
 replace an applied connection. Reconnect uses committed settings; an invalid
 apply preserves the current viewer. Address editing survives remote URL updates
 while active; a completed draft is released on the next URL transition.
+Disabling interaction ends that address editor's lifetime and discards its
+draft; re-enabling starts from the current remote URL. Sibling drafts and
+connections retain their independent lifetimes.
 
 `src/react/runtime.tsx` is the exact DOM/resource adapter. It owns stable canvas
 and textarea refs, committed callbacks, layout effects, visibility observation,

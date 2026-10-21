@@ -242,6 +242,68 @@ it("isolates navigation drafts and reconnect ownership while retaining native pr
   ).toHaveValue("https://draft-b.invalid/");
 });
 
+it("ends an active address draft when interaction is disabled without resetting its sibling", async () => {
+  const fake = browser();
+  const content = (interactive: boolean) => (
+    <>
+      <CdpViewer
+        key="a"
+        cdpUrl="wss://fixture.invalid"
+        windowId={0}
+        interactive={interactive}
+      />
+      <CdpViewer
+        key="b"
+        cdpUrl="wss://fixture.invalid"
+        windowId={2}
+        interactive
+      />
+    </>
+  );
+  const view = render(content(true));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  const addresses = screen.getAllByRole("textbox", {
+    name: "Remote page address",
+  });
+  await userEvent.clear(addresses[1]!);
+  await userEvent.type(addresses[1]!, "https://sibling-draft.invalid/");
+  await userEvent.clear(addresses[0]!);
+  await userEvent.type(addresses[0]!, "https://unfinished-draft.invalid/");
+  expect(addresses[0]).toHaveFocus();
+  const siblingSocket = fake.sockets[1]!;
+  view.rerender(content(false));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  expect(
+    screen.getByRole("textbox", { name: "Remote page address" }),
+  ).toHaveValue("https://sibling-draft.invalid/");
+  view.rerender(content(true));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  const restored = screen.getAllByRole("textbox", {
+    name: "Remote page address",
+  });
+  expect(restored[0]).toHaveValue("https://fixture.invalid/");
+  expect(restored[1]).toBe(addresses[1]);
+  expect(restored[1]).toHaveValue("https://sibling-draft.invalid/");
+  expect(siblingSocket.readyState).toBe(1);
+  expect(
+    fake.sockets
+      .flatMap((socket) => socket.commands)
+      .some((command) => command.method === "Page.navigate"),
+  ).toBe(false);
+});
+
 it("keeps imports and server rendering free of browser connections", () => {
   const socket = vi.fn();
   vi.stubGlobal("WebSocket", socket);
