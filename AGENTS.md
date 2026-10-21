@@ -97,6 +97,11 @@ Stores. Only named definition files have the individual primitive capabilities
 listed there; do not add broad exemptions or inline suppressions. `pnpm lint`
 also runs the architecture rule regressions.
 
+Keep lint rules simple and focused on ordinary code and likely mistakes. Follow
+the documented rule design policy; a deliberately constructed bypass alone does
+not justify more analysis or special cases. Preserve multi-instance behavior
+through implementation, behavioral tests and review.
+
 - Each viewer owns its socket, request IDs, pending requests, timers, sessions,
   store and renderer. Do not introduce an implicit endpoint-keyed global pool.
 - Preserve the private React context so host ccstate providers stay independent.

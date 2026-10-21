@@ -96,8 +96,19 @@ use their existing protocol-specific error and cancellation contracts. Terminal
 async work must have an explicit rejection handler that checks the captured
 owner before reporting; empty catches and `void` discarding are forbidden.
 
-The rules use syntax and local bindings; they do not prove arbitrary
-interprocedural purity, dynamic import paths or alias transformations. Reviews
-must still check bootstrap purity, resource ownership and multi-instance
-behavior. Rule tests cover common import aliases/namespaces, exact definition
-paths, global factories, render calls, writable atoms and capability boundaries.
+### Rule design and review
+
+Keep lint rules focused on idiomatic code and likely accidental mistakes.
+Strictness means clear ownership constraints and error-level enforcement;
+exhaustive coverage of every possible spelling is not a goal.
+
+New rule logic needs a normal project pattern or a realistic misuse to justify
+its complexity, with representative accepted and rejected examples. Do not add
+recursive alias tracking, callback execution analysis or special syntax cases
+solely to catch deliberate circumvention. Prefer direct syntax checks and clear
+coding conventions. A constructed bypass alone is not a lint defect; unusual
+or intentionally evasive code belongs in code review.
+
+Lint supplements behavioral tests and review. They must still verify bootstrap
+purity, resource cleanup and independent viewer Stores, graphs and connections.
+Simplifying a rule must preserve the library's multi-instance behavior.

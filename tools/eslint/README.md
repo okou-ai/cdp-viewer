@@ -40,5 +40,7 @@ Library adaptations:
   not exempt an infrastructure directory from the remaining checks.
 
 Preserve the pinned source and update regression examples when adapting a rule.
-These syntax checks supplement behavioral tests and code review; they do not
-prove arbitrary interprocedural resource ownership.
+Follow the [rule design and review policy](../../docs/state-architecture.md#rule-design-and-review):
+cover ordinary code and likely mistakes with simple checks. Do not grow special
+cases solely to defeat intentional bypasses. Resource ownership and multiple
+independent viewers also require behavioral tests and code review.
