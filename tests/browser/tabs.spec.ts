@@ -405,7 +405,17 @@ async function expectTabBarAlignment(viewer: Locator) {
       ),
       listBottom: list.bottom - toolbar.bottom,
       tabBottom: (tab?.bottom ?? list.bottom) - toolbar.bottom,
-      afterList: rect ? rect.left - list.right : null,
+      leadingInset:
+        tab && root.querySelector(".cdpv-tabs")!.scrollLeft === 0
+          ? tab.left - toolbar.left
+          : null,
+      afterTabs: rect
+        ? rect.left -
+          (list.right -
+            parseFloat(
+              getComputedStyle(root.querySelector(".cdpv-tabs")!).paddingRight,
+            ))
+        : null,
       rightInset: rect ? toolbar.right - rect.right : null,
       hostOverflow: document.documentElement.scrollWidth > innerWidth,
     };
@@ -420,8 +430,8 @@ async function expectTabBarAlignment(viewer: Locator) {
   ).toEqual([]);
   expect(Math.abs(geometry.listBottom)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(geometry.tabBottom)).toBeLessThanOrEqual(0.5);
-  if (geometry.afterList !== null)
-    expect(geometry.afterList).toBeGreaterThanOrEqual(0);
+  if (geometry.leadingInset !== null) expect(geometry.leadingInset).toBe(3);
+  if (geometry.afterTabs !== null) expect(geometry.afterTabs).toBe(6);
   if (geometry.rightInset !== null)
     expect(geometry.rightInset).toBeGreaterThanOrEqual(0);
   expect(geometry.hostOverflow).toBe(false);
@@ -567,6 +577,161 @@ test.describe(() => {
   test.use({ deviceScaleFactor: 2 });
 
   for (const colorScheme of ["light", "dark"] as const) {
+    test(`keeps compact ${colorScheme} tab-strip edge spacing and a clear action gutter`, async ({
+      page,
+    }, info) => {
+      const backend = await launchBackend(
+        info.outputPath("backend"),
+        server.origin,
+      );
+      try {
+        await page.setViewportSize({ width: 1100, height: 850 });
+        const first = await remoteTab(backend, "Workspace", true);
+        await remoteTab(backend, "Product notes");
+        const viewer = await host(page, {
+          cdpUrl: backend.endpoint,
+          windowA: first.windowId,
+          colorSchemeA: colorScheme,
+          interactive: true,
+          second: false,
+        });
+        await page.locator("#panels").evaluate((element) => {
+          element.style.gridTemplateColumns = "minmax(0, 1fr)";
+        });
+        await expect(viewer).toHaveAttribute("data-status", "streaming");
+        const strip = viewer.getByRole("tablist");
+        const tabs = viewer.getByRole("tab");
+        const create = viewer.getByRole("button", {
+          name: "New tab",
+          exact: true,
+        });
+        for (const width of [960, 320]) {
+          await viewer.evaluate((root, value) => {
+            root.style.width = `${value}px`;
+          }, width);
+          await tabs.last().click();
+          await strip.evaluate((list) => {
+            list.scrollLeft = 0;
+          });
+          await tabs.first().hover();
+          await viewer.screenshot({
+            path: info.outputPath(`${width}-leading-hover.png`),
+          });
+          const leading = await viewer.evaluate((root) => {
+            const row = root
+              .querySelector(".cdpv-toolbar")!
+              .getBoundingClientRect();
+            const items = root.querySelectorAll(".cdpv-tab-item");
+            const first = items[0]!.getBoundingClientRect();
+            const second = items[1]!.getBoundingClientRect();
+            return {
+              inset: first.left - row.left,
+              gap: second.left - first.right,
+            };
+          });
+          expect
+            .soft(leading.inset, "Leading body inset matches the inter-tab gap")
+            .toBe(leading.gap);
+          expect.soft(leading.inset).toBe(3);
+          await tabs.last().blur();
+          await tabs.last().click();
+          await create.hover();
+          await viewer.screenshot({
+            path: info.outputPath(`${width}-new-tab-hover.png`),
+          });
+          const last = await tabs.last().locator("..").boundingBox();
+          const action = await create.boundingBox();
+          expect
+            .soft(
+              action!.x - last!.x - last!.width,
+              "New-tab hit box stays close to the final body",
+            )
+            .toBe(6);
+          expect(action).toMatchObject({ width: 32, height: 32 });
+          const before = await tabs.count();
+          await create.click({ position: { x: 1, y: 16 } });
+          await expect(tabs).toHaveCount(before + 1);
+          await expect(viewer).toHaveAttribute("data-status", "streaming");
+          const created = await tabs.last().getAttribute("data-target-id");
+          await viewer.locator(`[data-close-target="${created}"]`).click();
+          await expect(tabs).toHaveCount(before);
+        }
+        for (let index = 0; index < 3; index++)
+          await remoteTab(backend, `Overflow ${index}`);
+        await expect(tabs).toHaveCount(5);
+        // Scroll a selected surface through the action gutter, not just text.
+        await tabs.nth(1).click();
+        await page.mouse.move(0, 0);
+        for (const scrollLeft of [0, 37, 101, 207]) {
+          await strip.evaluate((list, value) => {
+            list.scrollLeft = value;
+          }, scrollLeft);
+          const sample = await viewer.evaluate((root) => {
+            const row = root
+              .querySelector(".cdpv-toolbar")!
+              .getBoundingClientRect();
+            const button = root
+              .querySelector(".cdpv-new-tab")!
+              .getBoundingClientRect();
+            return {
+              clip: {
+                x: row.x,
+                y: row.y,
+                width: row.width,
+                height: row.height,
+              },
+              points: [
+                [row.width - 2, 2],
+                [button.left + 1 - row.left, button.top + 1 - row.top],
+                [
+                  button.left + 1 - row.left,
+                  button.top + button.height / 2 - row.top,
+                ],
+                [button.left + 1 - row.left, button.bottom - 1 - row.top],
+              ],
+            };
+          });
+          const pixels = await tabBarPixels(viewer, sample);
+          expect
+            .soft(
+              pixels.slice(1),
+              "Scrolling contents do not paint beneath the new-tab button",
+            )
+            .toEqual([pixels[0], pixels[0], pixels[0]]);
+          expect(
+            await create.evaluate((button) => {
+              const rect = button.getBoundingClientRect();
+              return [
+                [rect.left + 1, rect.top + rect.height / 2],
+                [rect.left + rect.width / 2, rect.top + 1],
+                [rect.right - 1, rect.top + rect.height / 2],
+                [rect.left + rect.width / 2, rect.bottom - 1],
+              ].every(
+                ([x, y]) =>
+                  document
+                    .elementFromPoint(x!, y!)
+                    ?.closest(".cdpv-new-tab") === button,
+              );
+            }),
+          ).toBe(true);
+        }
+        await strip.evaluate((list) => {
+          list.scrollLeft = 0;
+        });
+        await tabs.last().focus();
+        await expect(tabs.last()).toBeInViewport({ ratio: 1 });
+        await page.keyboard.press("Enter");
+        await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
+        await create.hover();
+        await viewer.screenshot({
+          path: info.outputPath("320-overflow-end.png"),
+        });
+        await expectTabBarAlignment(viewer);
+      } finally {
+        await backend.close();
+      }
+    });
+
     for (const interactive of [true, false]) {
       test(`paints distinct ${colorScheme} ${interactive ? "interactive" : "view-only"} selected and hovered tab surfaces`, async ({
         page,

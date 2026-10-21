@@ -74,11 +74,11 @@
   --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--cdpv-tab-inset);
   flex: none;
   min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
   min-width: 0;
-  padding: 0 var(--cdpv-tab-corner);
+  padding: 0 var(--cdpv-tab-corner) 0 calc(var(--cdpv-tab-inset) / 2);
   background: var(--cdpv-tab-background);
 }
 
@@ -94,6 +94,21 @@
   margin-left: calc(-1 * var(--cdpv-tab-corner));
   overflow-x: auto;
   scrollbar-width: none;
+}
+.cdpv-root .cdpv-tabs:has(+ .cdpv-new-tab) {
+  /* Share the decorative gutter with the button without moving the tab bodies. */
+  margin-right: calc(-1 * var(--cdpv-tab-corner));
+  /* Keep scrolling content out of the button's hit region, retaining the cap.
+     The hard mask starts before the painted arc's antialiasing band. */
+  mask:
+    linear-gradient(#000 0 0) left / calc(100% - var(--cdpv-tab-corner)) 100%
+      no-repeat,
+    radial-gradient(
+        circle at 100% 0,
+        transparent calc(var(--cdpv-tab-corner) - 0.5px),
+        #000 0
+      )
+      right bottom / var(--cdpv-tab-corner) var(--cdpv-tab-corner) no-repeat;
 }
 .cdpv-root .cdpv-tab-item {
   display: flex;
@@ -190,6 +205,9 @@
   cursor: pointer;
 }
 .cdpv-root .cdpv-new-tab {
+  /* The masked scroll gutter must not intercept this control's leading edge. */
+  position: relative;
+  z-index: 1;
   width: 32px;
   height: 32px;
 }
