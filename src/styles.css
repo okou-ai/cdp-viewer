@@ -69,14 +69,16 @@
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
   --cdpv-tab-inset: 6px;
-  --cdpv-tab-corner: 8px;
+  --cdpv-tab-radius: 10px;
+  /* Concentric inner/outer corners keep the clearance constant through the arc. */
+  --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
   display: flex;
   align-items: center;
   gap: 4px;
   flex: none;
   min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--cdpv-tab-corner);
   background: var(--cdpv-tab-background);
 }
 
@@ -86,7 +88,7 @@
   flex: 0 1 auto;
   min-height: var(--cdpv-tab-height);
   min-width: 0;
-  gap: 3px;
+  gap: calc(var(--cdpv-tab-inset) / 2);
   /* Leave room for the first and last selected tab's outward curves. */
   padding-inline: var(--cdpv-tab-corner);
   margin-left: calc(-1 * var(--cdpv-tab-corner));
@@ -102,7 +104,7 @@
   width: 204px;
   min-width: 140px;
   max-width: 204px;
-  border-radius: 9px 9px 0 0;
+  border-radius: var(--cdpv-tab-radius) var(--cdpv-tab-radius) 0 0;
   color: var(--cdpv-muted);
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
@@ -118,8 +120,9 @@
   pointer-events: none;
 }
 .cdpv-root .cdpv-tab-item:not([data-selected])::before {
-  inset: 0 0 var(--cdpv-tab-inset);
-  border-radius: 9px;
+  /* The half-inset and item gap add up to the same clearance as below. */
+  inset: 0 calc(var(--cdpv-tab-inset) / 2) var(--cdpv-tab-inset);
+  border-radius: var(--cdpv-tab-radius);
 }
 .cdpv-root
   .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover::before {
@@ -132,7 +135,7 @@
   height: var(--cdpv-tab-corner);
   background: radial-gradient(
     circle at var(--cdpv-curve-origin) 0,
-    transparent var(--cdpv-tab-corner),
+    transparent calc(var(--cdpv-tab-corner) - 0.5px),
     var(--cdpv-background) calc(var(--cdpv-tab-corner) + 0.5px)
   );
 }

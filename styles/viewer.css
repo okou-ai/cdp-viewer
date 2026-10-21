@@ -79,35 +79,36 @@
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
   --cdpv-tab-inset: 6px;
-  --cdpv-tab-corner: 8px;
+  --cdpv-tab-radius: 10px;
+  --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
   min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
+  min-width: 0;
+  padding: 0 var(--cdpv-tab-corner);
   background: var(--cdpv-tab-background);
   flex: none;
   align-items: center;
   gap: 4px;
-  min-width: 0;
-  padding: 0 8px;
   display: flex;
 }
 .cdpv-root .cdpv-tabs {
   min-height: var(--cdpv-tab-height);
+  align-self: flex-end;
+  gap: calc(var(--cdpv-tab-inset) / 2);
   min-width: 0;
   padding-inline: var(--cdpv-tab-corner);
   margin-left: calc(-1 * var(--cdpv-tab-corner));
   scrollbar-width: none;
   flex: 0 auto;
-  align-self: flex-end;
-  gap: 3px;
   display: flex;
   overflow-x: auto;
 }
 .cdpv-root .cdpv-tab-item {
   isolation: isolate;
+  border-radius: var(--cdpv-tab-radius) var(--cdpv-tab-radius) 0 0;
   width: 204px;
   min-width: 140px;
   max-width: 204px;
   color: var(--cdpv-muted);
-  border-radius: 9px 9px 0 0;
   flex: 0 0 204px;
   align-items: center;
   display: flex;
@@ -126,8 +127,8 @@
   position: absolute;
 }
 .cdpv-root .cdpv-tab-item:not([data-selected]):before {
-  inset: 0 0 var(--cdpv-tab-inset);
-  border-radius: 9px;
+  inset: 0 calc(var(--cdpv-tab-inset) / 2) var(--cdpv-tab-inset);
+  border-radius: var(--cdpv-tab-radius);
 }
 .cdpv-root
   .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover:before {
@@ -145,7 +146,7 @@
   height: var(--cdpv-tab-corner);
   background: radial-gradient(
     circle at var(--cdpv-curve-origin) 0,
-    transparent var(--cdpv-tab-corner),
+    transparent calc(var(--cdpv-tab-corner) - 0.5px),
     var(--cdpv-background) calc(var(--cdpv-tab-corner) + 0.5px)
   );
   bottom: 0;

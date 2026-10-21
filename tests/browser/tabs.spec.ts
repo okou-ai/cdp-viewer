@@ -465,7 +465,19 @@ async function tabSurfacePixels(viewer: Locator) {
       },
     };
   });
-  const image = await viewer.page().screenshot({ clip: sample.clip });
+  return tabBarPixels(viewer, sample);
+}
+
+async function tabBarPixels(
+  viewer: Locator,
+  sample: {
+    clip: { x: number; y: number; width: number; height: number };
+    points: number[][];
+  },
+) {
+  const image = await viewer
+    .page()
+    .screenshot({ clip: sample.clip, scale: "css" });
   return viewer.evaluate(
     async (_, { bytes, points }) => {
       const bitmap = await createImageBitmap(
@@ -488,102 +500,174 @@ async function tabSurfacePixels(viewer: Locator) {
   );
 }
 
-for (const colorScheme of ["light", "dark"] as const) {
-  for (const interactive of [true, false]) {
-    test(`paints distinct ${colorScheme} ${interactive ? "interactive" : "view-only"} selected and hovered tab surfaces`, async ({
-      page,
-    }, info) => {
-      const backend = await launchBackend(
-        info.outputPath("backend"),
-        server.origin,
-      );
-      try {
-        await page.emulateMedia({ colorScheme });
-        const first = await remoteTab(backend, "Workspace", true);
-        await remoteTab(backend, "Product notes");
-        const viewer = await host(page, {
-          cdpUrl: backend.endpoint,
-          windowA: first.windowId,
-          interactive,
-          second: false,
-        });
-        await expect(viewer).toHaveAttribute("data-status", "streaming");
-        await page.evaluate(() => {
-          document.documentElement.style.colorScheme = "light dark";
-          document.querySelector<HTMLElement>(
-            "#panels",
-          )!.style.gridTemplateColumns = "minmax(0, 1fr)";
-          document.querySelector<HTMLElement>(".cdpv-root")!.style.width =
-            "960px";
-        });
-        const tabs = viewer.getByRole("tab");
-        for (const width of [960, 320]) {
-          await viewer.evaluate((root, value) => {
-            root.style.width = `${value}px`;
-          }, width);
-          for (const selected of [0, 1]) {
-            const prefix = `${width === 960 ? "" : "320-"}${selected}`;
-            await tabs.nth(selected).click();
-            await expect(tabs.nth(selected)).toHaveAttribute(
-              "aria-selected",
-              "true",
-            );
-            await expect(viewer).toHaveAttribute("data-status", "streaming");
-            await tabs.nth(selected).blur();
-            await page.mouse.move(0, 0);
-            const idle = await tabSurfacePixels(viewer);
-            expect(idle[0]).not.toEqual(idle[4]);
-            if (interactive)
-              expect(
-                idle[0],
-                "Selected surface connects into navigation",
-              ).toEqual(idle[5]);
-            expect(idle[1]).toEqual(idle[4]);
-            expect(
-              idle[2],
-              "Selected left curve remains visible at strip edges",
-            ).toEqual(idle[0]);
-            expect(
-              idle[3],
-              "Selected right curve remains visible at strip edges",
-            ).toEqual(idle[0]);
-            await viewer.screenshot({
-              path: info.outputPath(`${prefix}-idle.png`),
-            });
-            await tabs.nth(selected).hover();
-            expect(await tabSurfacePixels(viewer)).toEqual(idle);
-            if (width === 960) {
-              await tabs.nth(1 - selected).hover();
-              const hovered = await tabSurfacePixels(viewer);
-              expect(hovered[0]).toEqual(idle[0]);
-              expect(hovered[1]).not.toEqual(idle[1]);
-              expect(hovered[1]).not.toEqual(idle[0]);
-              expect(hovered[2]).toEqual(idle[2]);
-              expect(hovered[3]).toEqual(idle[3]);
-              await viewer.screenshot({
-                path: info.outputPath(`${prefix}-inactive-hover.png`),
-              });
-            }
-            if (interactive) {
-              await viewer
-                .getByRole("button", {
-                  name: `Close ${selected === 0 ? "Workspace" : "Product notes"}`,
-                  exact: true,
-                })
-                .hover();
-              await viewer.screenshot({
-                path: info.outputPath(`${prefix}-close-hover.png`),
-              });
-            }
-            await expectTabBarAlignment(viewer);
-          }
-        }
-      } finally {
-        await backend.close();
-      }
-    });
-  }
+async function expectParallelContour(
+  viewer: Locator,
+  colors: { hover: number[]; gutter: number[]; outer: number[] },
+) {
+  const sample = await viewer.evaluate((root) => {
+    const row = root.querySelector(".cdpv-toolbar")!.getBoundingClientRect();
+    const navigation = root.querySelector(".cdpv-navigation");
+    const selected = root
+      .querySelector('[role="tab"][aria-selected="true"]')!
+      .parentElement!.getBoundingClientRect();
+    const inactive = root
+      .querySelector('[role="tab"][aria-selected="false"]')!
+      .parentElement!.getBoundingClientRect();
+    // A 10px hover corner with a 6px clearance has a concentric 16px outer arc.
+    const direction = inactive.left < selected.left ? 1 : -1;
+    const centerX = direction === 1 ? inactive.right - 13 : inactive.left + 13;
+    const centerY = row.bottom - 16;
+    const angles = navigation
+      ? [0, 15, 30, 45, 60, 65, 75, 90]
+      : [0, 15, 30, 45, 60, 65];
+    const probes = angles.flatMap((angle) =>
+      [8.5, 11.5, 13, 14.5, 17.5].map((radius) => ({
+        angle,
+        radius,
+        band:
+          radius === 8.5
+            ? ("hover" as const)
+            : radius === 17.5
+              ? ("outer" as const)
+              : ("gutter" as const),
+        x: centerX + direction * radius * Math.cos((angle * Math.PI) / 180),
+        y: centerY + radius * Math.sin((angle * Math.PI) / 180),
+      })),
+    );
+    return {
+      probes,
+      points: probes.map(({ x, y }) => [x - row.left, y - row.top]),
+      clip: {
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height + (navigation ? 3 : 0),
+      },
+    };
+  });
+  const pixels = await tabBarPixels(viewer, sample);
+  const incorrect = sample.probes
+    .map(({ angle, radius, band }, index) => ({
+      angle,
+      radius,
+      band,
+      actual: pixels[index]!,
+      expected: colors[band],
+    }))
+    .filter(({ actual, expected }) =>
+      actual.some((channel, index) => channel !== expected[index]),
+    );
+  expect(
+    incorrect,
+    "Hover, gutter and outer surface follow concentric offset curves",
+  ).toEqual([]);
 }
+
+test.describe(() => {
+  test.use({ deviceScaleFactor: 2 });
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    for (const interactive of [true, false]) {
+      test(`paints distinct ${colorScheme} ${interactive ? "interactive" : "view-only"} selected and hovered tab surfaces`, async ({
+        page,
+      }, info) => {
+        const backend = await launchBackend(
+          info.outputPath("backend"),
+          server.origin,
+        );
+        try {
+          await page.emulateMedia({ colorScheme });
+          const first = await remoteTab(backend, "Workspace", true);
+          await remoteTab(backend, "Product notes");
+          const viewer = await host(page, {
+            cdpUrl: backend.endpoint,
+            windowA: first.windowId,
+            interactive,
+            second: false,
+          });
+          await expect(viewer).toHaveAttribute("data-status", "streaming");
+          await page.evaluate(() => {
+            document.documentElement.style.colorScheme = "light dark";
+            document.querySelector<HTMLElement>(
+              "#panels",
+            )!.style.gridTemplateColumns = "minmax(0, 1fr)";
+            document.querySelector<HTMLElement>(".cdpv-root")!.style.width =
+              "960px";
+          });
+          const tabs = viewer.getByRole("tab");
+          for (const width of [960, 320]) {
+            await viewer.evaluate((root, value) => {
+              root.style.width = `${value}px`;
+            }, width);
+            for (const selected of [1, 0]) {
+              const prefix = `${width === 960 ? "" : "320-"}${selected}`;
+              await tabs.nth(selected).click();
+              await expect(tabs.nth(selected)).toHaveAttribute(
+                "aria-selected",
+                "true",
+              );
+              await expect(viewer).toHaveAttribute("data-status", "streaming");
+              await tabs.nth(selected).blur();
+              await page.mouse.move(0, 0);
+              const idle = await tabSurfacePixels(viewer);
+              expect(idle[0]).not.toEqual(idle[4]);
+              if (interactive)
+                expect(
+                  idle[0],
+                  "Selected surface connects into navigation",
+                ).toEqual(idle[5]);
+              expect(idle[1]).toEqual(idle[4]);
+              expect(
+                idle[2],
+                "Selected left curve remains visible at strip edges",
+              ).toEqual(idle[0]);
+              expect(
+                idle[3],
+                "Selected right curve remains visible at strip edges",
+              ).toEqual(idle[0]);
+              await viewer.screenshot({
+                path: info.outputPath(`${prefix}-idle.png`),
+              });
+              await tabs.nth(selected).hover();
+              expect(await tabSurfacePixels(viewer)).toEqual(idle);
+              if (width === 960) {
+                await tabs.nth(1 - selected).hover();
+                const hovered = await tabSurfacePixels(viewer);
+                expect(hovered[0]).toEqual(idle[0]);
+                expect(hovered[1]).not.toEqual(idle[1]);
+                expect(hovered[1]).not.toEqual(idle[0]);
+                expect(hovered[2]).toEqual(idle[2]);
+                expect(hovered[3]).toEqual(idle[3]);
+                await viewer.screenshot({
+                  path: info.outputPath(`${prefix}-inactive-hover.png`),
+                });
+                await expectParallelContour(viewer, {
+                  hover: hovered[1]!,
+                  gutter: hovered[4]!,
+                  outer: hovered[0]!,
+                });
+              }
+              if (interactive) {
+                await viewer
+                  .getByRole("button", {
+                    name: `Close ${selected === 0 ? "Workspace" : "Product notes"}`,
+                    exact: true,
+                  })
+                  .hover();
+                await viewer.screenshot({
+                  path: info.outputPath(`${prefix}-close-hover.png`),
+                });
+              }
+              await expectTabBarAlignment(viewer);
+            }
+          }
+        } finally {
+          await backend.close();
+        }
+      });
+    }
+  }
+});
 
 for (const nativeScrollbars of [false, true]) {
   for (const colorScheme of ["light", "dark"] as const) {
