@@ -1,9 +1,11 @@
 # cdp-viewer
 
 A browser-native React viewer for existing Chrome DevTools Protocol browsers.
-It provides **view-only streaming, target selection, optional window filtering,
-and independent viewers**. Keyboard/IME input, clipboard and vendor adapters are
-not yet supported.
+It provides **live streaming, target selection, optional window filtering,
+and independent viewers**. Viewers are read-only by default. Enable `interactive`
+for mouse, keyboard, native text composition and remote navigation. Clipboard
+transfer and vendor adapters are not yet supported. Genuine macOS/Windows IME
+validation remains pending; see the [interaction support matrix](docs/interaction.md).
 
 The package stays private and is distributed as source from GitHub. No npm
 registry publication is planned.
@@ -86,18 +88,33 @@ and connection without closing the remote browser or its tabs.
 
 ## API
 
-| Prop                 | Purpose                                                                   |
-| -------------------- | ------------------------------------------------------------------------- |
-| `cdpUrl: string`     | Required browser-level WS(S) endpoint                                     |
-| `windowId?: number`  | Optional presentation/selection scope                                     |
-| `paused?: boolean`   | Release this viewer's current stream while retaining connection/selection |
-| `className`, `style` | Host layout and instance-scoped theme customization                       |
-| `onStatusChange`     | Readonly semantic snapshot: status, page targets, selected ID, diagnostic |
-| `onError`            | Fixed diagnostic category/message, excluding raw provider payloads        |
+| Prop                    | Purpose                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `cdpUrl: string`        | Required browser-level WS(S) endpoint                                            |
+| `windowId?: number`     | Optional presentation/selection scope                                            |
+| `paused?: boolean`      | Release this viewer's current stream while retaining connection/selection        |
+| `interactive?: boolean` | Enable mouse, keyboard, native text input and page navigation; defaults to false |
+| `className`, `style`    | Host layout and instance-scoped theme customization                              |
+| `onStatusChange`        | Readonly semantic snapshot: status, page targets, selected ID, diagnostic        |
+| `onError`               | Fixed diagnostic category/message, excluding raw provider payloads               |
 
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
-`ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, and `ViewerError`.
+`ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation` and `ViewerError`.
+Snapshots may include `navigation` (current remote address and available back/forward
+actions), or `null` when unavailable. Remote page addresses can contain sensitive
+data; do not log or persist snapshots indiscriminately.
+
+```tsx
+<CdpViewer cdpUrl={cdpUrl} interactive />
+```
+
+Click the remote image to focus its native input proxy. Local toolbar and host
+fields retain their own input. **F8** releases remote keyboard focus to the page
+selector. Composition stays in a stable local textarea and sends committed text
+once through CDP; candidate confirmation is distinct from a later remote Enter.
+The navigation toolbar accepts absolute HTTP(S) addresses and supports reload and
+available history. See [interaction behavior and limits](docs/interaction.md).
 
 Each instance has its own socket, request IDs, timers, controller, private ccstate
 store/context, Canvas queue, and cleanup. A host `ccstate-react` provider is

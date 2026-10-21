@@ -47,12 +47,20 @@ function App() {
     );
   };
   const props: CdpViewerProps | null = settings
-    ? { cdpUrl: settings.cdpUrl, style: { "--cdpv-radius": "3px" } }
+    ? {
+        cdpUrl: settings.cdpUrl,
+        interactive: settings.interactive ?? false,
+        paused: settings.paused ?? false,
+        style: { "--cdpv-radius": "3px" },
+      }
     : null;
   return (
     <StoreProvider value={hostStore}>
       <h1>Independent packed consumer</h1>
       <HostCounter />
+      <label>
+        Host input <input aria-label="Host input" />
+      </label>
       <span id="host-prefix-probe" className="hidden">
         Host class stays visible
       </span>
@@ -91,6 +99,9 @@ function App() {
           </>
         )}
       </div>
+      <label>
+        After viewers <input aria-label="After viewers" />
+      </label>
     </StoreProvider>
   );
 }

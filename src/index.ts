@@ -3,6 +3,7 @@ export type {
   CdpViewerProps,
   CdpViewerStyle,
   ViewerError,
+  ViewerNavigation,
   ViewerSnapshot,
   ViewerStatus,
   ViewerTarget,

@@ -1,4 +1,4 @@
-# View-only viewer validation
+# Viewer validation
 
 Observed on 2026-10-20 with Node 24.22.0, pnpm 12.14.0, Playwright 1.64.1,
 Debian Chromium 155.0.8059.79, React 19.2.0, and ccstate/ccstate-react 6.0.0.
@@ -57,6 +57,10 @@ or a local development server. They own the browser profiles and targets they
 mutate, and contain no real connection credentials or personal browser content.
 The sandbox's existing Chromium executable is selected with
 `CDP_VIEWER_CHROMIUM=/usr/bin/chromium`; CI installs its Playwright Chromium.
+Backend startup waits for the owned Chromium port file to publish both endpoint
+lines. Native file notifications are registered before reading; cancellation is
+bounded, and other filesystem errors remain visible. Five native-filesystem cases
+cover existing, later and partial publication, cancellation and IO errors.
 
 Knip's optional raw-transfer AST buffer failed allocation in this sandbox. The
 dependency check uses Knip's supported non-raw parser, preserving the same
@@ -94,21 +98,106 @@ suite was run. Format, lint, strict types, CSS consistency, dependency analysis
 and library/demo production builds passed; broad units and real GitHub consumer
 checks remain in PR CI.
 
-Repository Pages is configured for workflow builds at
-`https://okou-ai.github.io/cdp-viewer/`, with HTTPS enforced. The first actual
-deployment and its source-bound Pages smoke receipt remain unverified before
-merge. A routed HTTPS fixture or local production receipt does not satisfy that
-rollout gate. The deployment workflow runs the same real-window scenarios
-against its actual URL and uploads only sanitized receipts, including any
-explicit local-network permission. See [the demo guide](demo.md).
+The view-only demo was subsequently deployed from
+`cdfe971fd14fb0e111590fa6a6ab95beccbc5987` at
+`https://okou-ai.github.io/cdp-viewer/`. The successful
+[deployment and smoke run](https://github.com/okou-ai/cdp-viewer/actions/runs/39421546854)
+produced an `actual-pages-deployment` receipt bound to that source and URL.
+Client/backend Chromium 156.0.8078.4 connected directly from the actual Pages
+Origin to owned Chromium, with local-network permission explicitly granted.
+The receipt verifies different windows, draft isolation, reconnect and independent
+cleanup. It contains no endpoint URLs or input content. This establishes the
+view-only rollout; interaction and other providers are not established by it.
+See [the demo guide](demo.md).
+
+## Interaction validation
+
+On 2026-10-20/21, eight focused interaction Playwright scenarios passed with Node
+24.22.0, pnpm 12.14.0, Playwright 1.64.1 and Debian Chromium 155.0.8059.79.
+They use an independently installed public-source tarball consumer with scripts
+disabled, React 19.2.6 and Vite 8; this is supplementary local packaging evidence.
+Actual pushed full-SHA GitHub consumption remains a PR CI check.
+
+[CI for the interaction code](https://github.com/okou-ai/cdp-viewer/actions/runs/39448141488)
+at `fba091e42eaf7fb326e7427eff8dd0526d5cc7bb` passed 25 unit tests, 14 browser
+scenarios and actual GitHub consumer validation (pnpm 10.33.4, React 19.2.6,
+source types/CSS, frozen reinstall, build and SSR). CI's browser is Chromium
+156.0.8078.4; this does not establish real macOS/Windows system IME behavior.
+
+- Two real browser windows receive their own native text/emoji, Ctrl and Meta
+  selection intents, deletion, undo/redo, textarea Enter, button Space and Tab.
+  Local host/address fields retain their input, F8 releases remote keyboard
+  focus, and the surviving viewer stays usable after the other is unmounted.
+  Native double-click selects a remote word; its regression failed before
+  forwarding the browser's mouse click count and preserving same-viewer gestures.
+- Actual nested rich contenteditable and an open-shadow text control receive
+  committed text. Focused iframe input is rejected without writing the previous
+  top-document control.
+- Pointer drag/selection and wheel work with remote DPR 2, page scale 1.5,
+  contain-fit letterboxes and visual-viewport panning; a control remains usable
+  after the pan. Tests exposed and fixed missing held-button state on drag and
+  double-applied viewport offsets.
+  Captured release outside the viewer and every button release in a mouse chord
+  reach the owning remote document without retaining a pressed button.
+- Address drafts remain local; HTTP(S) navigation, back, forward and reload are
+  explicit. JavaScript addresses are rejected. Blur and target replacement
+  discard unfinished local composition.
+  Late composition values are tested both while blurred and after refocusing a
+  replacement target; the stale-value regression failed before its fix.
+  Address text such as reload/back/forward is rejected rather than interpreted
+  as a toolbar command; this regression was observed failing before the fix.
+- Synthetic composition cases cover final-input ordering before/after/no
+  trailing event, cancellation, repeated identical characters and IME/229 Enter.
+  Committed text arrives once and candidate confirmation does not submit the
+  remote form; a later ordinary Enter does. These are not genuine OS IME tests.
+- Hash and history changes release held Shift and mouse input in the retained
+  document and allow input recovery. The missing key-up was reproduced in owned
+  Chromium before repair; loading-start alone must not discard that ownership.
+- Navigation returning HTTP 204 retains the original document and releases held
+  Shift and mouse input. Its key-up regression failed before repair. Recovery
+  uses real input; the fixture reads the retained execution context because
+  locator navigation auto-wait would wait for a commit that 204 forbids.
+- Local Tab navigation skips the inactive proxy while paused or after an error;
+  resuming streaming keeps the same textarea and restores remote typing. The
+  pause regression failed in owned Chromium before repair.
+
+Twenty-three focused input-lifecycle unit cases cover pending focus guards across
+target/document replacement, an unacknowledged held-key release, accepted text
+followed by disconnect without retry, and unrelated frame/context changes versus
+main-context destruction. Rejected key-up and blur before key-up acknowledgement
+retain original-session release cleanup; the rejection regression failed before
+its fix. Same-document navigation also covers owned key/button release after an
+ambiguous loading-start event; it failed before repair. Cross-document/history
+navigation starts, captured old owners, queue saturation/recovery and late focus
+objects are also covered. Six Runtime ownership cases cover separate result and
+exception handles for both evaluation and focus-guard calls while current, after
+blur and after timeout. All six failed before the executor cleanup repair; a
+native Chromium probe confirmed that even by-value exceptions produce two
+distinct handles. Recovery sends only new input, without replaying failed work.
+Twenty-five state cases cover transition policy,
+cross-session token isolation, stale acknowledgements, composition ordering and
+cancellation; one case explores all 81 four-event press/acknowledge/cancel
+sequences. The four focused lifecycle/state/component/controller files passed
+64 cases after the Runtime cleanup repair. No full local Vitest suite or dev server was run.
+The consumer SSR fixture covers both read-only and interactive rendering with
+browser connections forbidden. Synthetic two-window UI screenshots were inspected.
+Seven focused component cases include local keyboard traversal during connection,
+pause, error and disconnect. All four inactive-state cases failed before the
+proxy's availability fix.
+
+The initial delivery recorded no authorized VNC or SSH desktop hosts. This
+refactor did not perform physical OS validation; genuine macOS/Windows system-IME
+candidate placement and focus-transition receipts remain unverified. The
+acceptance gate is retained. See [the interaction support matrix](interaction.md).
 
 ## Remaining compatibility boundaries
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider
   Origin/TLS or hosted-client compatibility claim is made.
-- GitHub Pages: the new workflow still needs its first actual deployment/smoke
-  receipt. Okou Origin compatibility is also not established by local fixtures.
-- Real Windows/macOS IME and clipboard: P2/P3, outside this view-only slice.
+- GitHub Pages: the view-only receipt above does not establish an interactive
+  demo or system IME compatibility. Okou Origin compatibility is unverified.
+- Real Windows/macOS system IMEs: require genuine OS receipts; synthetic browser
+  composition does not establish them. Clipboard transfer remains unimplemented.
 - Other client browsers and remote CDP versions: require their own recorded
   capability probes before being advertised as supported.
 - Two simultaneous streams of the same remote target: unverified; different

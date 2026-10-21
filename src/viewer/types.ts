@@ -16,6 +16,7 @@ export interface ViewerError {
     | "scope"
     | "unsupported-capability"
     | "target-unavailable"
+    | "input"
     | "frame";
   /** A fixed diagnostic, excluding endpoint credentials and provider payloads. */
   readonly message: string;
@@ -31,6 +32,13 @@ export interface ViewerSnapshot {
   readonly targets: readonly ViewerTarget[];
   readonly selectedTargetId: string | null;
   readonly error: ViewerError | null;
+  readonly navigation?: ViewerNavigation | null;
+}
+
+export interface ViewerNavigation {
+  readonly url: string;
+  readonly canGoBack: boolean;
+  readonly canGoForward: boolean;
 }
 
 export interface CdpViewerProps {
@@ -39,6 +47,8 @@ export interface CdpViewerProps {
   /** Omit to discover all page targets. Filtering is UI scope, not an ACL. */
   readonly windowId?: number;
   readonly paused?: boolean;
+  /** Enable remote pointer, keyboard, native text input and navigation. Default: false. */
+  readonly interactive?: boolean;
   readonly className?: string;
   readonly style?: CdpViewerStyle;
   readonly onStatusChange?: (snapshot: ViewerSnapshot) => void;

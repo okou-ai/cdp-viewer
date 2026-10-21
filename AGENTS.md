@@ -7,8 +7,10 @@ Protocol browsers. Read `README.md`, `CONTRIBUTING.md` and `docs/validation.md`
 before changing behavior or making compatibility claims.
 
 The current component supports view-only streaming, target selection, optional
-window filtering and multiple independent instances. Input/IME, clipboard and
-vendor adapters are not implemented. Keep vendor-specific behavior optional when
+window filtering and multiple independent instances. Optional `interactive` mode
+adds native text input, mouse/keyboard and navigation; physical macOS/Windows IME
+validation is still pending. Clipboard and vendor adapters are not implemented.
+Keep vendor-specific behavior optional when
 adding extensions; ordinary CDP must remain usable independently.
 
 ## Repository Map
@@ -18,6 +20,9 @@ adding extensions; ordinary CDP must remain usable independently.
 - `src/viewer/`: controller/session lifecycle, ccstate model and public types.
 - `src/react/`: React component and private context/subscription bridge.
 - `src/render/`: Canvas decoding, frame queue and painting.
+- `src/input/`: DOM adapter, native composition model, lifecycle transition/pressed
+  input state, owner-bound CDP queue and image/CSS geometry. Read
+  `docs/input-lifecycle.md` before changing input ownership or cleanup.
 - `src/styles.css`: source styles; `styles/viewer.css`: committed compiled CSS.
 - `scripts/`: CSS generation/checks and independent consumer verification.
 - `tests/unit/`: Vitest, Testing Library and a fake external CDP wire.
@@ -102,6 +107,12 @@ supplementary local check; it does not establish real GitHub installation.
 - Pause, visibility changes and unmount must release owned work. Never close the
   remote browser or its tabs during viewer cleanup. Local contain fitting must not
   resize or emulate the remote viewport.
+- Input is explicit opt-in and instance/session/document/focus owned. Keep the
+  native textarea stable and focusable; never replace it during composition or
+  send preedit/control keys through the committed-text path. Discard unsent work
+  after ownership loss; never retry uncertain input/navigation. Preserve local
+  toolbar/host focus and release owned keys/buttons. F8 exits remote keyboard
+  focus. Clipboard transfer and focused iframe input require separate support.
 
 ## Documentation and Change Hygiene
 
