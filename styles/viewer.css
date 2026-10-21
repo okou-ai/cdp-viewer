@@ -81,13 +81,13 @@
   --cdpv-tab-inset: 6px;
   --cdpv-tab-radius: 10px;
   --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
+  align-items: center;
+  gap: var(--cdpv-tab-inset);
   min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
   min-width: 0;
-  padding: 0 var(--cdpv-tab-corner);
+  padding: 0 var(--cdpv-tab-corner) 0 calc(var(--cdpv-tab-inset) / 2);
   background: var(--cdpv-tab-background);
   flex: none;
-  align-items: center;
-  gap: 4px;
   display: flex;
 }
 .cdpv-root .cdpv-tabs {
@@ -101,6 +101,45 @@
   flex: 0 auto;
   display: flex;
   overflow-x: auto;
+}
+.cdpv-root .cdpv-tabs:has(+ .cdpv-new-tab) {
+  margin-right: calc(-1 * var(--cdpv-tab-corner));
+  -webkit-mask:
+    linear-gradient(#000 0 0) left / calc(100% - var(--cdpv-tab-corner)) 100%
+      no-repeat,
+    radial-gradient(
+        circle at 100% 0,
+        transparent calc(var(--cdpv-tab-corner) - 0.5px),
+        #000 0
+      )
+      right bottom / var(--cdpv-tab-corner) var(--cdpv-tab-corner) no-repeat;
+  -webkit-mask:
+    linear-gradient(#000 0 0) left / calc(100% - var(--cdpv-tab-corner)) 100%
+      no-repeat,
+    radial-gradient(
+        circle at 100% 0,
+        transparent calc(var(--cdpv-tab-corner) - 0.5px),
+        #000 0
+      )
+      right bottom / var(--cdpv-tab-corner) var(--cdpv-tab-corner) no-repeat;
+  -webkit-mask:
+    linear-gradient(#000 0 0) left / calc(100% - var(--cdpv-tab-corner)) 100%
+      no-repeat,
+    radial-gradient(
+        circle at 100% 0,
+        transparent calc(var(--cdpv-tab-corner) - 0.5px),
+        #000 0
+      )
+      right bottom / var(--cdpv-tab-corner) var(--cdpv-tab-corner) no-repeat;
+  mask:
+    linear-gradient(#000 0 0) left / calc(100% - var(--cdpv-tab-corner)) 100%
+      no-repeat,
+    radial-gradient(
+        circle at 100% 0,
+        transparent calc(var(--cdpv-tab-corner) - 0.5px),
+        #000 0
+      )
+      right bottom / var(--cdpv-tab-corner) var(--cdpv-tab-corner) no-repeat;
 }
 .cdpv-root .cdpv-tab-item {
   isolation: isolate;
@@ -201,8 +240,21 @@
   display: inline-flex;
 }
 .cdpv-root .cdpv-new-tab {
+  z-index: 1;
   width: 32px;
   height: 32px;
+  position: relative;
+}
+.cdpv-root .cdpv-new-tab:before {
+  content: "";
+  z-index: -1;
+  width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  pointer-events: none;
+  border-radius: 50%;
+  margin: auto;
+  position: absolute;
+  inset: 0;
 }
 .cdpv-root .cdpv-button {
   min-width: 32px;
@@ -218,11 +270,13 @@
   padding: 6px;
   display: inline-flex;
 }
-.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
+.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled, .cdpv-new-tab),
+.cdpv-root .cdpv-new-tab:hover:not(:disabled):before {
   background: var(--cdpv-foreground);
 }
 @supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
+  .cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled, .cdpv-new-tab),
+  .cdpv-root .cdpv-new-tab:hover:not(:disabled):before {
     background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
   }
 }
