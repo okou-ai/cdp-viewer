@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   use: {
     headless: true,
-    trace: "off",
+    trace: "retain-on-failure",
     launchOptions: process.env.CDP_VIEWER_CHROMIUM
       ? { executablePath: process.env.CDP_VIEWER_CHROMIUM }
       : {},

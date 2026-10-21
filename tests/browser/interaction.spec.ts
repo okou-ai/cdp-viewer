@@ -21,7 +21,7 @@ async function editor(
 ) {
   const pageCreated = backend.context.waitForEvent("page");
   const target = await backend.session.send("Target.createTarget", {
-    url: server.origin + "/fixture/editor" + suffix,
+    url: "about:blank",
     newWindow: true,
   });
   const { windowId } = await backend.session.send(
@@ -29,7 +29,8 @@ async function editor(
     { targetId: target.targetId },
   );
   const remote = await pageCreated;
-  await remote.waitForURL(server.origin + "/fixture/editor" + suffix);
+  // Let Playwright install its frame worlds before the iframe fixture loads.
+  await remote.goto(server.origin + "/fixture/editor" + suffix);
   await expect(remote.locator("#plain")).toBeVisible();
   return { remote, windowId, targetId: target.targetId };
 }
