@@ -149,6 +149,89 @@ test("real tab actions preserve window placement, later selection and stable nat
   }
 });
 
+for (const colorScheme of ["light", "dark"] as const) {
+  for (const width of [390, 1280]) {
+    test(`new-tab progress stays compact after discovery in ${colorScheme} at ${width}px`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      const backend = await launchBackend(
+        info.outputPath("backend"),
+        server.origin,
+      );
+      let release: (() => void) | undefined;
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            method: string;
+            params?: { url?: string };
+          };
+          if (
+            command.method === "Page.navigate" &&
+            command.params?.url === "about:blank"
+          ) {
+            release = () => upstream.send(message);
+            return;
+          }
+          upstream.send(message);
+        });
+      });
+      try {
+        const first = await remoteTab(backend, "Workspace", true);
+        const viewer = await host(page, {
+          cdpUrl: backend.endpoint,
+          windowA: first.windowId,
+          colorSchemeA: colorScheme,
+          interactive: true,
+          second: false,
+        });
+        await page.locator("#panels").evaluate((element) => {
+          element.style.gridTemplateColumns = "minmax(0, 1fr)";
+        });
+        await expect(viewer).toHaveAttribute("data-status", "streaming");
+        const create = viewer.getByRole("button", {
+          name: "New tab",
+          exact: true,
+        });
+        const idle = await create.boundingBox();
+        expect(idle).not.toBeNull();
+        const pages = backend.context.pages().length;
+        await viewer.screenshot({ path: info.outputPath("idle.png") });
+        await create.click();
+        await expect.poll(() => typeof release).toBe("function");
+        await expect(viewer.getByRole("tab")).toHaveCount(2);
+        await expect(create).toHaveAttribute("aria-busy", "true");
+        await expect(create).toBeDisabled();
+        await expect(viewer.getByRole("status")).toContainText("Creating tab");
+        expect(backend.context.pages()).toHaveLength(pages + 1);
+        await viewer.screenshot({ path: info.outputPath("pending.png") });
+        await expect(create).toHaveText("");
+        expect(await create.boundingBox()).toMatchObject({
+          width: idle!.width,
+          height: idle!.height,
+        });
+        await expect(create).toBeInViewport();
+        release!();
+        await expect(create).toHaveAttribute("aria-busy", "false");
+        await expect(create).toBeEnabled();
+        await expect(
+          viewer.getByRole("tab", { selected: true }),
+        ).not.toHaveAttribute("data-target-id", first.targetId);
+        await expect(viewer.getByRole("tab")).toHaveCount(2);
+        expect(backend.context.pages()).toHaveLength(pages + 1);
+        expect(await create.boundingBox()).toMatchObject({
+          width: idle!.width,
+          height: idle!.height,
+        });
+        await viewer.screenshot({ path: info.outputPath("complete.png") });
+      } finally {
+        await backend.close();
+      }
+    });
+  }
+}
+
 test("delayed tab creation preserves a later host input focus", async ({
   page,
 }, info) => {

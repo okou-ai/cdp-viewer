@@ -142,10 +142,8 @@
   cursor: pointer;
 }
 .cdpv-root .cdpv-new-tab {
-  gap: 6px;
-  font: inherit;
-  font-size: 12px;
-  border-radius: 18px;
+  width: 32px;
+  height: 32px;
 }
 
 .cdpv-root .cdpv-button {

@@ -151,10 +151,8 @@
   display: inline-flex;
 }
 .cdpv-root .cdpv-new-tab {
-  font: inherit;
-  border-radius: 18px;
-  gap: 6px;
-  font-size: 12px;
+  width: 32px;
+  height: 32px;
 }
 .cdpv-root .cdpv-button {
   min-width: 32px;
