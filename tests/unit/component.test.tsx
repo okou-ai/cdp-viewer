@@ -353,6 +353,81 @@ it.each(["success", "failure"] as const)(
   },
 );
 
+it("replaces identical warnings with fresh owned timers and releases them on unmount", async () => {
+  browser();
+  const timers = vi.spyOn(window, "setTimeout");
+  const clear = vi.spyOn(window, "clearTimeout");
+  const view = render(<CdpViewer cdpUrl="wss://fixture.invalid" interactive />);
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  const address = screen.getByRole("textbox", { name: "Remote page address" });
+  const image = screen.getByRole("img", { name: "Live browser view" });
+  const proxy = screen.getByRole("textbox", { name: "Remote browser input" });
+  await userEvent.clear(address);
+  await userEvent.type(address, "not-an-address{Enter}");
+  const first = screen.getByRole("alert");
+  expect(first).toHaveAttribute("data-phase", "visible");
+  const firstId = first.getAttribute("data-notification-id");
+  const firstIndex = timers.mock.calls.map(([, ms]) => ms).lastIndexOf(5000);
+  expect(firstIndex).toBeGreaterThanOrEqual(0);
+  const firstTimer = timers.mock.results[firstIndex]!.value;
+  await userEvent.keyboard("{Enter}");
+  const second = screen.getByRole("alert");
+  expect(second).not.toBe(first);
+  expect(first).not.toBeInTheDocument();
+  expect(second).not.toHaveAttribute("data-notification-id", firstId);
+  expect(second).toHaveAttribute("data-phase", "visible");
+  expect(screen.getByRole("img", { name: "Live browser view" })).toBe(image);
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    proxy,
+  );
+  expect(clear).toHaveBeenCalledWith(firstTimer);
+  const secondIndex = timers.mock.calls.map(([, ms]) => ms).lastIndexOf(5000);
+  expect(secondIndex).toBeGreaterThan(firstIndex);
+  const secondTimer = timers.mock.results[secondIndex]!.value;
+  view.unmount();
+  expect(clear).toHaveBeenCalledWith(secondTimer);
+});
+
+it("clears notices on runtime replacement and keeps recovery outside the expiry lifetime", async () => {
+  const fake = browser();
+  const timers = vi.spyOn(window, "setTimeout");
+  const view = render(<CdpViewer cdpUrl="wss://fixture.invalid" interactive />);
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  const address = screen.getByRole("textbox", { name: "Remote page address" });
+  await userEvent.clear(address);
+  await userEvent.type(address, "not-an-address{Enter}");
+  expect(screen.getByRole("alert")).toHaveAttribute("data-phase", "visible");
+  view.rerender(<CdpViewer cdpUrl="wss://replacement.invalid" interactive />);
+  await waitFor(() => expect(fake.sockets).toHaveLength(2));
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  const timerCount = timers.mock.calls.filter(([, ms]) => ms === 5000).length;
+  act(() => fake.sockets[1]!.close());
+  await screen.findByText("Browser disconnected");
+  expect(
+    screen.getByRole("button", { name: "Reconnect viewer" }),
+  ).toBeEnabled();
+  expect(screen.getByRole("alert")).toBeInTheDocument();
+  expect(
+    document.querySelector(".cdpv-notification-viewport"),
+  ).not.toBeInTheDocument();
+  expect(timers.mock.calls.filter(([, ms]) => ms === 5000)).toHaveLength(
+    timerCount,
+  );
+});
+
 it("offers creation only for a confirmed empty browser, not failed discovery", async () => {
   const fake = browser();
   fake.targets = [];

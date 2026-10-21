@@ -244,6 +244,13 @@
   color: var(--cdpv-on-accent);
   border-color: #0000;
 }
+.cdpv-root .cdpv-notification-viewport {
+  z-index: 1;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
 .cdpv-root .cdpv-error {
   color: var(--cdpv-error);
   background: var(--cdpv-error-background);
@@ -253,7 +260,31 @@
   gap: 8px;
   padding: 8px 12px;
   font-size: 12px;
+  animation: 0.16s cubic-bezier(0.2, 0, 0, 1) both cdpv-error-enter;
   display: flex;
+}
+.cdpv-root .cdpv-error[data-phase="exiting"] {
+  animation-name: cdpv-error-exit;
+}
+@keyframes cdpv-error-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes cdpv-error-exit {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
 }
 .cdpv-root .cdpv-error svg {
   flex: none;
@@ -301,6 +332,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .cdpv-root .cdpv-error,
   .cdpv-root .cdpv-spinning {
     animation: none;
   }

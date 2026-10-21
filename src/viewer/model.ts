@@ -14,6 +14,12 @@ interface AddressDraft {
   editing: boolean;
 }
 
+type ViewerNotification = {
+  readonly id: number;
+  readonly error: ViewerError;
+  readonly exiting: boolean;
+};
+
 export type TabAction =
   | { readonly type: "create" }
   | { readonly type: "close"; readonly targetId: string };
@@ -47,6 +53,8 @@ function createViewerSignals() {
   const actions$ = state<ViewerActions | null>(null);
   const draft$ = state<AddressDraft | null>(null);
   const pendingTab$ = state<TabAction | null>(null);
+  const internalNotification$ = state<ViewerNotification | null>(null);
+  const notificationSequence$ = state(0);
   const internalConnected$ = state(false);
   const configuration$ = state({
     interactive: false,
@@ -64,6 +72,20 @@ function createViewerSignals() {
     set(pendingTab$, action);
   });
   const snapshot$ = computed((get) => get(internalSnapshot$));
+  const notification$ = computed((get) => get(internalNotification$));
+  const exitNotification$ = command(({ get, set }, id: number) => {
+    const notification = get(internalNotification$);
+    if (notification?.id === id && !notification.exiting)
+      set(
+        internalNotification$,
+        Object.freeze({ ...notification, exiting: true }),
+      );
+  });
+  const removeNotification$ = command(({ get, set }, id: number) => {
+    const notification = get(internalNotification$);
+    if (notification?.id === id && notification.exiting)
+      set(internalNotification$, null);
+  });
   const revision$ = computed((get) => get(internalRevision$));
   const controls$ = computed((get) => {
     const snapshot = get(snapshot$);
@@ -123,6 +145,18 @@ function createViewerSignals() {
     // through null that subsequently reopen exactly the same remote address.
     if (old.navigation?.url !== next.navigation?.url && !get(draft$)?.editing)
       set(draft$, null);
+    if (next.status !== "streaming") set(internalNotification$, null);
+    else if (patch.error) {
+      const id = get(notificationSequence$) + 1;
+      set(notificationSequence$, id);
+      set(
+        internalNotification$,
+        Object.freeze({ id, error: patch.error, exiting: false }),
+      );
+    } else if (patch.error === null) {
+      const notification = get(internalNotification$);
+      if (notification) set(exitNotification$, notification.id);
+    }
     set(internalSnapshot$, next);
   });
   const updateData$ = command(({ set }, patch: ViewerUpdate) =>
@@ -163,6 +197,7 @@ function createViewerSignals() {
         set(update$, { status: "streaming", error: null });
         break;
       case "stopped":
+        set(internalNotification$, null);
         if (get(snapshot$).navigation) set(update$, { navigation: null });
         break;
       case "failed":
@@ -191,6 +226,7 @@ function createViewerSignals() {
       set(actions$, null);
       set(pendingTab$, null);
       set(internalConnected$, false);
+      set(internalNotification$, null);
     }
   });
   const reconnect$ = command(({ set }) => {
@@ -238,6 +274,9 @@ function createViewerSignals() {
   });
   return {
     snapshot$,
+    notification$,
+    exitNotification$,
+    removeNotification$,
     revision$,
     address$,
     tabAction$,

@@ -39,7 +39,8 @@ function ViewerSurface({
   const closeTab = viewerScope.useCommand(model.closeTab$);
   const pending = viewerScope.useValue(model.tabAction$);
   const controls = viewerScope.useValue(model.controls$);
-  const { canvas, proxy, tabs } = useViewerElements();
+  const notification = viewerScope.useValue(model.notification$);
+  const { canvas, proxy, tabs, notice } = useViewerElements();
   const selectId = viewerScope.useIdentity();
 
   return (
@@ -137,12 +138,6 @@ function ViewerSurface({
           disabled={!controls.streaming}
         />
       )}
-      {snapshot.error && controls.streaming && (
-        <div className="cdpv-error" role="alert">
-          <CircleAlert size={16} aria-hidden="true" />
-          <span>{snapshot.error.message}</span>
-        </div>
-      )}
       <Tabs.Panel
         tabIndex={-1}
         keepMounted
@@ -152,6 +147,21 @@ function ViewerSurface({
         <canvas ref={canvas} role="img" aria-label="Live browser view">
           Your browser needs Canvas 2D to show the remote page.
         </canvas>
+        {notification && (
+          <div className="cdpv-notification-viewport">
+            <div
+              key={notification.id}
+              ref={notice}
+              className="cdpv-error"
+              role="alert"
+              data-notification-id={notification.id}
+              data-phase={notification.exiting ? "exiting" : "visible"}
+            >
+              <CircleAlert size={16} aria-hidden="true" />
+              <span>{notification.error.message}</span>
+            </div>
+          </div>
+        )}
         {interactive && (
           <textarea
             ref={proxy}

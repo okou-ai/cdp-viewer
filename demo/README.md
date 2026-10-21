@@ -71,7 +71,11 @@ Removing a viewer never closes tabs. View-only viewers have no create/close acti
 Connection failures/disconnects show a message and **Reconnect viewer** inside
 the canvas area. Reconnect replaces only that viewer's connection and does not
 reload the remote page. Navigation or tab-operation failures keep a live image
-and show a contextual message beneath the address bar. There is no debug footer.
+and show one notification over the top of the page without moving it. A new
+notification immediately replaces the previous one and restarts its five-second
+display interval. Notifications slide down into view and slide upward on dismissal;
+reduced motion disables the travel. Recovery messages and reconnect controls stay
+visible until the connection or selection recovers. There is no debug footer.
 
 ## Interact
 

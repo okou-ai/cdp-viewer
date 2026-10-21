@@ -21,6 +21,7 @@ interface Elements {
   proxy: RefObject<HTMLTextAreaElement | null>;
   address: RefObject<HTMLInputElement | null>;
   tabs: RefObject<HTMLDivElement | null>;
+  notice: RefObject<HTMLDivElement | null>;
 }
 const ElementsContext = createContext<Elements | null>(null);
 
@@ -48,13 +49,15 @@ export function ViewerRuntime({
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
   const revision = viewerScope.useValue(model.revision$);
+  const notification = viewerScope.useValue(model.notification$);
   const canvas = useRef<HTMLCanvasElement>(null);
   const proxy = useRef<HTMLTextAreaElement>(null);
   const address = useRef<HTMLInputElement>(null);
   const tabs = useRef<HTMLDivElement>(null);
+  const notice = useRef<HTMLDivElement>(null);
   const elements = useMemo(
-    () => ({ canvas, proxy, address, tabs }),
-    [canvas, proxy, address, tabs],
+    () => ({ canvas, proxy, address, tabs, notice }),
+    [canvas, proxy, address, tabs, notice],
   );
   const focus = useMemo(() => new ToolbarFocus(tabs, address), [tabs, address]);
   const native = useRef<NativeInput | null>(null);
@@ -138,6 +141,35 @@ export function ViewerRuntime({
   useLayoutEffect(() => {
     focus.restoreAfterClose();
   }, [focus, snapshot.selectedTargetId, snapshot.targets]);
+  useLayoutEffect(() => {
+    if (!notification || !notice.current) return;
+    let active = true;
+    if (!notification.exiting) {
+      const timer = window.setTimeout(() => {
+        if (active) model.run(model.exitNotification$, notification.id);
+      }, 5000);
+      return () => {
+        active = false;
+        window.clearTimeout(timer);
+      };
+    }
+    const animations = (notice.current.getAnimations?.() ?? []).filter(
+      (animation) => {
+        const timing = animation.effect?.getTiming();
+        return timing?.duration !== Infinity && timing?.iterations !== Infinity;
+      },
+    );
+    const complete = () => {
+      if (active) model.run(model.removeNotification$, notification.id);
+    };
+    Promise.allSettled(animations.map((animation) => animation.finished)).then(
+      complete,
+      complete,
+    );
+    return () => {
+      active = false;
+    };
+  }, [model, notification]);
   useLayoutEffect(() => {
     if (!interactive || !canvas.current || !proxy.current) return;
     const input = new NativeInput(
