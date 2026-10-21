@@ -98,7 +98,9 @@ describe("viewer lifecycle", () => {
     expect(
       browser.sockets
         .flatMap((s) => s.commands)
-        .some((c) => c.method === "Target.attachToTarget"),
+        .some((c) =>
+          ["Target.activateTarget", "Target.attachToTarget"].includes(c.method),
+        ),
     ).toBe(false);
   });
 
@@ -172,6 +174,51 @@ describe("viewer lifecycle", () => {
     browser.frame(held.socket, held.sessionId);
     expect(model.getSnapshot().selectedTargetId).toBe("page-b");
     expect(sink.push.mock.calls.length).toBe(count);
+  });
+
+  it("does not attach a stale selection after its activation completes", async () => {
+    const browser = new FakeBrowser();
+    browser.holdMethod = "Target.activateTarget";
+    const { controller, model } = mount(browser);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    expect(
+      browser.sockets[0]!.commands.some(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toBe(false);
+    browser.holdMethod = null;
+    controller.select("page-b");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const old = browser.heldCommands[0]!;
+    old.socket.reply(old.command);
+    await Promise.resolve();
+    expect(model.getSnapshot().selectedTargetId).toBe("page-b");
+    expect(
+      browser.sockets[0]!.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ).map((command) => command.params?.targetId),
+    ).toEqual(["page-b"]);
+  });
+
+  it("reports activation failure without attaching or exposing provider errors", async () => {
+    const browser = new FakeBrowser();
+    browser.holdMethod = "Target.activateTarget";
+    const { model } = mount(browser);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const activation = browser.heldCommands[0]!;
+    activation.socket.reject(activation.command);
+    await vi.waitFor(() => expect(model.getSnapshot().status).toBe("error"));
+    expect(model.getSnapshot().error).toEqual({
+      kind: "unsupported-capability",
+      message: "The browser does not support a required CDP viewer command.",
+    });
+    expect(
+      activation.socket.commands.some(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toBe(false);
   });
 
   it("releases an attach that arrives after its request timeout", async () => {

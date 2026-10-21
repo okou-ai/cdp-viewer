@@ -294,6 +294,78 @@ test("unscoped discovery shows pages across windows and does not guess after tar
   }
 });
 
+test("selecting a background tab activates it and streams new pixels", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const foregroundCreated = backend.context.waitForEvent("page");
+    await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/red",
+      newWindow: true,
+    });
+    const foreground = await foregroundCreated;
+    await foreground.waitForLoadState("load");
+    const created = backend.context.waitForEvent("page");
+    const background = await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/blue",
+      background: true,
+    });
+    const remote = await created;
+    await remote.waitForLoadState("load");
+    const { windowId } = await backend.session.send(
+      "Browser.getWindowForTarget",
+      { targetId: background.targetId },
+    );
+    const worker =
+      backend.context.serviceWorkers()[0] ??
+      (await backend.context.waitForEvent("serviceworker"));
+    const isActive = () =>
+      worker.evaluate(async (url) => {
+        const tabs = (
+          globalThis as unknown as {
+            chrome: {
+              tabs: {
+                query(
+                  query: object,
+                ): Promise<{ url: string; active: boolean }[]>;
+              };
+            };
+          }
+        ).chrome.tabs;
+        return (await tabs.query({})).find((tab) => tab.url === url)?.active;
+      }, server.origin + "/fixture/blue");
+    expect(await isActive()).toBe(false);
+
+    await page.goto(server.origin);
+    await page.waitForFunction(
+      () => typeof window.configureViewers === "function",
+    );
+    await page.evaluate(
+      async (settings) => window.configureViewers!(settings),
+      {
+        cdpUrl: backend.endpoint,
+        windowA: windowId,
+        second: false,
+      },
+    );
+    const viewer = page.locator("#viewer-a section");
+    await viewer.getByRole("combobox").selectOption(background.targetId);
+    await expect.poll(isActive).toBe(true);
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    await expectColor(viewer.locator("canvas"), [24, 80, 224]);
+    await remote.evaluate(() => {
+      document.body.style.background = "rgb(24,224,80)";
+    });
+    await expectColor(viewer.locator("canvas"), [24, 224, 80]);
+  } finally {
+    await backend.close();
+  }
+});
+
 test("browser-native Origin rejection yields a fixed diagnostic", async ({
   page,
 }, info) => {

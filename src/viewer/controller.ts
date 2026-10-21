@@ -226,6 +226,11 @@ export class ViewerController {
     const client = this.client!;
     await this.directory!.assertMember(selection.targetId);
     if (!this.isCurrent(selection)) return;
+    // A background tab may have no compositor surface until it is activated.
+    await client.request("Target.activateTarget", {
+      targetId: selection.targetId,
+    });
+    if (!this.isCurrent(selection)) return;
     const attached: unknown = await client.request(
       "Target.attachToTarget",
       { targetId: selection.targetId, flatten: true },

@@ -16,6 +16,9 @@ macOS/Windows system IME validation remains pending.
 3. Select an existing page from the viewer's **Page** control. Add another viewer
    to control a different window independently.
 
+Selecting a page activates that tab in its remote window so it can produce live
+frames.
+
 | Parameter | Accepted value                                | Behavior                                                                                                                                     |
 | --------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | CDP URL   | Absolute `ws://` or `wss://` browser endpoint | Required. Native WebSocket does not support arbitrary auth headers, URL userinfo or fragments. Provider query/path credentials are accepted. |
