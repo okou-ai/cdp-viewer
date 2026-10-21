@@ -49,6 +49,9 @@ export class InputSession {
   private navigationKnown = false;
   private frameId: string | null = null;
   private contextId: number | null = null;
+  private caretJob: InputJob | null = null;
+  private caretReading = false;
+  private caretVersion = 0;
 
   constructor(
     private readonly client: CdpClient,
@@ -97,6 +100,7 @@ export class InputSession {
   }
 
   private beginFocus(job: InputJob): void {
+    this.invalidateCaret();
     this.releaseObject(this.lifecycle.beginFocus(job.owner));
   }
 
@@ -108,6 +112,7 @@ export class InputSession {
   private transition(reason: InputTransition): void {
     const cleanup = this.lifecycle.transition(reason);
     if (!cleanup) return;
+    this.invalidateCaret();
     this.queue.clear();
     this.releaseObject(cleanup.objectId);
     for (const key of cleanup.keys)
@@ -248,7 +253,7 @@ export class InputSession {
           "Focus a supported remote text control before typing.",
         );
       await job.request("Input.insertText", { text: job.text! });
-      if (details.range) await this.readCaret(job);
+      if (details.range) this.refreshCaret(job);
     });
   }
 
@@ -265,7 +270,7 @@ export class InputSession {
         key.type !== "keyUp" &&
         !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
       )
-        await this.readCaret(job);
+        this.refreshCaret(job);
     });
   }
 
@@ -311,7 +316,13 @@ export class InputSession {
     });
   }
 
-  private async verifyFocus(job: InputJob): Promise<{
+  private async verifyFocus(job: InputJob) {
+    const detail = await this.readFocusDetails(job);
+    this.setError(null);
+    return detail;
+  }
+
+  private async readFocusDetails(job: InputJob): Promise<{
     editable: boolean;
     range: boolean;
     point: Point;
@@ -347,7 +358,6 @@ export class InputSession {
         "Remote focus changed or the focused frame is unsupported. Click a supported control again.",
       );
     }
-    this.setError(null);
     return {
       editable: value.editable,
       range: value.range === true,
@@ -374,6 +384,44 @@ export class InputSession {
     if (!this.lifecycle.focusedObject(job.owner)) return;
     const detail = await this.verifyFocus(job);
     if (detail.editable) this.caret(detail.point);
+  }
+
+  private invalidateCaret(): void {
+    this.caretVersion++;
+    this.caretJob = null;
+  }
+
+  private refreshCaret(job: InputJob): void {
+    this.caretVersion++;
+    this.caretJob = job;
+    if (!this.caretReading) void this.drainCaret();
+  }
+
+  private async drainCaret(): Promise<void> {
+    this.caretReading = true;
+    try {
+      while (this.caretJob && this.available) {
+        const job = this.caretJob;
+        const version = this.caretVersion;
+        const objectId = this.lifecycle.focusedObject(job.owner);
+        this.caretJob = null;
+        if (!objectId) continue;
+        try {
+          const detail = await this.readFocusDetails(job);
+          if (
+            version === this.caretVersion &&
+            objectId === this.lifecycle.focusedObject(job.owner) &&
+            detail.editable
+          )
+            this.caret(detail.point);
+        } catch {
+          // Optional geometry never authorizes a write. The next write still
+          // verifies focus; stale/failed reads cannot cancel or clear its error.
+        }
+      }
+    } finally {
+      this.caretReading = false;
+    }
   }
 
   private updateHistory(): void {

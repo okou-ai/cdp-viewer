@@ -215,6 +215,46 @@ refactor did not perform physical OS validation; genuine macOS/Windows system-IM
 candidate placement and focus-transition receipts remain unverified. The
 acceptance gate is retained. See [the interaction support matrix](interaction.md).
 
+## Input latency validation
+
+On 2026-10-21, owned Chromium 156.0.8078.4 fixtures compared the input path before
+and after hover supersession, preflight text collection and nonblocking optional
+caret reads. Node 24.22.0, pnpm 12.14.0 and Playwright 1.64.1 used the current
+public-source tarball consumer, with scripts disabled and React 19.2.6. Each
+configuration has three trials; each trial types five letters 80ms apart.
+
+The probe adds 50ms to each WebSocket transit direction, for 100ms simulated RTT.
+Times below are medians from the local native event to actual remote DOM input,
+excluding screenshot return/paint. They do not measure a user's network or the
+deployed Pages app.
+
+| Configuration    | Click before / after | Typed character before / after |
+| ---------------- | -------------------: | -----------------------------: |
+| No window filter |        589ms / 379ms |                  255ms / 159ms |
+| With windowId    |        902ms / 592ms |                  420ms / 251ms |
+
+Click medians improved 35.7% and 34.4%; sustained-typing medians improved 37.6%
+and 40.2%. Unscoped click samples ranged from 376ms to 606ms, and scoped clicks
+from 591ms to 592ms. An already-dispatched hover still has to settle. Initial
+focus/window checks and input acknowledgements remain on the remote path;
+collecting continuous text does not remove the first character's focus-check
+round trip or promise the official viewer's shorter ordinary input path.
+
+Twelve deterministic cases cover pending-hover supersession with drag movement,
+collecting text during focus/window checks, sealing a sent payload, intervening
+keys, text bounds/cancellation, and bounded/stale optional caret work. Four
+initial regression cases failed before the fix. Two public-consumer browser
+cases hold an actual focus-guard response and verify one native text batch plus
+subsequent deletion/text order, with and without window scope. Both failed
+against source `7a52d7b5777cb3d86bc6d2404c41a0f19f3186fd` with separate `a` / `bc`
+writes, then passed with collection during preflight. CI assertions use explicit
+protocol synchronization rather than tight wall-clock budgets.
+
+All ten focused interaction scenarios passed on the optimized local source,
+including existing pointer DPR/scale/pan, composition, navigation, owner cleanup
+and independent-viewer behavior. These results add no genuine system-IME,
+focused-frame, clipboard, provider or deployed-Origin compatibility claim.
+
 ## Remaining compatibility boundaries
 
 - Intended Browser Use endpoint: not probed by these fixtures. No provider

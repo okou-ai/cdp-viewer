@@ -21,6 +21,7 @@ interface QueuedJob extends InputJob {
 export class InputQueue {
   private readonly jobs: QueuedJob[] = [];
   private running = false;
+  private collecting: QueuedJob | null = null;
 
   constructor(
     private readonly client: CdpClient,
@@ -31,6 +32,7 @@ export class InputQueue {
 
   clear(): void {
     this.jobs.length = 0;
+    this.collecting = null;
   }
 
   text(text: string, run: QueuedJob["run"]): void {
@@ -39,7 +41,7 @@ export class InputQueue {
       this.failed();
       return;
     }
-    const tail = this.jobs.at(-1);
+    const tail = this.jobs.at(-1) ?? this.collecting;
     if (
       tail?.text !== undefined &&
       this.lifecycle.owns(tail.owner) &&
@@ -57,13 +59,20 @@ export class InputQueue {
       return;
     }
     const owner = this.lifecycle.owner;
-    this.jobs.push({
+    const job: QueuedJob = {
       owner,
       run,
       move,
       ...(text === undefined ? {} : { text }),
-      request: (method, params) => this.request(owner, method, params),
-    });
+      request: (method, params) => {
+        // Arguments capture the payload now. Later text belongs to a new job,
+        // even while this write is awaiting acknowledgement.
+        if (method === "Input.insertText" && this.collecting === job)
+          this.collecting = null;
+        return this.request(owner, method, params);
+      },
+    };
+    this.jobs.push(job);
     if (!this.running) void this.drain();
   }
 
@@ -120,11 +129,14 @@ export class InputQueue {
       while (this.jobs.length && this.lifecycle.available) {
         const job = this.jobs.shift()!;
         if (!this.lifecycle.owns(job.owner)) continue;
+        this.collecting = job.text === undefined ? null : job;
         try {
           if ((await this.member()) && this.lifecycle.owns(job.owner))
             await job.run(job);
         } catch (error) {
           if (this.lifecycle.owns(job.owner)) this.failed(error);
+        } finally {
+          if (this.collecting === job) this.collecting = null;
         }
       }
     } finally {

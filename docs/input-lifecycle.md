@@ -12,8 +12,9 @@ component/API and native textarea remain unchanged. Internal responsibilities ar
   focus and the ledger of remotely sent pressed keys/buttons. Its transition
   table decides cleanup without performing DOM or network effects.
 - `InputSession` normalizes protocol and local lifecycle facts, then executes the
-  coordinator's owned cleanup effects. `InputQueue` serializes CDP commands and
-  checks the job's captured owner before and after each asynchronous request.
+  coordinator's owned cleanup effects. `InputQueue` serializes input writes and
+  their required checks, and checks the job's captured owner before and after
+  each asynchronous request.
 
 An owner token's identity binds it to its viewer/connection/session even when
 another connection reuses the same CDP session ID. Document loss invalidates all
@@ -51,9 +52,24 @@ after cancellation or timeout. Only a successful current by-reference focus
 result transfers ownership to the lifecycle; exception handles never do.
 
 The queue holds at most 64 pending jobs. Only adjacent movement or text belonging
-to the same owner can coalesce; text chunks retain the 64 KiB bound. Cancellation
-clears queued work, while an already running request settles under its original
-owner and cannot continue with a new one.
+to the same owner can coalesce; text chunks retain the 64 KiB bound. A running
+text batch can collect adjacent text while its window/focus checks are pending,
+provided no intervening job exists. The batch seals before `Input.insertText` is
+sent: later text cannot mutate its payload or cross a key/pointer boundary.
+Cancellation clears queued/collecting work, while an already running request
+settles under its original owner and cannot continue with a new one.
+
+A button press supersedes an unflushed hover move at the same position. Held
+drag movement still flushes before release, and each forwarded pointer job reads
+fresh CSS viewport metrics rather than using a geometry cache.
+
+Initial focus acquisition and pre-write focus/window checks remain blocking.
+Optional post-action caret geometry does not block later input: one background
+read and one newest desired refresh are retained per session. Results must match
+the owner, focused object and focus/refresh generation, including another click
+within the same owner. Stale or failed optional reads cannot move the caret,
+clear a newer error or authorize an input write. Their Runtime result handles
+retain the executor's original-session cleanup.
 
 ## Validation
 
@@ -64,6 +80,13 @@ wire tests exercise the controller's captured owners, queue saturation, delayed
 focus results and target/document changes during requests. Public-consumer
 Chromium fixtures retain real input/focus/geometry, multiple viewers, navigation
 and HTTP-204 release/recovery coverage.
+
+Latency regressions hold protocol responses explicitly to verify preflight
+batching, payload sealing, FIFO boundaries, bounded caret work and stale-result
+suppression. Owned-browser cases hold an actual remote guard response and verify
+native text reaches the remote control as one batch, both with and without
+window scope. Timing comparisons use separate controlled network-delay probes;
+CI assertions do not depend on tight wall-clock budgets.
 
 These are state/routing tests. Genuine macOS/Windows IME receipts are still needed
 for candidate-window placement, confirmation/cancellation and focus transitions.

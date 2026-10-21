@@ -289,6 +289,88 @@ test("inactive input leaves local Tab navigation usable and resumes remote typin
   }
 });
 
+for (const scoped of [false, true]) {
+  test(`native text collects during a delayed focus guard (${scoped ? "window scoped" : "unscoped"})`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    let releaseGuard: (() => void) | undefined;
+    try {
+      const { remote, windowId, targetId } = await editor(backend);
+      const writes: string[] = [];
+      let armed = false;
+      let guardId: number | undefined;
+      let focusReady!: () => void;
+      let guardHeld!: () => void;
+      const initialFocus = new Promise<void>((resolve) => {
+        focusReady = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        guardHeld = resolve;
+      });
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        const focusRequests = new Set<number>();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            id: number;
+            method: string;
+            params?: { text?: string };
+          };
+          if (command.method === "Runtime.callFunctionOn") {
+            if (armed) {
+              armed = false;
+              guardId = command.id;
+            } else focusRequests.add(command.id);
+          }
+          if (
+            command.method === "Input.insertText" &&
+            typeof command.params?.text === "string"
+          )
+            writes.push(command.params.text);
+          upstream.send(message);
+        });
+        upstream.onMessage((message) => {
+          const response = JSON.parse(String(message)) as { id?: number };
+          if (guardId !== undefined && response.id === guardId) {
+            releaseGuard = () => socket.send(message);
+            guardId = undefined;
+            guardHeld();
+          } else {
+            socket.send(message);
+            if (response.id !== undefined && focusRequests.has(response.id))
+              focusReady();
+          }
+        });
+      });
+      const view = await host(page, backend, scoped ? windowId : undefined);
+      if (!scoped) {
+        await view.getByRole("combobox").selectOption(targetId);
+        await expect(view).toHaveAttribute("data-status", "streaming");
+      }
+      await clickRemote(page, view, remote, "#plain");
+      await initialFocus;
+      armed = true;
+      await page.keyboard.insertText("a");
+      await held;
+      await page.keyboard.insertText("bc");
+      releaseGuard!();
+      releaseGuard = undefined;
+      await expect(remote.locator("#plain")).toHaveValue("abc");
+      expect(writes).toEqual(["abc"]);
+      await page.keyboard.press("Backspace");
+      await page.keyboard.insertText("Z");
+      await expect(remote.locator("#plain")).toHaveValue("abZ");
+    } finally {
+      releaseGuard?.();
+      await backend.close();
+    }
+  });
+}
+
 test("same-document navigation releases owned keys and mouse buttons", async ({
   page,
 }, info) => {
