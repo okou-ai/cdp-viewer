@@ -26,6 +26,9 @@ Library adaptations:
   separate protocol contracts.
 - Await ownership follows the typed final `AbortSignal` parameter, including
   names other than `signal`, matching the async-command signature rule.
+- Signal suffix violations are diagnostic-only. Rename the symbol and its
+  references together in an editor; changing only the declaration can leave
+  dangling references or collide with an existing suffixed name.
 - The Store-construction rule is enabled here with one definition capability;
   it was registered but not enabled in the inspected Okou Platform config.
 - `instance-boundaries.js` adds local factory/scope ownership, view mutation,

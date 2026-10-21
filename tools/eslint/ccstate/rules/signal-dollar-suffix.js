@@ -18,7 +18,6 @@ export default createRule({
       description:
         "Enforce $ suffix for variables assigned from state(), computed(), or command()",
     },
-    fixable: "code",
     schema: [],
     messages: {
       missingSuffix:
@@ -56,9 +55,6 @@ export default createRule({
           data: {
             name: variableName,
             functionName,
-          },
-          fix(fixer) {
-            return fixer.replaceText(node.id, `${variableName}$`);
           },
         });
       }

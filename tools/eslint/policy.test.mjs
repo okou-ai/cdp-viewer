@@ -431,3 +431,29 @@ await test("inline suppressions cannot turn the architecture gate off", async ()
     messages.some((message) => message.message.includes("noInlineConfig")),
   );
 });
+
+for (const [name, code] of [
+  [
+    "referenced signal binding",
+    "import { computed } from 'ccstate'; const value = computed(() => 1); const result$ = computed(get => get(value));",
+  ],
+  [
+    "signal binding with an existing suffixed name",
+    "import { computed } from 'ccstate'; const value$ = computed(() => 2); const value = computed(() => 1); const result$ = computed(get => get(value) + get(value$));",
+  ],
+]) {
+  await test(`autofix preserves ${name} and reports the required rename`, async () => {
+    const fixingEslint = new ESLint({ cwd: process.cwd(), fix: true });
+    const [result] = await fixingEslint.lintText(code, {
+      filePath: resolve(model),
+    });
+    assert.equal(result.fatalErrorCount, 0, JSON.stringify(result.messages));
+    assert.equal(result.output, undefined);
+    assert.ok(
+      result.messages.some(
+        (message) => message.ruleId === "ccstate/signal-dollar-suffix",
+      ),
+      JSON.stringify(result.messages),
+    );
+  });
+}
