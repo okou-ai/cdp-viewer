@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { prepareConsumer } from "../../scripts/consumer.mjs";
 import { launchBackend, serveConsumer } from "./backend";
 import type {} from "../consumer/api";
@@ -264,6 +264,163 @@ test("tab discovery preserves manual scrolling while selection and focus stay vi
     await backend.close();
   }
 });
+
+async function viewerGeometry(viewer: Locator) {
+  return viewer.evaluate((root) => {
+    const top = root.getBoundingClientRect().top;
+    const geometry = (selector: string) => {
+      const element = root.querySelector(selector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top - top, height: rect.height };
+    };
+    return {
+      toolbar: geometry(".cdpv-toolbar"),
+      navigation: geometry(".cdpv-navigation"),
+      stage: geometry(".cdpv-stage"),
+      canvas: geometry("canvas"),
+    };
+  });
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+  for (const interactive of [true, false]) {
+    const mode = interactive ? "interactive" : "view-only";
+    test(`keeps ${colorScheme} ${mode} tab bar geometry stable through empty and populated states`, async ({
+      page,
+    }, info) => {
+      const backend = await launchBackend(
+        info.outputPath("backend"),
+        server.origin,
+      );
+      let empty = false;
+      let holdCreate = false;
+      let releaseCreate: (() => void) | undefined;
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            id: number;
+            method: string;
+          };
+          if (empty && command.method === "Target.getTargets") {
+            socket.send(
+              JSON.stringify({ id: command.id, result: { targetInfos: [] } }),
+            );
+            return;
+          }
+          if (holdCreate && command.method === "Page.createIsolatedWorld") {
+            releaseCreate = () => upstream.send(message);
+            return;
+          }
+          upstream.send(message);
+        });
+      });
+      try {
+        await page.emulateMedia({ colorScheme });
+        await page.setViewportSize({ width: 1100, height: 850 });
+        const first = await remoteTab(backend, "Layout", true);
+        const viewer = await host(page, {
+          cdpUrl: backend.endpoint,
+          windowA: first.windowId,
+          interactive,
+          second: false,
+        });
+        await expect(viewer).toHaveAttribute("data-status", "streaming");
+        await page.evaluate(() => {
+          document.documentElement.style.colorScheme = "light dark";
+          document.querySelector<HTMLElement>(
+            "#panels",
+          )!.style.gridTemplateColumns = "minmax(0, 1fr)";
+        });
+        for (const width of [960, 320]) {
+          await viewer.evaluate((root, value) => {
+            root.style.width = `${value}px`;
+          }, width);
+          await expect(viewer.getByRole("tab")).toHaveCount(1);
+          const baseline = await viewerGeometry(viewer);
+          await viewer.screenshot({
+            path: info.outputPath(`${width}-one.png`),
+          });
+          const extras = [];
+          for (let index = 0; index < 4; index++)
+            extras.push(await remoteTab(backend, `Layout ${index}`));
+          await expect(viewer.getByRole("tab")).toHaveCount(5);
+          await expect
+            .poll(() =>
+              viewer
+                .getByRole("tablist")
+                .evaluate((list) => list.scrollWidth > list.clientWidth),
+            )
+            .toBe(true);
+          expect(await viewerGeometry(viewer)).toEqual(baseline);
+          for (const extra of extras) await extra.remote.close();
+          await expect(viewer.getByRole("tab")).toHaveCount(1);
+          expect(await viewerGeometry(viewer)).toEqual(baseline);
+          empty = true;
+          await first.remote.evaluate((value) => {
+            document.title = `Empty ${value}`;
+          }, width);
+          await expect(viewer.getByRole("tab")).toHaveCount(0);
+          await expect(viewer).toHaveAttribute("data-status", "unavailable");
+          await viewer.screenshot({
+            path: info.outputPath(`${width}-empty.png`),
+          });
+          expect(await viewerGeometry(viewer)).toEqual(baseline);
+          const create = viewer.getByRole("button", {
+            name: "New tab",
+            exact: true,
+          });
+          if (interactive) await expect(create).toBeDisabled();
+          else await expect(create).toHaveCount(0);
+          empty = false;
+          await first.remote.evaluate((value) => {
+            document.title = `Layout ${value}`;
+          }, width);
+          await expect(viewer.getByRole("tab")).toHaveCount(1);
+          await viewer.getByRole("tab").click();
+          await expect(viewer).toHaveAttribute("data-status", "streaming");
+          expect(await viewerGeometry(viewer)).toEqual(baseline);
+          if (interactive) {
+            holdCreate = true;
+            releaseCreate = undefined;
+            await create.click();
+            await expect.poll(() => !!releaseCreate).toBe(true);
+            await expect(create).toBeDisabled();
+            await expect(create).toHaveAttribute("aria-busy", "true");
+            expect(await viewerGeometry(viewer)).toEqual(baseline);
+            holdCreate = false;
+            releaseCreate!();
+            await expect(create).toHaveAttribute("aria-busy", "false");
+            await expect(viewer.getByRole("tab")).toHaveCount(2);
+            await expect(
+              viewer.getByRole("tab", { selected: true }),
+            ).not.toHaveAttribute("data-target-id", first.targetId);
+            await expect(viewer).toHaveAttribute("data-status", "streaming");
+            const createdId = await viewer
+              .getByRole("tab", { selected: true })
+              .getAttribute("data-target-id");
+            await viewer.locator(`[data-close-target="${createdId}"]`).click();
+            await expect(viewer.getByRole("tab")).toHaveCount(1);
+            await expect(viewer).toHaveAttribute("data-status", "streaming");
+            expect(await viewerGeometry(viewer)).toEqual(baseline);
+          }
+        }
+        const beforeLastClose = await viewerGeometry(viewer);
+        if (interactive)
+          await viewer
+            .locator(`[data-close-target="${first.targetId}"]`)
+            .click();
+        else await first.remote.close();
+        await expect(viewer.getByRole("tab")).toHaveCount(0);
+        await expect(viewer).toHaveAttribute("data-status", "unavailable");
+        expect(await viewerGeometry(viewer)).toEqual(beforeLastClose);
+      } finally {
+        await backend.close();
+      }
+    });
+  }
+}
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`captures rendered ${colorScheme} tab, recovery, pending and responsive states`, async ({
