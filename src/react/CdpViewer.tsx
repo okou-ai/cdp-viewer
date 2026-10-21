@@ -79,7 +79,7 @@ function ViewerSurface({
                 disabled={controls.tabsDisabled}
                 data-target-id={target.id}
               >
-                <Globe size={14} aria-hidden="true" />
+                <Globe size={16} aria-hidden="true" />
                 <span>{target.title}</span>
               </Tabs.Tab>
               {interactive && (

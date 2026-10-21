@@ -370,6 +370,305 @@ async function viewerGeometry(viewer: Locator) {
   });
 }
 
+async function expectTabBarAlignment(viewer: Locator) {
+  const geometry = await viewer.evaluate((root) => {
+    const toolbar = root
+      .querySelector(".cdpv-toolbar")!
+      .getBoundingClientRect();
+    const list = root.querySelector(".cdpv-tabs")!.getBoundingClientRect();
+    const rect = root.querySelector(".cdpv-new-tab")?.getBoundingClientRect();
+    const tab = root.querySelector(".cdpv-tab-item")?.getBoundingClientRect();
+    const center = toolbar.top + toolbar.height / 2;
+    return {
+      centers: Array.from(
+        root.querySelectorAll(
+          ".cdpv-tab svg, .cdpv-tab span, .cdpv-close, .cdpv-close svg, .cdpv-new-tab, .cdpv-new-tab svg, .cdpv-new-tab span",
+        ),
+        (element) => {
+          const box = element.getBoundingClientRect();
+          return {
+            name: element.getAttribute("class") ?? element.tagName,
+            offset: box.top + box.height / 2 - center,
+          };
+        },
+      ),
+      hitAreas: Array.from(
+        root.querySelectorAll(".cdpv-tab, .cdpv-close, .cdpv-new-tab"),
+        (element) => ({
+          minimum: element.matches(".cdpv-tab")
+            ? 35
+            : element.matches(".cdpv-close")
+              ? 24
+              : 32,
+          height: element.getBoundingClientRect().height,
+        }),
+      ),
+      listBottom: list.bottom - toolbar.bottom,
+      tabBottom: (tab?.bottom ?? list.bottom) - toolbar.bottom,
+      afterList: rect ? rect.left - list.right : null,
+      rightInset: rect ? toolbar.right - rect.right : null,
+      hostOverflow: document.documentElement.scrollWidth > innerWidth,
+    };
+  });
+  expect(
+    geometry.centers.filter((control) => Math.abs(control.offset) > 0.5),
+    "All tab controls share the tab bar center line",
+  ).toEqual([]);
+  expect(
+    geometry.hitAreas.filter((area) => area.height < area.minimum),
+    "Tab action hit areas retain their minimum heights",
+  ).toEqual([]);
+  expect(Math.abs(geometry.listBottom)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(geometry.tabBottom)).toBeLessThanOrEqual(0.5);
+  if (geometry.afterList !== null)
+    expect(geometry.afterList).toBeGreaterThanOrEqual(0);
+  if (geometry.rightInset !== null)
+    expect(geometry.rightInset).toBeGreaterThanOrEqual(0);
+  expect(geometry.hostOverflow).toBe(false);
+}
+
+async function tabSurfacePixels(viewer: Locator) {
+  const sample = await viewer.evaluate((root) => {
+    const row = root.querySelector(".cdpv-toolbar")!.getBoundingClientRect();
+    const navigation = root.querySelector(".cdpv-navigation");
+    const strip = root.querySelector(".cdpv-tabs")!.getBoundingClientRect();
+    const selected = root
+      .querySelector('[role="tab"][aria-selected="true"]')!
+      .parentElement!.getBoundingClientRect();
+    const inactive = root
+      .querySelector('[role="tab"][aria-selected="false"]')!
+      .parentElement!.getBoundingClientRect();
+    const points = [
+      [
+        selected.left + selected.width / 2 - row.left,
+        selected.top + 4 - row.top,
+      ],
+      [
+        (Math.max(inactive.left, strip.left) +
+          Math.min(inactive.right, strip.right)) /
+          2 -
+          row.left,
+        inactive.top + 4 - row.top,
+      ],
+      [selected.left - 2 - row.left, selected.bottom - 1 - row.top],
+      [selected.right + 1 - row.left, selected.bottom - 1 - row.top],
+      [row.width - 2, 2],
+    ];
+    if (navigation) points.push([row.width - 2, row.height + 1]);
+    return {
+      points,
+      clip: {
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height + (navigation ? 3 : 0),
+      },
+    };
+  });
+  return tabBarPixels(viewer, sample);
+}
+
+async function tabBarPixels(
+  viewer: Locator,
+  sample: {
+    clip: { x: number; y: number; width: number; height: number };
+    points: number[][];
+  },
+) {
+  const image = await viewer
+    .page()
+    .screenshot({ clip: sample.clip, scale: "css" });
+  return viewer.evaluate(
+    async (_, { bytes, points }) => {
+      const bitmap = await createImageBitmap(
+        new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+      );
+      try {
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const context = canvas.getContext("2d")!;
+        context.drawImage(bitmap, 0, 0);
+        return points.map(([x, y]) =>
+          Array.from(
+            context.getImageData(Math.floor(x!), Math.floor(y!), 1, 1).data,
+          ),
+        );
+      } finally {
+        bitmap.close();
+      }
+    },
+    { bytes: Array.from(image), points: sample.points },
+  );
+}
+
+async function expectParallelContour(
+  viewer: Locator,
+  colors: { hover: number[]; gutter: number[]; outer: number[] },
+) {
+  const sample = await viewer.evaluate((root) => {
+    const row = root.querySelector(".cdpv-toolbar")!.getBoundingClientRect();
+    const navigation = root.querySelector(".cdpv-navigation");
+    const selected = root
+      .querySelector('[role="tab"][aria-selected="true"]')!
+      .parentElement!.getBoundingClientRect();
+    const inactive = root
+      .querySelector('[role="tab"][aria-selected="false"]')!
+      .parentElement!.getBoundingClientRect();
+    // A 10px hover corner with a 6px clearance has a concentric 16px outer arc.
+    const direction = inactive.left < selected.left ? 1 : -1;
+    const centerX = direction === 1 ? inactive.right - 13 : inactive.left + 13;
+    const centerY = row.bottom - 16;
+    const angles = navigation
+      ? [0, 15, 30, 45, 60, 65, 75, 90]
+      : [0, 15, 30, 45, 60, 65];
+    const probes = angles.flatMap((angle) =>
+      [8.5, 11.5, 13, 14.5, 17.5].map((radius) => ({
+        angle,
+        radius,
+        band:
+          radius === 8.5
+            ? ("hover" as const)
+            : radius === 17.5
+              ? ("outer" as const)
+              : ("gutter" as const),
+        x: centerX + direction * radius * Math.cos((angle * Math.PI) / 180),
+        y: centerY + radius * Math.sin((angle * Math.PI) / 180),
+      })),
+    );
+    return {
+      probes,
+      points: probes.map(({ x, y }) => [x - row.left, y - row.top]),
+      clip: {
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height + (navigation ? 3 : 0),
+      },
+    };
+  });
+  const pixels = await tabBarPixels(viewer, sample);
+  const incorrect = sample.probes
+    .map(({ angle, radius, band }, index) => ({
+      angle,
+      radius,
+      band,
+      actual: pixels[index]!,
+      expected: colors[band],
+    }))
+    .filter(({ actual, expected }) =>
+      actual.some((channel, index) => channel !== expected[index]),
+    );
+  expect(
+    incorrect,
+    "Hover, gutter and outer surface follow concentric offset curves",
+  ).toEqual([]);
+}
+
+test.describe(() => {
+  test.use({ deviceScaleFactor: 2 });
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    for (const interactive of [true, false]) {
+      test(`paints distinct ${colorScheme} ${interactive ? "interactive" : "view-only"} selected and hovered tab surfaces`, async ({
+        page,
+      }, info) => {
+        const backend = await launchBackend(
+          info.outputPath("backend"),
+          server.origin,
+        );
+        try {
+          await page.emulateMedia({ colorScheme });
+          const first = await remoteTab(backend, "Workspace", true);
+          await remoteTab(backend, "Product notes");
+          const viewer = await host(page, {
+            cdpUrl: backend.endpoint,
+            windowA: first.windowId,
+            interactive,
+            second: false,
+          });
+          await expect(viewer).toHaveAttribute("data-status", "streaming");
+          await page.evaluate(() => {
+            document.documentElement.style.colorScheme = "light dark";
+            document.querySelector<HTMLElement>(
+              "#panels",
+            )!.style.gridTemplateColumns = "minmax(0, 1fr)";
+            document.querySelector<HTMLElement>(".cdpv-root")!.style.width =
+              "960px";
+          });
+          const tabs = viewer.getByRole("tab");
+          for (const width of [960, 320]) {
+            await viewer.evaluate((root, value) => {
+              root.style.width = `${value}px`;
+            }, width);
+            for (const selected of [1, 0]) {
+              const prefix = `${width === 960 ? "" : "320-"}${selected}`;
+              await tabs.nth(selected).click();
+              await expect(tabs.nth(selected)).toHaveAttribute(
+                "aria-selected",
+                "true",
+              );
+              await expect(viewer).toHaveAttribute("data-status", "streaming");
+              await tabs.nth(selected).blur();
+              await page.mouse.move(0, 0);
+              const idle = await tabSurfacePixels(viewer);
+              expect(idle[0]).not.toEqual(idle[4]);
+              if (interactive)
+                expect(
+                  idle[0],
+                  "Selected surface connects into navigation",
+                ).toEqual(idle[5]);
+              expect(idle[1]).toEqual(idle[4]);
+              expect(
+                idle[2],
+                "Selected left curve remains visible at strip edges",
+              ).toEqual(idle[0]);
+              expect(
+                idle[3],
+                "Selected right curve remains visible at strip edges",
+              ).toEqual(idle[0]);
+              await viewer.screenshot({
+                path: info.outputPath(`${prefix}-idle.png`),
+              });
+              await tabs.nth(selected).hover();
+              expect(await tabSurfacePixels(viewer)).toEqual(idle);
+              if (width === 960) {
+                await tabs.nth(1 - selected).hover();
+                const hovered = await tabSurfacePixels(viewer);
+                expect(hovered[0]).toEqual(idle[0]);
+                expect(hovered[1]).not.toEqual(idle[1]);
+                expect(hovered[1]).not.toEqual(idle[0]);
+                expect(hovered[2]).toEqual(idle[2]);
+                expect(hovered[3]).toEqual(idle[3]);
+                await viewer.screenshot({
+                  path: info.outputPath(`${prefix}-inactive-hover.png`),
+                });
+                await expectParallelContour(viewer, {
+                  hover: hovered[1]!,
+                  gutter: hovered[4]!,
+                  outer: hovered[0]!,
+                });
+              }
+              if (interactive) {
+                await viewer
+                  .getByRole("button", {
+                    name: `Close ${selected === 0 ? "Workspace" : "Product notes"}`,
+                    exact: true,
+                  })
+                  .hover();
+                await viewer.screenshot({
+                  path: info.outputPath(`${prefix}-close-hover.png`),
+                });
+              }
+              await expectTabBarAlignment(viewer);
+            }
+          }
+        } finally {
+          await backend.close();
+        }
+      });
+    }
+  }
+});
+
 for (const nativeScrollbars of [false, true]) {
   for (const colorScheme of ["light", "dark"] as const) {
     for (const interactive of [true, false]) {
@@ -454,9 +753,22 @@ for (const nativeScrollbars of [false, true]) {
             }, width);
             await expect(viewer.getByRole("tab")).toHaveCount(1);
             const baseline = await viewerGeometry(viewer);
+            const create = viewer.getByRole("button", {
+              name: "New tab",
+              exact: true,
+            });
+            if (interactive) await create.hover();
             await viewer.screenshot({
               path: info.outputPath(`${width}-one.png`),
             });
+            await expectTabBarAlignment(viewer);
+            if (interactive) {
+              await page.mouse.move(0, 0);
+              await expectTabBarAlignment(viewer);
+              await create.focus();
+              await expect(create).toBeFocused();
+              await expectTabBarAlignment(viewer);
+            }
             const extras = [];
             for (let index = 0; index < 4; index++)
               extras.push(await remoteTab(backend, `Layout ${index}`));
@@ -481,6 +793,7 @@ for (const nativeScrollbars of [false, true]) {
               .poll(() => strip.evaluate((list) => list.scrollLeft))
               .toBeGreaterThan(0);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
+            await expectTabBarAlignment(viewer);
             await viewer.screenshot({
               path: info.outputPath(`${width}-overflow.png`),
             });
@@ -497,12 +810,10 @@ for (const nativeScrollbars of [false, true]) {
               path: info.outputPath(`${width}-empty.png`),
             });
             expect(await viewerGeometry(viewer)).toEqual(baseline);
-            const create = viewer.getByRole("button", {
-              name: "New tab",
-              exact: true,
-            });
-            if (interactive) await expect(create).toBeDisabled();
-            else await expect(create).toHaveCount(0);
+            if (interactive) {
+              await expect(create).toBeDisabled();
+            } else await expect(create).toHaveCount(0);
+            await expectTabBarAlignment(viewer);
             empty = false;
             await first.remote.evaluate((value) => {
               document.title = `Layout ${value}`;
@@ -519,6 +830,10 @@ for (const nativeScrollbars of [false, true]) {
               await expect(create).toBeDisabled();
               await expect(create).toHaveAttribute("aria-busy", "true");
               expect(await viewerGeometry(viewer)).toEqual(baseline);
+              await expectTabBarAlignment(viewer);
+              await viewer.screenshot({
+                path: info.outputPath(`${width}-pending.png`),
+              });
               holdCreate = false;
               releaseCreate!();
               await expect(create).toHaveAttribute("aria-busy", "false");
@@ -527,6 +842,7 @@ for (const nativeScrollbars of [false, true]) {
                 viewer.getByRole("tab", { selected: true }),
               ).not.toHaveAttribute("data-target-id", first.targetId);
               await expect(viewer).toHaveAttribute("data-status", "streaming");
+              await expectTabBarAlignment(viewer);
               const createdId = await viewer
                 .getByRole("tab", { selected: true })
                 .getAttribute("data-target-id");

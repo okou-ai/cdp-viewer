@@ -78,41 +78,91 @@
 }
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
+  --cdpv-tab-inset: 6px;
+  --cdpv-tab-radius: 10px;
+  --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
+  min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
+  min-width: 0;
+  padding: 0 var(--cdpv-tab-corner);
   background: var(--cdpv-tab-background);
   flex: none;
   align-items: center;
   gap: 4px;
-  min-width: 0;
-  padding: 6px 8px 0;
   display: flex;
 }
 .cdpv-root .cdpv-tabs {
   min-height: var(--cdpv-tab-height);
+  align-self: flex-end;
+  gap: calc(var(--cdpv-tab-inset) / 2);
+  min-width: 0;
+  padding-inline: var(--cdpv-tab-corner);
+  margin-left: calc(-1 * var(--cdpv-tab-corner));
   scrollbar-width: none;
   flex: 0 auto;
-  gap: 3px;
-  min-width: 0;
   display: flex;
   overflow-x: auto;
 }
 .cdpv-root .cdpv-tab-item {
+  isolation: isolate;
+  border-radius: var(--cdpv-tab-radius) var(--cdpv-tab-radius) 0 0;
   width: 204px;
   min-width: 140px;
   max-width: 204px;
   color: var(--cdpv-muted);
-  border-radius: 9px 9px 0 0;
   flex: 0 0 204px;
   align-items: center;
   display: flex;
   position: relative;
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
+  z-index: 1;
   color: var(--cdpv-foreground);
   background: var(--cdpv-background);
+}
+.cdpv-root .cdpv-tab-item:before,
+.cdpv-root .cdpv-tab-item:after {
+  content: "";
+  z-index: -1;
+  pointer-events: none;
+  position: absolute;
+}
+.cdpv-root .cdpv-tab-item:not([data-selected]):before {
+  inset: 0 calc(var(--cdpv-tab-inset) / 2) var(--cdpv-tab-inset);
+  border-radius: var(--cdpv-tab-radius);
+}
+.cdpv-root
+  .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover:before {
+  background: var(--cdpv-foreground);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root
+    .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover:before {
+    background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  }
+}
+.cdpv-root .cdpv-tab-item[data-selected]:before,
+.cdpv-root .cdpv-tab-item[data-selected]:after {
+  width: var(--cdpv-tab-corner);
+  height: var(--cdpv-tab-corner);
+  background: radial-gradient(
+    circle at var(--cdpv-curve-origin) 0,
+    transparent calc(var(--cdpv-tab-corner) - 0.5px),
+    var(--cdpv-background) calc(var(--cdpv-tab-corner) + 0.5px)
+  );
+  bottom: 0;
+}
+.cdpv-root .cdpv-tab-item[data-selected]:before {
+  --cdpv-curve-origin: 0%;
+  left: calc(-1 * var(--cdpv-tab-corner));
+}
+.cdpv-root .cdpv-tab-item[data-selected]:after {
+  --cdpv-curve-origin: 100%;
+  right: calc(-1 * var(--cdpv-tab-corner));
 }
 .cdpv-root .cdpv-tab {
   min-width: 0;
   height: var(--cdpv-tab-height);
+  padding: 0 12px var(--cdpv-tab-inset) 8px;
   color: inherit;
   border-radius: inherit;
   font: inherit;
@@ -122,8 +172,7 @@
   border: 0;
   flex: 1;
   align-items: center;
-  gap: 9px;
-  padding: 0 12px;
+  gap: 8px;
   font-size: 12px;
   display: flex;
 }
@@ -138,6 +187,8 @@
 .cdpv-root .cdpv-close {
   width: 24px;
   height: 24px;
+  margin-right: 5px;
+  margin-bottom: var(--cdpv-tab-inset);
   color: inherit;
   cursor: pointer;
   background: 0 0;
@@ -146,7 +197,6 @@
   flex: none;
   justify-content: center;
   align-items: center;
-  margin-right: 5px;
   padding: 0;
   display: inline-flex;
 }
@@ -168,11 +218,11 @@
   padding: 6px;
   display: inline-flex;
 }
-.cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
+.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
   background: var(--cdpv-foreground);
 }
 @supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):hover:not(:disabled) {
+  .cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled) {
     background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
   }
 }
