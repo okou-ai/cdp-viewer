@@ -78,7 +78,8 @@
 }
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
-  min-height: calc(var(--cdpv-tab-height) + 6px);
+  --cdpv-tab-inset: 6px;
+  min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
   background: var(--cdpv-tab-background);
   flex: none;
   align-items: center;
@@ -115,6 +116,7 @@
 .cdpv-root .cdpv-tab {
   min-width: 0;
   height: var(--cdpv-tab-height);
+  padding: 0 12px var(--cdpv-tab-inset);
   color: inherit;
   border-radius: inherit;
   font: inherit;
@@ -125,7 +127,6 @@
   flex: 1;
   align-items: center;
   gap: 9px;
-  padding: 0 12px;
   font-size: 12px;
   display: flex;
 }
@@ -140,6 +141,8 @@
 .cdpv-root .cdpv-close {
   width: 24px;
   height: 24px;
+  margin-right: 5px;
+  margin-bottom: var(--cdpv-tab-inset);
   color: inherit;
   cursor: pointer;
   background: 0 0;
@@ -148,7 +151,6 @@
   flex: none;
   justify-content: center;
   align-items: center;
-  margin-right: 5px;
   padding: 0;
   display: inline-flex;
 }

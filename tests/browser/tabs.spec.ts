@@ -370,39 +370,60 @@ async function viewerGeometry(viewer: Locator) {
   });
 }
 
-async function expectNewTabAlignment(viewer: Locator) {
+async function expectTabBarAlignment(viewer: Locator) {
   const geometry = await viewer.evaluate((root) => {
     const toolbar = root
       .querySelector(".cdpv-toolbar")!
       .getBoundingClientRect();
     const list = root.querySelector(".cdpv-tabs")!.getBoundingClientRect();
-    const button = root.querySelector(".cdpv-new-tab")!;
-    const rect = button.getBoundingClientRect();
-    const icon = button.querySelector("svg")!.getBoundingClientRect();
+    const rect = root.querySelector(".cdpv-new-tab")?.getBoundingClientRect();
     const tab = root.querySelector(".cdpv-tab-item")?.getBoundingClientRect();
+    const center = toolbar.top + toolbar.height / 2;
     return {
-      buttonCenter:
-        rect.top + rect.height / 2 - (toolbar.top + toolbar.height / 2),
-      iconCenter: icon.top + icon.height / 2 - (rect.top + rect.height / 2),
+      centers: Array.from(
+        root.querySelectorAll(
+          ".cdpv-tab svg, .cdpv-tab span, .cdpv-close, .cdpv-close svg, .cdpv-new-tab, .cdpv-new-tab svg, .cdpv-new-tab span",
+        ),
+        (element) => {
+          const box = element.getBoundingClientRect();
+          return {
+            name: element.getAttribute("class") ?? element.tagName,
+            offset: box.top + box.height / 2 - center,
+          };
+        },
+      ),
+      hitAreas: Array.from(
+        root.querySelectorAll(".cdpv-tab, .cdpv-close, .cdpv-new-tab"),
+        (element) => ({
+          minimum: element.matches(".cdpv-tab")
+            ? 35
+            : element.matches(".cdpv-close")
+              ? 24
+              : 32,
+          height: element.getBoundingClientRect().height,
+        }),
+      ),
       listBottom: list.bottom - toolbar.bottom,
       tabBottom: (tab?.bottom ?? list.bottom) - toolbar.bottom,
-      afterList: rect.left - list.right,
-      rightInset: toolbar.right - rect.right,
+      afterList: rect ? rect.left - list.right : null,
+      rightInset: rect ? toolbar.right - rect.right : null,
       hostOverflow: document.documentElement.scrollWidth > innerWidth,
     };
   });
   expect(
-    Math.abs(geometry.buttonCenter),
-    "New tab is centered in the full bar",
-  ).toBeLessThanOrEqual(0.5);
+    geometry.centers.filter((control) => Math.abs(control.offset) > 0.5),
+    "All tab controls share the tab bar center line",
+  ).toEqual([]);
   expect(
-    Math.abs(geometry.iconCenter),
-    "New tab icon is centered in its button",
-  ).toBeLessThanOrEqual(0.5);
+    geometry.hitAreas.filter((area) => area.height < area.minimum),
+    "Tab action hit areas retain their minimum heights",
+  ).toEqual([]);
   expect(Math.abs(geometry.listBottom)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(geometry.tabBottom)).toBeLessThanOrEqual(0.5);
-  expect(geometry.afterList).toBeGreaterThanOrEqual(0);
-  expect(geometry.rightInset).toBeGreaterThanOrEqual(0);
+  if (geometry.afterList !== null)
+    expect(geometry.afterList).toBeGreaterThanOrEqual(0);
+  if (geometry.rightInset !== null)
+    expect(geometry.rightInset).toBeGreaterThanOrEqual(0);
   expect(geometry.hostOverflow).toBe(false);
 }
 
@@ -498,13 +519,13 @@ for (const nativeScrollbars of [false, true]) {
             await viewer.screenshot({
               path: info.outputPath(`${width}-one.png`),
             });
+            await expectTabBarAlignment(viewer);
             if (interactive) {
-              await expectNewTabAlignment(viewer);
               await page.mouse.move(0, 0);
-              await expectNewTabAlignment(viewer);
+              await expectTabBarAlignment(viewer);
               await create.focus();
               await expect(create).toBeFocused();
-              await expectNewTabAlignment(viewer);
+              await expectTabBarAlignment(viewer);
             }
             const extras = [];
             for (let index = 0; index < 4; index++)
@@ -530,7 +551,7 @@ for (const nativeScrollbars of [false, true]) {
               .poll(() => strip.evaluate((list) => list.scrollLeft))
               .toBeGreaterThan(0);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
-            if (interactive) await expectNewTabAlignment(viewer);
+            await expectTabBarAlignment(viewer);
             await viewer.screenshot({
               path: info.outputPath(`${width}-overflow.png`),
             });
@@ -549,8 +570,8 @@ for (const nativeScrollbars of [false, true]) {
             expect(await viewerGeometry(viewer)).toEqual(baseline);
             if (interactive) {
               await expect(create).toBeDisabled();
-              await expectNewTabAlignment(viewer);
             } else await expect(create).toHaveCount(0);
+            await expectTabBarAlignment(viewer);
             empty = false;
             await first.remote.evaluate((value) => {
               document.title = `Layout ${value}`;
@@ -567,7 +588,7 @@ for (const nativeScrollbars of [false, true]) {
               await expect(create).toBeDisabled();
               await expect(create).toHaveAttribute("aria-busy", "true");
               expect(await viewerGeometry(viewer)).toEqual(baseline);
-              await expectNewTabAlignment(viewer);
+              await expectTabBarAlignment(viewer);
               await viewer.screenshot({
                 path: info.outputPath(`${width}-pending.png`),
               });
@@ -579,7 +600,7 @@ for (const nativeScrollbars of [false, true]) {
                 viewer.getByRole("tab", { selected: true }),
               ).not.toHaveAttribute("data-target-id", first.targetId);
               await expect(viewer).toHaveAttribute("data-status", "streaming");
-              await expectNewTabAlignment(viewer);
+              await expectTabBarAlignment(viewer);
               const createdId = await viewer
                 .getByRole("tab", { selected: true })
                 .getAttribute("data-target-id");

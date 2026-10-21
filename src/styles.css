@@ -68,11 +68,12 @@
 
 .cdpv-root .cdpv-toolbar {
   --cdpv-tab-height: 35px;
+  --cdpv-tab-inset: 6px;
   display: flex;
   align-items: center;
   gap: 4px;
   flex: none;
-  min-height: calc(var(--cdpv-tab-height) + 6px);
+  min-height: calc(var(--cdpv-tab-height) + var(--cdpv-tab-inset));
   min-width: 0;
   padding: 0 8px;
   background: var(--cdpv-tab-background);
@@ -110,7 +111,8 @@
   flex: 1;
   min-width: 0;
   height: var(--cdpv-tab-height);
-  padding: 0 12px;
+  /* The tab surface extends below the shared control center into navigation. */
+  padding: 0 12px var(--cdpv-tab-inset);
   border: 0;
   color: inherit;
   background: transparent;
@@ -136,6 +138,7 @@
   width: 24px;
   height: 24px;
   margin-right: 5px;
+  margin-bottom: var(--cdpv-tab-inset);
   padding: 0;
   color: inherit;
   background: transparent;
