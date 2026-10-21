@@ -7,6 +7,12 @@
     flex-direction: column;
   }
 }
+.cdpv-root .cdpv-favicon {
+  object-fit: contain;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
 .cdpv-root {
   --cdpv-background: #fff;
   --cdpv-tab-background: #dee1e6;

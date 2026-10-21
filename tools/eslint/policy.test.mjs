@@ -465,6 +465,11 @@ const accepted = [
     "src/cdp/client.ts",
   ],
   [
+    "favicon cancellation owner",
+    "export function lifetime() { return new AbortController(); }",
+    "src/viewer/favicons.ts",
+  ],
+  [
     "narrow React bridge",
     "import { useState } from 'react'; export function Provider() { const [model] = useState(createModel); return null; }",
     "src/state/react.tsx",

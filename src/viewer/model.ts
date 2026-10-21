@@ -61,6 +61,32 @@ function createViewerSignals() {
   const internalNotification$ = state<ViewerNotification | null>(null);
   const notificationSequence$ = state(0);
   const internalConnected$ = state(false);
+  const internalFavicons$ = state<ReadonlyMap<string, string>>(new Map());
+  const favicons$ = computed((get) => get(internalFavicons$));
+  const setFavicon$ = command(
+    (
+      { get, set },
+      { targetId, src }: { targetId: string; src: string | null },
+    ) => {
+      const icons = get(internalFavicons$);
+      if ((icons.get(targetId) ?? null) === src) return;
+      if (
+        src &&
+        !get(internalSnapshot$).targets.some((target) => target.id === targetId)
+      )
+        return;
+      const next = new Map(icons);
+      if (src) next.set(targetId, src);
+      else next.delete(targetId);
+      set(internalFavicons$, next);
+    },
+  );
+  const rejectFavicon$ = command(
+    ({ get, set }, { targetId, src }: { targetId: string; src: string }) => {
+      if (get(internalFavicons$).get(targetId) === src)
+        set(setFavicon$, { targetId, src: null });
+    },
+  );
   const configuration$ = state({
     interactive: false,
     scoped: false,
@@ -185,12 +211,22 @@ function createViewerSignals() {
     }
     set(internalSnapshot$, next);
   });
-  const updateData$ = command(({ set }, patch: ViewerUpdate) =>
-    set(update$, patch),
-  );
+  const updateData$ = command(({ get, set }, patch: ViewerUpdate) => {
+    set(update$, patch);
+    if (patch.targets) {
+      const ids = new Set(patch.targets.map((target) => target.id));
+      const icons = get(internalFavicons$);
+      if ([...icons.keys()].some((id) => !ids.has(id)))
+        set(
+          internalFavicons$,
+          new Map([...icons].filter(([id]) => ids.has(id))),
+        );
+    }
+  });
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
     switch (event.type) {
       case "reset":
+        set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(pendingTab$, null);
         set(update$, initialSnapshot());
@@ -205,6 +241,8 @@ function createViewerSignals() {
         break;
       case "target-lost":
       case "discovery-failed":
+        if (event.type === "discovery-failed")
+          set(internalFavicons$, new Map());
         set(update$, {
           ...(event.type === "discovery-failed"
             ? { targets: Object.freeze([]) }
@@ -234,6 +272,7 @@ function createViewerSignals() {
         });
         break;
       case "disconnected":
+        set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(update$, {
           status: event.established ? "disconnected" : "error",
@@ -252,6 +291,7 @@ function createViewerSignals() {
       set(actions$, null);
       set(pendingTab$, null);
       set(internalConnected$, false);
+      set(internalFavicons$, new Map());
       set(internalNotification$, null);
     }
   });
@@ -300,6 +340,9 @@ function createViewerSignals() {
   });
   return {
     snapshot$,
+    favicons$,
+    setFavicon$,
+    rejectFavicon$,
     notification$,
     finishReplacement$,
     exitNotification$,

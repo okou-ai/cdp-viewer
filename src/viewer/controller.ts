@@ -15,6 +15,7 @@ import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
 import type { TabAction, ViewerModel } from "./model";
 import type { ViewerError } from "./types";
+import { FaviconDirectory } from "./favicons";
 
 interface Selection {
   targetId: string;
@@ -44,6 +45,7 @@ export class ViewerController {
   private readonly ownedSessions = new Set<string>();
   private client: CdpClient | null = null;
   private directory: TargetDirectory | null = null;
+  private favicons: FaviconDirectory | null = null;
   private selection: Selection | null = null;
   private disposed = false;
   private connected = false;
@@ -115,6 +117,7 @@ export class ViewerController {
   setPaused(paused: boolean): void {
     if (this.disposed || this.paused === paused) return;
     this.paused = paused;
+    this.favicons?.setPaused(paused);
     if (!this.connected) return;
     if (paused) {
       this.stopSelection("paused");
@@ -218,6 +221,7 @@ export class ViewerController {
           .targets.filter((target) => target.id !== targetId),
       );
       this.model.update({ targets, error: null });
+      this.favicons?.reconcile(targets.map((target) => target.id));
       if (this.model.getSnapshot().selectedTargetId === targetId) {
         this.loseSelection(null);
       }
@@ -290,6 +294,13 @@ export class ViewerController {
     );
     this.client = client;
     this.directory = new TargetDirectory(client, this.options.windowId);
+    this.favicons = new FaviconDirectory(
+      client,
+      this.directory,
+      this.lifetime.signal,
+      (targetId, src) =>
+        this.model.run(this.model.setFavicon$, { targetId, src }),
+    );
     client.onEvent(this.onEvent);
     client.onDisconnected((error) => {
       if (this.disposed) return;
@@ -349,6 +360,7 @@ export class ViewerController {
         );
         const selected = this.model.getSnapshot().selectedTargetId;
         this.model.update({ targets });
+        this.favicons?.reconcile(targets.map((target) => target.id));
         if (selected && !targets.some((t) => t.id === selected)) {
           this.loseSelection(
             diagnostic(
@@ -380,6 +392,7 @@ export class ViewerController {
             continue;
           }
           this.stopSelection();
+          this.favicons?.reconcile([]);
           this.model.transition({
             type: "discovery-failed",
             error: diagnostic(error),
@@ -496,8 +509,14 @@ export class ViewerController {
   }
 
   private streaming(selection: Selection): void {
-    if (this.isCurrent(selection) && selection.painted && selection.inputReady)
+    if (
+      this.isCurrent(selection) &&
+      selection.painted &&
+      selection.inputReady
+    ) {
       this.model.transition({ type: "streaming" });
+      this.favicons?.setPaused(false);
+    }
   }
 
   private loseSelection(error: ViewerError | null): void {
@@ -531,6 +550,7 @@ export class ViewerController {
 
   private readonly onEvent = (event: CdpEvent): void => {
     if (this.disposed) return;
+    this.favicons?.event(event);
     this.selection?.input?.event(event);
     const params = event.params;
     if (event.method === "Page.screencastFrame") {

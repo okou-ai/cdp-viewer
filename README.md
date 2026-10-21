@@ -120,8 +120,16 @@ tab. Keyboard input follows Chromium's current focus, including automatic
 focus changes and focused frames. Composition stays in a stable local textarea
 and sends committed text once through CDP; candidate confirmation is distinct
 from a later remote Enter. Optional caret metadata does not block input.
-The tab strip scrolls horizontally and supports explicit tab selection. Interactive
-viewers add new/close actions. The new-tab button stays compact and shows a
+The tab strip scrolls horizontally and supports explicit tab selection. Tabs show
+website icons discovered through CDP from the remote page's declarations and
+conventional favicon path. Images load through the remote browser, including its
+applicable credentials and network policy. Background icons update without
+activating their tabs. Selection follows page declarations and image sizes;
+Chrome's internal history/cache choice can differ on pages with multiple icons.
+Missing images or unsupported optional CDP capabilities use the generic icon.
+Icon discovery pauses with the viewer and does not gate streaming or input.
+
+Interactive viewers add new/close actions. The new-tab button stays compact and shows a
 spinner while creation is in progress. Enter in the address bar navigates to an absolute
 HTTP(S) address. The navigation toolbar supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).

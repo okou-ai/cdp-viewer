@@ -22,7 +22,11 @@ const primitiveCapabilities = Object.freeze([
     },
   },
   {
-    files: ["src/viewer/controller.ts", "src/input/native.ts"],
+    files: [
+      "src/viewer/controller.ts",
+      "src/viewer/favicons.ts",
+      "src/input/native.ts",
+    ],
     rules: { "ccstate/no-new-abort-controller": "off" },
   },
 ]);

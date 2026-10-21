@@ -33,6 +33,8 @@ function ViewerSurface({
 }: CdpViewerProps) {
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
+  const favicons = viewerScope.useValue(model.favicons$);
+  const rejectFavicon = viewerScope.useCommand(model.rejectFavicon$);
   const select = viewerScope.useCommand(model.select$);
   const reconnect = viewerScope.useCommand(model.reconnect$);
   const createTab = viewerScope.useCommand(model.createTab$);
@@ -79,7 +81,24 @@ function ViewerSurface({
                 disabled={controls.tabsDisabled}
                 data-target-id={target.id}
               >
-                <Globe size={16} aria-hidden="true" />
+                {favicons.get(target.id) ? (
+                  <img
+                    className="cdpv-favicon"
+                    src={favicons.get(target.id)}
+                    alt=""
+                    aria-hidden="true"
+                    width={16}
+                    height={16}
+                    onError={() =>
+                      rejectFavicon({
+                        targetId: target.id,
+                        src: favicons.get(target.id)!,
+                      })
+                    }
+                  />
+                ) : (
+                  <Globe size={16} aria-hidden="true" />
+                )}
                 <span>{target.title}</span>
               </Tabs.Tab>
               {interactive && (

@@ -4,6 +4,13 @@
   --spacing: 0.25rem;
 }
 
+.cdpv-root .cdpv-favicon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  object-fit: contain;
+}
+
 .cdpv-root {
   --cdpv-background: #ffffff;
   --cdpv-tab-background: #dee1e6;

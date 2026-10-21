@@ -210,7 +210,7 @@ describe("viewer lifecycle", () => {
     });
     expect(
       browser.sockets[0]!.commands.filter(
-        (c) => c.method === "Target.attachToTarget",
+        (c) => c.method === "Page.startScreencast",
       ),
     ).toHaveLength(1);
   });
@@ -281,6 +281,9 @@ describe("viewer lifecycle", () => {
       expect(model.getSnapshot().status).toBe("streaming"),
     );
     const old = browser.heldCommands[0]!;
+    const attached = browser.sockets[0]!.commands.filter(
+      (command) => command.method === "Target.attachToTarget",
+    );
     old.socket.reply(old.command);
     await Promise.resolve();
     expect(model.getSnapshot().selectedTargetId).toBe("page-b");
@@ -288,7 +291,12 @@ describe("viewer lifecycle", () => {
       browser.sockets[0]!.commands.filter(
         (command) => command.method === "Target.attachToTarget",
       ).map((command) => command.params?.targetId),
-    ).toEqual(["page-b"]);
+    ).toEqual(attached.map((command) => command.params?.targetId));
+    expect(
+      browser.sockets[0]!.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      ),
+    ).toHaveLength(1);
   });
 
   it("reports activation failure without attaching or exposing provider errors", async () => {
