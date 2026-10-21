@@ -50,6 +50,7 @@ changing appearance keeps the connection, current tab and local input nodes.
 
 The top row contains horizontally scrolling tabs, close buttons and a fixed **+**
 new-tab button. Arrow keys move tab focus; Enter or Space selects the focused tab.
+Discovery updates keep existing tabs in place and append newly discovered tabs.
 Creating a tab opens `about:blank` in the selected page's window and focuses the
 address bar. Popup/sandbox policy can block this action; check the browser before
 retrying an uncertain result. Opening requires standard CDP isolated-world APIs.

@@ -34,6 +34,26 @@ function mount(
 }
 
 describe("viewer lifecycle", () => {
+  it("keeps displayed tab order when discovery reorders and updates targets", async () => {
+    const browser = new FakeBrowser();
+    const { model } = mount(browser);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.targets = [
+      { id: "page-c", windowId: 0, title: "New page" },
+      { ...browser.targets[1]!, title: "Updated title" },
+      browser.targets[0]!,
+    ];
+    browser.sockets[0]!.emit("Target.targetInfoChanged", {});
+    await vi.waitFor(() => expect(model.getSnapshot().targets).toHaveLength(3));
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "page-a",
+      "page-b",
+      "page-c",
+    ]);
+    expect(model.getSnapshot().targets[1]!.title).toBe("Updated title");
+  });
   it("ignores an obsolete discovery error after explicit close selects its neighbour", async () => {
     const browser = new FakeBrowser();
     browser.targets[1]!.windowId = 0;

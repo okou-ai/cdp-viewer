@@ -343,12 +343,23 @@ export class ViewerController {
       this.refreshWanted = false;
       const revision = this.targetRevision;
       try {
-        const targets = await this.directory!.list();
+        const discovered = await this.directory!.list();
         if (this.disposed || !this.connected) break;
         if (revision !== this.targetRevision) {
           this.refreshWanted = true;
           continue;
         }
+        const order = new Map(
+          this.model
+            .getSnapshot()
+            .targets.map((target, index) => [target.id, index]),
+        );
+        const targets = Object.freeze(
+          [...discovered].sort(
+            (a, b) =>
+              (order.get(a.id) ?? order.size) - (order.get(b.id) ?? order.size),
+          ),
+        );
         const selected = this.model.getSnapshot().selectedTargetId;
         this.model.update({ targets });
         if (selected && !targets.some((t) => t.id === selected)) {
