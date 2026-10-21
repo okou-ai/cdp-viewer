@@ -3,7 +3,7 @@
 The [GitHub Pages demo](https://okou-ai.github.io/cdp-viewer/) uses the same public
 `cdp-viewer` component/types and `cdp-viewer/style.css` exports as consumers.
 It enables the public `interactive` option for live viewing, tab selection,
-mouse/keyboard input and navigation, with independent panels. Clipboard transfer
+tab creation/closure, mouse/keyboard input and navigation, with independent panels. Clipboard transfer
 and vendor adapters are not supported. Genuine
 macOS/Windows system IME validation remains pending.
 
@@ -13,7 +13,7 @@ macOS/Windows system IME validation remains pending.
    Provisioning, authentication and endpoint discovery belong to your provider.
 2. Paste it into the masked **CDP URL** field. Optionally supply an actual
    **Window ID**. Choose **Connect**.
-3. Select an existing page from the viewer's **Page** control. Add another viewer
+3. Select a page in the viewer's top tab strip. Add another viewer
    to control a different window independently.
 
 Selecting a page activates that tab in its remote window so it can produce live
@@ -42,14 +42,43 @@ windows are supported; simultaneous screencasts of the same tab are not
 guaranteed. The remote page remains shared website state regardless of how many
 viewers display it.
 
+## Tabs and recovery
+
+The page-level **Appearance** setting selects **Light**, **Dark** or **System**.
+Viewers inherit this host setting by default. System follows the OS preference;
+changing appearance keeps the connection, current tab and local input nodes.
+
+The top row contains horizontally scrolling tabs, close buttons and a fixed **+**
+new-tab button. Arrow keys move tab focus; Enter or Space selects the focused tab.
+Focused tabs are brought into view within the tab strip.
+Discovery updates keep existing tabs in place and append newly discovered tabs.
+Background updates preserve the tab strip's manual scroll position.
+Creating a tab opens `about:blank` in the selected page's window and focuses the
+address bar unless you focused another control while creation was pending.
+Popup/sandbox policy can block this action; check the browser before
+retrying an uncertain result. Opening requires standard CDP isolated-world APIs.
+A page's JavaScript override of `window.open` does not change the isolated world.
+
+Closing the selected tab selects the nearest surviving tab unless a later user
+selection supersedes it. Closing another tab keeps the current selection.
+External tab loss requires explicit selection. Closing the last tab leaves an
+empty view; an unscoped viewer can create a new tab. A configured window that no
+longer exists must be replaced by the host, never silently changed to another.
+Removing a viewer never closes tabs. View-only viewers have no create/close actions.
+
+Connection failures/disconnects show a message and **Reconnect viewer** inside
+the canvas area. Reconnect replaces only that viewer's connection and does not
+reload the remote page. Navigation or tab-operation failures keep a live image
+and show a contextual message beneath the address bar. There is no debug footer.
+
 ## Interact
 
 Click inside the live page to focus its remote control, then type or use mouse
 and keyboard actions. Press **F8** outside composition to release remote keyboard
-focus to the page selector. Connection fields, page selection and the address
+focus to the selected tab. Connection fields, page selection and the address
 bar retain their own local input; typing in them is not sent to the remote page.
 
-Enter an absolute `http://` or `https://` address and choose **Go** to navigate.
+Enter an absolute `http://` or `https://` address and press **Enter** to navigate.
 Editing the address alone does not navigate. The toolbar also provides reload
 and available back/forward actions. Disconnecting or removing a panel discards
 its unsent input without closing the remote browser or tabs.

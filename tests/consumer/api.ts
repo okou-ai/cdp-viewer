@@ -5,6 +5,8 @@ export interface FixtureSettings {
   second?: boolean;
   interactive?: boolean;
   paused?: boolean;
+  colorSchemeA?: "light" | "dark" | "system";
+  colorSchemeB?: "light" | "dark" | "system";
 }
 
 declare global {

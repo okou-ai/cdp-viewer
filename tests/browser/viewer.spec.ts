@@ -154,14 +154,14 @@ test("installed viewers stream separate windows, detect a real moved tab, and is
     await expect(a).toHaveAttribute("data-status", "streaming");
     await expect(b).toHaveAttribute("data-status", "streaming");
     await expect(a).toHaveCSS("display", "flex");
-    await expect(a.locator(".cdpv-toolbar")).toHaveCSS("column-gap", "8px");
+    await expect(a.locator(".cdpv-toolbar")).toHaveCSS("column-gap", "4px");
     await expect(page.locator("#host-prefix-probe")).toHaveCSS(
       "display",
       "inline",
     );
     await expect(page.locator("#host-prefix-probe")).toBeVisible();
-    await expect(a.locator("option")).toHaveCount(1);
-    await expect(b.locator("option")).toHaveCount(1);
+    await expect(a.getByRole("tab")).toHaveCount(1);
+    await expect(b.getByRole("tab")).toHaveCount(1);
     await expectColor(a.locator("canvas"), [232, 32, 48]);
     await expectColor(b.locator("canvas"), [24, 80, 224]);
     expect(
@@ -243,7 +243,7 @@ test("installed viewers stream separate windows, detect a real moved tab, and is
       )
       .toBe(windowB.windowId);
     await expect(a).toHaveAttribute("data-status", "unavailable");
-    await expect(b.locator("option")).toHaveCount(2);
+    await expect(b.getByRole("tab")).toHaveCount(2);
     await expect(b).toHaveAttribute("data-status", "streaming");
     await expectColor(b.locator("canvas"), [24, 224, 80]);
     await page.screenshot({ path: info.outputPath("moved-window-viewer.png") });
@@ -277,17 +277,17 @@ test("unscoped discovery shows pages across windows and does not guess after tar
     }, backend.endpoint);
     const viewer = page.locator("#viewer-a section");
     await expect(
-      viewer.locator("option").filter({ hasText: "rgb(" }),
+      viewer.getByRole("tab").filter({ hasText: "rgb(" }),
     ).toHaveCount(2);
-    await viewer.getByRole("combobox").selectOption(first.targetId);
+    await viewer.locator(`[data-target-id="${first.targetId}"]`).click();
     await expect(viewer).toHaveAttribute("data-status", "streaming");
     await backend.session.send("Target.closeTarget", {
       targetId: first.targetId,
     });
     await expect(viewer).toHaveAttribute("data-status", "unavailable");
-    await expect(viewer.getByRole("combobox")).toHaveValue("");
+    await expect(viewer.getByRole("tab", { selected: true })).toHaveCount(0);
     await expect(
-      viewer.locator("option").filter({ hasText: "rgb(" }),
+      viewer.getByRole("tab").filter({ hasText: "rgb(" }),
     ).toHaveCount(1);
   } finally {
     await backend.close();
@@ -353,7 +353,7 @@ test("selecting a background tab activates it and streams new pixels", async ({
       },
     );
     const viewer = page.locator("#viewer-a section");
-    await viewer.getByRole("combobox").selectOption(background.targetId);
+    await viewer.locator(`[data-target-id="${background.targetId}"]`).click();
     await expect.poll(isActive).toBe(true);
     await expect(viewer).toHaveAttribute("data-status", "streaming");
     await expectColor(viewer.locator("canvas"), [24, 80, 224]);
@@ -382,7 +382,7 @@ test("browser-native Origin rejection yields a fixed diagnostic", async ({
       await window.configureViewers!({ cdpUrl, second: false });
     }, backend.endpoint);
     const viewer = page.locator("#viewer-a section");
-    await expect(viewer).toHaveAttribute("data-status", "disconnected");
+    await expect(viewer).toHaveAttribute("data-status", "error");
     await expect(viewer.getByRole("alert")).toContainText("Origin and TLS");
     await expect(viewer).not.toContainText(backend.endpoint);
   } finally {

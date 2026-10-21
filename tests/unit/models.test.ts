@@ -19,11 +19,24 @@ it("isolates viewer commands, drafts and reconnects, including stale runtime cle
     navigation: navigation("https://two.invalid/"),
     status: "streaming",
   });
-  const original = { select: vi.fn(), navigate: vi.fn() };
-  const replacement = { select: vi.fn(), navigate: vi.fn() };
-  const other = { select: vi.fn(), navigate: vi.fn() };
+  const actions = () => ({
+    select: vi.fn(),
+    navigate: vi.fn(),
+    createTab: vi.fn(),
+    closeTab: vi.fn(),
+  });
+  const original = actions();
+  const replacement = actions();
+  const other = actions();
   first.run(first.bind$, original);
   second.run(second.bind$, other);
+  first.run(first.createTab$);
+  first.run(first.closeTab$, "page-a");
+  expect(original.createTab).toHaveBeenCalledOnce();
+  expect(original.closeTab).toHaveBeenCalledWith("page-a");
+  expect(other.createTab).not.toHaveBeenCalled();
+  first.run(first.setTabAction$, { type: "create" });
+  expect(second.read(second.tabAction$)).toBeNull();
   first.run(first.focusAddress$);
   first.run(first.editAddress$, "  https://draft.invalid/  ");
   expect(second.read(second.address$)).toBe("https://two.invalid/");
@@ -36,6 +49,7 @@ it("isolates viewer commands, drafts and reconnects, including stale runtime cle
   expect(first.read(first.revision$)).toBe(1);
   expect(second.read(second.revision$)).toBe(0);
   first.run(first.bind$, replacement);
+  expect(first.read(first.tabAction$)).toBeNull();
   first.run(first.unbind$, original);
   first.run(first.select$, "replacement-page");
   expect(replacement.select).toHaveBeenCalledWith("replacement-page");
@@ -77,6 +91,10 @@ it("keeps applied demo connections independent from invalid drafts and sibling a
   model.run(model.edit$, 2, "endpoint", "wss://second.invalid/browser");
   model.run(model.connect$, 2);
   const [first, second] = model.read(model.panels$);
+  const connectedPanels = model.read(model.panels$);
+  model.run(model.setAppearance$, "dark");
+  expect(model.read(model.appearance$)).toBe("dark");
+  expect(model.read(model.panels$)).toBe(connectedPanels);
   expect(first?.connection).toEqual({
     cdpUrl: "wss://first.invalid/browser",
     windowId: 0,
@@ -99,6 +117,7 @@ it("keeps applied demo connections independent from invalid drafts and sibling a
   model.run(model.disconnect$, 2);
   expect(model.read(model.panels$)[0]?.connection).toBeNull();
   const another = createDemoModel();
+  expect(another.read(another.appearance$)).toBe("system");
   expect(another.read(another.panels$)[0]).toMatchObject({
     id: 1,
     endpoint: "",

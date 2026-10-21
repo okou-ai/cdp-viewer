@@ -18,8 +18,18 @@ import { viewerScope } from "./context";
 interface Elements {
   canvas: RefObject<HTMLCanvasElement | null>;
   proxy: RefObject<HTMLTextAreaElement | null>;
+  address: RefObject<HTMLInputElement | null>;
+  tabs: RefObject<HTMLDivElement | null>;
 }
 const ElementsContext = createContext<Elements | null>(null);
+
+function revealTab(list: HTMLDivElement, tab: HTMLElement): void {
+  const item = tab.parentElement!.getBoundingClientRect();
+  const strip = list.getBoundingClientRect();
+  if (item.left < strip.left) list.scrollLeft += item.left - strip.left;
+  else if (item.right > strip.right)
+    list.scrollLeft += item.right - strip.right;
+}
 
 export function useViewerElements(): Elements {
   const elements = useContext(ElementsContext);
@@ -43,7 +53,14 @@ export function ViewerRuntime({
   const revision = viewerScope.useValue(model.revision$);
   const canvas = useRef<HTMLCanvasElement>(null);
   const proxy = useRef<HTMLTextAreaElement>(null);
-  const elements = useMemo(() => ({ canvas, proxy }), [canvas, proxy]);
+  const address = useRef<HTMLInputElement>(null);
+  const tabs = useRef<HTMLDivElement>(null);
+  const restoreTabFocus = useRef(false);
+  const closingFocusTarget = useRef<string | null>(null);
+  const elements = useMemo(
+    () => ({ canvas, proxy, address, tabs }),
+    [canvas, proxy, address, tabs],
+  );
   const native = useRef<NativeInput | null>(null);
   const runtime = useRef<ViewerController | null>(null);
   const inViewport = useRef(true);
@@ -62,6 +79,7 @@ export function ViewerRuntime({
       error: null,
       navigation: null,
     });
+    let createFocus: Element | null = null;
     let controller: ViewerController;
     try {
       controller = new ViewerController(
@@ -75,6 +93,24 @@ export function ViewerRuntime({
           interactive,
           onInputReset: () => native.current?.reset(),
           onCaret: (point) => native.current?.place(point),
+          onTabCreated: () => {
+            // Disabling the initiating button can move focus to body. A later
+            // focused control still belongs to the user, including host fields.
+            if (
+              document.activeElement === createFocus ||
+              document.activeElement === document.body
+            )
+              address.current?.focus({ preventScroll: true });
+            createFocus = null;
+          },
+          onTabClosed: (targetId) => {
+            restoreTabFocus.current =
+              closingFocusTarget.current === targetId &&
+              (document.activeElement === document.body ||
+                document.activeElement?.getAttribute("data-close-target") ===
+                  targetId);
+            closingFocusTarget.current = null;
+          },
         },
       );
     } catch (error) {
@@ -84,6 +120,17 @@ export function ViewerRuntime({
     runtime.current = controller;
     const actions: ViewerActions = {
       select: (id) => controller.select(id),
+      createTab: () => {
+        createFocus = document.activeElement;
+        controller.createTab();
+      },
+      closeTab: (id) => {
+        closingFocusTarget.current =
+          document.activeElement?.getAttribute("data-close-target") === id
+            ? id
+            : null;
+        controller.closeTab(id);
+      },
       navigate: (action) => controller.input?.navigate(action),
     };
     model.run(model.bind$, actions);
@@ -114,6 +161,39 @@ export function ViewerRuntime({
       if (runtime.current === controller) runtime.current = null;
     };
   }, [cdpUrl, windowId, revision, model, interactive]);
+  useLayoutEffect(() => {
+    const list = tabs.current;
+    if (!list) return;
+    const focused = (event: FocusEvent) => {
+      const tab = event.target;
+      if (tab instanceof HTMLElement && tab.getAttribute("role") === "tab")
+        revealTab(list, tab);
+    };
+    list.addEventListener("focusin", focused);
+    return () => list.removeEventListener("focusin", focused);
+  }, [tabs]);
+  useLayoutEffect(() => {
+    const list = tabs.current;
+    const selected = list?.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]',
+    );
+    if (list && selected) revealTab(list, selected);
+  }, [snapshot.selectedTargetId]);
+  useLayoutEffect(() => {
+    if (restoreTabFocus.current) {
+      restoreTabFocus.current = false;
+      const list = tabs.current;
+      (
+        list?.querySelector<HTMLElement>(
+          '[role="tab"][aria-selected="true"]',
+        ) ??
+        list?.querySelector<HTMLElement>('[role="tab"]') ??
+        list?.parentElement?.querySelector<HTMLElement>(
+          '[aria-label="New tab"]',
+        )
+      )?.focus({ preventScroll: true });
+    }
+  }, [snapshot.selectedTargetId, snapshot.targets]);
   useLayoutEffect(() => {
     if (!interactive || !canvas.current || !proxy.current) return;
     const input = new NativeInput(

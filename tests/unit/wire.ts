@@ -63,6 +63,7 @@ export interface FakeTarget {
   id: string;
   windowId: number;
   title: string;
+  url?: string;
 }
 
 export class FakeBrowser {
@@ -75,6 +76,7 @@ export class FakeBrowser {
   unsupportedStream = false;
   holdAttach = false;
   holdMethod: string | null = null;
+  blockOpen = false;
   readonly heldCommands: { command: WireCommand; socket: FakeSocket }[] = [];
   readonly held: {
     command: WireCommand;
@@ -82,6 +84,8 @@ export class FakeBrowser {
     sessionId: string;
   }[] = [];
   private nextSession = 0;
+  private nextTarget = 0;
+  private readonly sessions = new Map<string, string>();
 
   readonly factory: SocketFactory = () => {
     const socket = new FakeSocket((command, wire) =>
@@ -107,10 +111,39 @@ export class FakeBrowser {
         return;
       }
       switch (command.method) {
+        case "Page.createIsolatedWorld":
+          socket.reply(command, { executionContextId: 42 });
+          break;
         case "Page.getFrameTree":
           socket.reply(command, { frameTree: { frame: { id: "main" } } });
           break;
         case "Runtime.evaluate":
+          if (
+            String(command.params?.expression).includes(
+              "const tab = window.open(",
+            )
+          ) {
+            if (!this.blockOpen) {
+              const match = /window\.open\(("[^"]+")/.exec(
+                String(command.params?.expression),
+              );
+              const source = this.targets.find(
+                (target) => target.id === this.sessions.get(command.sessionId!),
+              );
+              this.targets.push({
+                id: `new-${++this.nextTarget}`,
+                windowId: source?.windowId ?? 0,
+                title: "New tab",
+                url: JSON.parse(match![1]!) as string,
+              });
+              for (const wire of this.sockets)
+                wire.emit("Target.targetCreated", {});
+            }
+            socket.reply(command, {
+              result: { type: "boolean", value: !this.blockOpen },
+            });
+            break;
+          }
           socket.reply(command, {
             result: {
               type: "object",
@@ -166,7 +199,7 @@ export class FakeBrowser {
               targetId: t.id,
               title: t.title,
               type: "page",
-              url: "about:blank",
+              url: t.url ?? "about:blank",
             })),
           });
           break;
@@ -180,8 +213,32 @@ export class FakeBrowser {
         }
         case "Target.attachToTarget": {
           const sessionId = "session-" + ++this.nextSession;
+          this.sessions.set(sessionId, String(command.params?.targetId));
           if (this.holdAttach) this.held.push({ command, socket, sessionId });
           else socket.reply(command, { sessionId });
+          break;
+        }
+        case "Target.createTarget": {
+          const targetId = `new-${++this.nextTarget}`;
+          this.targets.push({
+            id: targetId,
+            title: "New tab",
+            windowId: 0,
+            url: "about:blank",
+          });
+          for (const wire of this.sockets)
+            wire.emit("Target.targetCreated", {});
+          socket.reply(command, { targetId });
+          break;
+        }
+        case "Target.closeTarget": {
+          const targetId = command.params?.targetId;
+          this.targets = this.targets.filter(
+            (target) => target.id !== targetId,
+          );
+          for (const wire of this.sockets)
+            wire.emit("Target.targetDestroyed", { targetId });
+          socket.reply(command, { success: true });
           break;
         }
         case "Page.startScreencast":

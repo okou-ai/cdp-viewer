@@ -13,6 +13,7 @@ function mount(
   browser: FakeBrowser,
   windowId?: number,
   requestTimeout?: number,
+  interactive = false,
 ) {
   const model = createViewerModel();
   const sink = {
@@ -23,6 +24,7 @@ function mount(
   const controller = new ViewerController(model, sink, {
     url: "wss://fixture.invalid/?token=private-endpoint",
     socketFactory: browser.factory,
+    interactive,
     ...(windowId === undefined ? {} : { windowId }),
     ...(requestTimeout === undefined ? {} : { requestTimeout }),
   });
@@ -32,6 +34,70 @@ function mount(
 }
 
 describe("viewer lifecycle", () => {
+  it("keeps displayed tab order when discovery reorders and updates targets", async () => {
+    const browser = new FakeBrowser();
+    const { model } = mount(browser);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.targets = [
+      { id: "page-c", windowId: 0, title: "New page" },
+      { ...browser.targets[1]!, title: "Updated title" },
+      browser.targets[0]!,
+    ];
+    browser.sockets[0]!.emit("Target.targetInfoChanged", {});
+    await vi.waitFor(() => expect(model.getSnapshot().targets).toHaveLength(3));
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "page-a",
+      "page-b",
+      "page-c",
+    ]);
+    expect(model.getSnapshot().targets[1]!.title).toBe("Updated title");
+  });
+  it("ignores an obsolete discovery error after explicit close selects its neighbour", async () => {
+    const browser = new FakeBrowser();
+    browser.targets[1]!.windowId = 0;
+    const { controller, model } = mount(browser, 0, undefined, true);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const socket = browser.sockets[0]!;
+    browser.holdMethod = "Browser.getWindowForTarget";
+    socket.emit("Target.targetInfoChanged", {});
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+    browser.holdMethod = null;
+    controller.closeTab("page-a");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot()).toMatchObject({
+        status: "streaming",
+        selectedTargetId: "page-b",
+      }),
+    );
+    const before = socket.commands.filter(
+      (command) => command.method === "Target.getTargets",
+    ).length;
+    for (const held of browser.heldCommands) {
+      if (held.command.params?.targetId === "page-a")
+        held.socket.reject(held.command, -32000);
+      else held.socket.reply(held.command, { windowId: 0, bounds: {} });
+    }
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter(
+          (command) => command.method === "Target.getTargets",
+        ).length,
+      ).toBeGreaterThan(before),
+    );
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+        "page-b",
+      ]),
+    );
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "page-b",
+    });
+  });
   it("reports an unsupported streaming capability without exposing provider errors", async () => {
     const browser = new FakeBrowser();
     browser.unsupportedStream = true;

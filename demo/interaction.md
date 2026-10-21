@@ -23,7 +23,7 @@ compatible adjacent pending deltas, preserving scroll distance and gesture order
 
 Keyboard events belong only to the focused viewer's native textarea. Typing in a
 host field or the viewer's address/target controls stays local. **F8**, outside
-composition, releases keyboard focus to the viewer's page selector. Tab and
+composition, releases keyboard focus to the viewer's selected tab. Tab and
 Shift+Tab navigate remote controls while remote input owns focus. Ctrl/Cmd+A and
 Ctrl/Cmd+Z/Shift+Z use explicit Blink select-all/undo/redo commands, avoiding an
 assumed remote OS shortcut mapping; Ctrl+Y also requests redo. Other forwarded
@@ -93,7 +93,7 @@ the lifecycle transition table.
 
 The toolbar accepts absolute `http://` and `https://` addresses; it does not infer
 a scheme, run JavaScript URLs or perform endpoint discovery. Draft address edits
-do not navigate. Go, reload and available history actions are explicit standard
+do not navigate. Enter, reload and available history actions are explicit standard
 CDP requests and invalidate input before sending. Remote page addresses remain
 in memory and may contain sensitive data; do not record them in snapshots/logs.
 

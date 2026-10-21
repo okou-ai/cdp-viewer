@@ -1,4 +1,5 @@
 import { command, computed, state } from "ccstate";
+import type { CdpViewerProps } from "cdp-viewer";
 import { createInstance } from "../src/state/instance";
 import { parseConnection } from "./connection";
 import type { Connection, ConnectionError } from "./connection";
@@ -24,6 +25,13 @@ function panel(id: number): Panel {
 }
 
 function createDemoSignals() {
+  const internalAppearance$ =
+    state<NonNullable<CdpViewerProps["colorScheme"]>>("system");
+  const appearance$ = computed((get) => get(internalAppearance$));
+  const setAppearance$ = command(({ set }, value: string) => {
+    if (value === "light" || value === "dark" || value === "system")
+      set(internalAppearance$, value);
+  });
   const internalPanels$ = state<readonly Panel[]>([panel(1)]);
   const nextId$ = state(2);
   const panels$ = computed((get) => get(internalPanels$));
@@ -80,7 +88,17 @@ function createDemoSignals() {
       ),
     );
   });
-  return { panels$, add$, remove$, edit$, connect$, reconnect$, disconnect$ };
+  return {
+    appearance$,
+    setAppearance$,
+    panels$,
+    add$,
+    remove$,
+    edit$,
+    connect$,
+    reconnect$,
+    disconnect$,
+  };
 }
 
 export function createDemoModel() {

@@ -122,7 +122,7 @@ test("demo routes native input and navigation to independent windows", async ({
     );
     await expect(second.remote.getByLabel("Fixture input")).toHaveValue("");
     await page.keyboard.press("F8");
-    await expect(aView.getByRole("combobox")).toBeFocused();
+    await expect(aView.getByRole("tab", { selected: true })).toBeFocused();
 
     await bView.getByRole("img", { name: "Live browser view" }).click();
     await page.keyboard.type("second");
@@ -162,7 +162,7 @@ test("demo routes native input and navigation to independent windows", async ({
     await bView
       .getByLabel("Remote page address")
       .fill(server.origin + "/fixture/blue");
-    await bView.getByRole("button", { name: "Go", exact: true }).click();
+    await bView.getByLabel("Remote page address").press("Enter");
     await expect(second.remote).toHaveURL(server.origin + "/fixture/blue");
     await expectColor(bView, [24, 80, 224]);
     await bView.getByRole("button", { name: "Back remote page" }).click();
@@ -215,6 +215,58 @@ test("demo routes native input and navigation to independent windows", async ({
   }
 });
 
+test("page appearance controls drive inherited viewer colors without reconnecting", async ({
+  page,
+}, info) => {
+  await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  let sockets = 0;
+  page.on("websocket", () => {
+    sockets++;
+  });
+  try {
+    await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/red",
+      newWindow: true,
+    });
+    const a = panel(page, 1);
+    await configure(a, backend.endpoint);
+    const view = a.getByRole("region", { name: "Remote browser viewer" });
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    const original = await view
+      .getByLabel("Remote browser input")
+      .elementHandle();
+    const opened = sockets;
+    const appearance = page.getByRole("combobox", { name: "Appearance" });
+    await appearance.selectOption("dark");
+    await expect(view).toHaveCSS("background-color", "rgb(53, 54, 58)");
+    await page.screenshot({
+      path: info.outputPath("demo-dark.png"),
+      fullPage: true,
+    });
+    await appearance.selectOption("light");
+    await expect(view).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await page.screenshot({
+      path: info.outputPath("demo-light.png"),
+      fullPage: true,
+    });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await appearance.selectOption("system");
+    await expect(view).toHaveCSS("background-color", "rgb(53, 54, 58)");
+    expect(sockets).toBe(opened);
+    expect(
+      await view
+        .getByLabel("Remote browser input")
+        .evaluate((element, old) => element === old, original),
+    ).toBe(true);
+  } finally {
+    await backend.close();
+  }
+});
+
 test("demo applies settings explicitly and isolates two real windows and cleanup", async ({
   page,
   browser,
@@ -257,8 +309,8 @@ test("demo applies settings explicitly and isolates two real windows and cleanup
     await configure(b, backend.endpoint, bWindow.windowId);
     const bView = b.getByRole("region", { name: "Remote browser viewer" });
     await expectColor(bView, [24, 80, 224]);
-    await expect(aView.locator("option")).toHaveCount(1);
-    await expect(bView.locator("option")).toHaveCount(1);
+    await expect(aView.getByRole("tab")).toHaveCount(1);
+    await expect(bView.getByRole("tab")).toHaveCount(1);
     await page.screenshot({
       path: info.outputPath("two-window-demo.png"),
       fullPage: true,
@@ -281,7 +333,7 @@ test("demo applies settings explicitly and isolates two real windows and cleanup
       .getByRole("button", { name: "Apply & connect", exact: true })
       .click();
     await expect(aView).toHaveAttribute("data-status", "unavailable");
-    await expect(aView.getByRole("combobox")).toBeDisabled();
+    await expect(aView.getByRole("tab")).toHaveCount(0);
     await expectColor(bView, [24, 80, 224]);
     await a.getByLabel(/^Window ID/).fill(String(aWindow.windowId));
     await a
@@ -411,7 +463,10 @@ test("invalid applied drafts preserve the active connection and live frames", as
       document.body.style.background = "rgb(24,224,80)";
     });
     await expectColor(view, [24, 224, 80]);
-    await expect(view.getByRole("combobox")).toHaveValue(target.targetId);
+    await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+      "data-target-id",
+      target.targetId,
+    );
     expect(sockets).toBe(opened);
   } finally {
     await backend.close();
@@ -459,18 +514,18 @@ test("demo validates without navigation, preserves zero, and forgets settings on
     await a.getByRole("button", { name: "Connect", exact: true }).click();
     const view = a.getByRole("region", { name: "Remote browser viewer" });
     await expect(view).toHaveAttribute("data-status", "unavailable");
-    await expect(view.getByRole("combobox")).toBeDisabled();
+    await expect(view.getByRole("tab")).toHaveCount(0);
     expect(sockets).toBeGreaterThan(0);
     await window.fill("");
     await a
       .getByRole("button", { name: "Apply & connect", exact: true })
       .click();
-    await expect(
-      view.locator("option").filter({ hasText: "rgb(" }),
-    ).toHaveCount(2);
-    await view.getByRole("combobox").selectOption(red.targetId);
+    await expect(view.getByRole("tab").filter({ hasText: "rgb(" })).toHaveCount(
+      2,
+    );
+    await view.locator(`[data-target-id="${red.targetId}"]`).click();
     await expectColor(view, [232, 32, 48]);
-    await view.getByRole("combobox").selectOption(blue.targetId);
+    await view.locator(`[data-target-id="${blue.targetId}"]`).click();
     await expectColor(view, [24, 80, 224]);
     expect(page.url()).toBe(demoUrl);
     expect(
@@ -501,7 +556,7 @@ test("demo reports real Origin denial without echoing the endpoint", async ({
     const a = panel(page, 1);
     await configure(a, backend.endpoint);
     const view = a.getByRole("region", { name: "Remote browser viewer" });
-    await expect(view).toHaveAttribute("data-status", "disconnected");
+    await expect(view).toHaveAttribute("data-status", "error");
     await expect(view.getByRole("alert")).toContainText("Origin and TLS");
     await expect(view).not.toContainText(backend.endpoint);
     expect(page.url()).toBe(demoUrl);
@@ -565,7 +620,9 @@ test("HTTPS-origin fixture uses a native CDP connection with explicit network pe
     const view = panel(page, 1).getByRole("region", {
       name: "Remote browser viewer",
     });
-    await view.getByRole("combobox").selectOption({ label: "rgb(232,32,48)" });
+    await view
+      .getByRole("tab", { name: "rgb(232,32,48)", exact: true })
+      .click();
     await expectColor(view, [232, 32, 48]);
     expect(new URL(page.url()).origin).toBe("https://okou-ai.github.io");
   } finally {

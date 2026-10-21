@@ -135,7 +135,7 @@ it("isolates library stores from host ccstate and survives Strict Mode teardown"
   expect(screen.getByText("host intact")).toBeInTheDocument();
   act(() => host.set(hostValue, "host changed"));
   expect(screen.getByText("host changed")).toBeInTheDocument();
-  const ids = screen.getAllByRole("combobox").map((element) => element.id);
+  const ids = screen.getAllByRole("tablist").map((element) => element.id);
   expect(new Set(ids).size).toBe(2);
   unmount();
   expect(fake.sockets.every((socket) => socket.readyState === 3)).toBe(true);
@@ -155,8 +155,9 @@ it("reconnects explicitly but not when callback references change", async () => 
     <CdpViewer cdpUrl="wss://fixture.invalid" onStatusChange={() => {}} />,
   );
   expect(fake.sockets).toHaveLength(1);
+  act(() => fake.sockets[0]!.close());
   await userEvent.click(
-    screen.getByRole("button", { name: "Reconnect viewer" }),
+    await screen.findByRole("button", { name: "Reconnect viewer" }),
   );
   await waitFor(() =>
     expect(
@@ -203,8 +204,9 @@ it("isolates navigation drafts and reconnect ownership while retaining native pr
   await userEvent.type(addresses[1]!, "https://draft-b.invalid/");
   expect(addresses[0]).toHaveValue("https://draft-a.invalid/");
   expect(addresses[1]).toHaveValue("https://draft-b.invalid/");
+  act(() => fake.sockets[0]!.close());
   await userEvent.click(
-    screen.getAllByRole("button", { name: "Reconnect viewer" })[0]!,
+    await screen.findByRole("button", { name: "Reconnect viewer" }),
   );
   await waitFor(() => expect(fake.sockets).toHaveLength(3));
   await waitFor(() =>
@@ -313,6 +315,27 @@ it("keeps imports and server rendering free of browser connections", () => {
   expect(socket).not.toHaveBeenCalled();
 });
 
+it("can close a broken page while its browser connection is still established", async () => {
+  const fake = browser();
+  fake.unsupportedStream = true;
+  render(<CdpViewer cdpUrl="wss://fixture.invalid" interactive />);
+  await waitFor(() =>
+    expect(document.querySelector('[data-status="error"]')).toBeInTheDocument(),
+  );
+  const close = screen.getByRole("button", {
+    name: "Close Window A",
+  });
+  expect(close).toBeEnabled();
+  await userEvent.click(close);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("tab", { name: "Window A" }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(fake.targets.map((target) => target.id)).toEqual(["page-b"]);
+  expect(fake.sockets).toHaveLength(1);
+});
+
 it.each(["connecting", "paused", "error", "disconnected"] as const)(
   "keeps local Tab navigation usable while remote input is %s",
   async (status) => {
@@ -346,6 +369,12 @@ it.each(["connecting", "paused", "error", "disconnected"] as const)(
       screen.getByRole("textbox", { name: "Remote page address" }),
     );
     await userEvent.tab();
+    if (status === "error" || status === "disconnected") {
+      expect(
+        screen.getByRole("button", { name: "Reconnect viewer" }),
+      ).toHaveFocus();
+      await userEvent.tab();
+    }
     expect(screen.getByRole("textbox", { name: "After viewer" })).toHaveFocus();
   },
 );
