@@ -39,6 +39,51 @@ async function mount() {
 }
 
 describe("owned remote input", () => {
+  it("omits preedit still awaiting scope validation when its final result is already available", async () => {
+    const { controller, socket } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    input.preedit("obsolete", owner);
+    input.commitComposition("你", owner);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(1),
+    );
+    expect(
+      socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
+    ).toHaveLength(0);
+  });
+
+  it("coalesces a preparing preview without crossing a queued key gesture", async () => {
+    const { controller, socket } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    input.preedit("n", owner);
+    input.preedit("ni", owner, 0, 2);
+    input.key({ type: "keyDown", key: "Shift", code: "ShiftLeft" });
+    input.preedit("nihao", owner);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
+      ).toHaveLength(2),
+    );
+    const edits = socket.commands.filter((c) =>
+      ["Input.imeSetComposition", "Input.dispatchKeyEvent"].includes(c.method),
+    );
+    expect(edits.map((c) => c.method)).toEqual([
+      "Input.imeSetComposition",
+      "Input.dispatchKeyEvent",
+      "Input.imeSetComposition",
+    ]);
+    expect(edits[0]!.params).toEqual({
+      text: "ni",
+      selectionStart: 0,
+      selectionEnd: 2,
+    });
+    expect(edits[2]!.params!.text).toBe("nihao");
+  });
+
   it("coalesces only unsent preedit and commits after the acknowledged composition", async () => {
     const { browser, controller, socket } = await mount();
     const input = controller.input!;

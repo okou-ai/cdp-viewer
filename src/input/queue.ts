@@ -35,6 +35,8 @@ export interface InputJob {
 interface QueuedJob extends InputJob {
   run: (job: InputJob) => void | Promise<void>;
   move: boolean;
+  started: boolean;
+  cancelled?: boolean;
   prepare?: (job: InputJob) => Promise<void>;
   barrier?: boolean;
 }
@@ -95,7 +97,8 @@ export class InputQueue {
       this.failed();
       return;
     }
-    const tail = this.jobs.at(-1);
+    const tail =
+      this.jobs.at(-1) ?? (this.active?.started ? null : this.active);
     if (tail?.preedit !== undefined && this.lifecycle.owns(tail.owner)) {
       tail.preedit = value;
       return;
@@ -104,8 +107,11 @@ export class InputQueue {
   }
 
   discardPreedit(): void {
-    const tail = this.jobs.at(-1);
-    if (tail?.preedit && this.lifecycle.owns(tail.owner)) this.jobs.pop();
+    const tail =
+      this.jobs.at(-1) ?? (this.active?.started ? null : this.active);
+    if (!tail?.preedit || !this.lifecycle.owns(tail.owner)) return;
+    if (tail === this.active) tail.cancelled = true;
+    else this.jobs.pop();
   }
 
   wheel(
@@ -178,6 +184,7 @@ export class InputQueue {
       ...this.capture(),
       run,
       move,
+      started: false,
       ...rest,
     };
     this.jobs.push(job);
@@ -233,7 +240,10 @@ export class InputQueue {
             this.member(),
             job.prepare?.(job),
           ]);
-          if (member && this.lifecycle.owns(job.owner)) await job.run(job);
+          if (member && this.lifecycle.owns(job.owner) && !job.cancelled) {
+            job.started = true;
+            await job.run(job);
+          }
         } catch (error) {
           if (this.lifecycle.owns(job.owner)) this.failed(error);
         } finally {
