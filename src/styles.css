@@ -25,7 +25,8 @@
   min-width: 0;
   height: 28rem;
   min-height: 16rem;
-  overflow: hidden;
+  /* Popup focus must never pan the viewer while its position is settling. */
+  overflow: clip;
   color: var(--cdpv-foreground);
   background: var(--cdpv-background);
   border: 1px solid var(--cdpv-border);

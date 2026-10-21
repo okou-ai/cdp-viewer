@@ -37,7 +37,7 @@
     sans-serif;
   display: flex;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
 }
 @supports (color: light-dark(white, black)) {
   .cdpv-root {

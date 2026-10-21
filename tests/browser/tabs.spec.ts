@@ -1881,7 +1881,16 @@ for (const colorScheme of ["light", "dark"] as const) {
       );
       await selectOverflowTab(viewer, ordered[0]!.id);
       await allTabs.press("ArrowDown");
+      await expect(
+        viewer.locator(`[data-tab-option="${ordered[0]!.id}"]`),
+      ).toBeFocused();
+      expect(
+        await viewer.evaluate((root) => [root.scrollLeft, root.scrollTop]),
+      ).toEqual([0, 0]);
       await page.keyboard.press("End");
+      await expect(
+        viewer.locator(`[data-tab-option="${ordered.at(-1)!.id}"]`),
+      ).toBeFocused();
       const selected = viewer.getByRole("tab", { selected: true });
       await expect(selected).toHaveAttribute("data-target-id", ordered[0]!.id);
       await page.keyboard.press("Enter");
