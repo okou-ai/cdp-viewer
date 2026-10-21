@@ -78,6 +78,9 @@ function App() {
               <div id="viewer-a">
                 <CdpViewer
                   {...props}
+                  {...(settings.colorSchemeA === undefined
+                    ? {}
+                    : { colorScheme: settings.colorSchemeA })}
                   {...(settings.windowA === undefined
                     ? {}
                     : { windowId: settings.windowA })}
@@ -89,6 +92,9 @@ function App() {
               <div id="viewer-b">
                 <CdpViewer
                   {...props}
+                  {...(settings.colorSchemeB === undefined
+                    ? {}
+                    : { colorScheme: settings.colorSchemeB })}
                   {...(settings.windowB === undefined
                     ? {}
                     : { windowId: settings.windowB })}

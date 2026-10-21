@@ -298,7 +298,7 @@ test("interactive public viewers route native text, editing shortcuts and local 
     await page.keyboard.press("Backspace");
     await expect(first.remote.locator("#plain")).toHaveValue("");
     await page.keyboard.press("F8");
-    await expect(a.getByRole("combobox")).toBeFocused();
+    await expect(a.getByRole("tab", { selected: true })).toBeFocused();
     await page
       .getByRole("textbox", { name: "Host input", exact: true })
       .fill("local only");
@@ -400,6 +400,10 @@ test("inactive input leaves local Tab navigation usable and resumes remote typin
     await expect(view).toHaveAttribute("data-status", "error");
     await view.getByRole("textbox", { name: "Remote page address" }).focus();
     await page.keyboard.press("Tab");
+    await expect(
+      view.getByRole("button", { name: "Reconnect viewer" }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(after).toBeFocused();
     await after.fill("local after error");
     await expect(remote.locator("#plain")).toHaveValue("resumed");
@@ -458,7 +462,7 @@ for (const scoped of [false, true]) {
       });
       const view = await host(page, backend, scoped ? windowId : undefined);
       if (!scoped) {
-        await view.getByRole("combobox").selectOption(targetId);
+        await view.locator(`[data-target-id="${targetId}"]`).click();
         await expect(view).toHaveAttribute("data-status", "streaming");
       }
       armed = true;
@@ -1109,7 +1113,7 @@ test("blur and target replacement discard composition while frame input stays na
     const first = await editor(backend);
     const second = await editor(backend, "?replacement");
     const view = await host(page, backend);
-    await view.getByRole("combobox").selectOption(first.targetId);
+    await view.locator(`[data-target-id="${first.targetId}"]`).click();
     await expect(view).toHaveAttribute("data-status", "streaming");
     await clickRemote(page, view, first.remote, "#plain");
     const proxy = view.getByRole("textbox", { name: "Remote browser input" });
@@ -1148,7 +1152,7 @@ test("blur and target replacement discard composition while frame input stays na
     await page.keyboard.press("Backspace");
     await expect(first.remote.locator("#plain")).toHaveValue("");
     await proxy.evaluate(start);
-    await view.getByRole("combobox").selectOption(second.targetId);
+    await view.locator(`[data-target-id="${second.targetId}"]`).click();
     await expect(view).toHaveAttribute("data-status", "streaming");
     await clickRemote(page, view, second.remote, "#plain");
     await proxy.evaluate(end);

@@ -17,6 +17,7 @@ export interface ViewerError {
     | "unsupported-capability"
     | "target-unavailable"
     | "input"
+    | "tab"
     | "frame";
   /** A fixed diagnostic, excluding endpoint credentials and provider payloads. */
   readonly message: string;
@@ -47,8 +48,10 @@ export interface CdpViewerProps {
   /** Omit to discover all page targets. Filtering is UI scope, not an ACL. */
   readonly windowId?: number;
   readonly paused?: boolean;
-  /** Enable remote pointer, keyboard, native text input and navigation. Default: false. */
+  /** Enable remote input, navigation and tab creation/closure. Default: false. */
   readonly interactive?: boolean;
+  /** Omit to inherit the host's CSS color-scheme. System follows OS preference. */
+  readonly colorScheme?: "light" | "dark" | "system";
   readonly className?: string;
   readonly style?: CdpViewerStyle;
   readonly onStatusChange?: (snapshot: ViewerSnapshot) => void;

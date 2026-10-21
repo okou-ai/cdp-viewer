@@ -1,9 +1,14 @@
 import { Button } from "@base-ui/react/button";
+import { Tabs } from "@base-ui/react/tabs";
 import {
   ArrowLeft,
   ArrowRight,
   CircleAlert,
   Monitor,
+  Globe,
+  Plus,
+  X,
+  LoaderCircle,
   RotateCw,
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
@@ -22,6 +27,8 @@ export function CdpViewer(props: CdpViewerProps) {
 
 function ViewerSurface({
   interactive = false,
+  windowId,
+  colorScheme,
   className,
   style,
 }: CdpViewerProps) {
@@ -29,47 +36,119 @@ function ViewerSurface({
   const snapshot = viewerScope.useValue(model.snapshot$);
   const select = viewerScope.useCommand(model.select$);
   const reconnect = viewerScope.useCommand(model.reconnect$);
-  const { canvas, proxy } = useViewerElements();
+  const createTab = viewerScope.useCommand(model.createTab$);
+  const closeTab = viewerScope.useCommand(model.closeTab$);
+  const pending = viewerScope.useValue(model.tabAction$);
+  const connected = viewerScope.useValue(model.connected$);
+  const { canvas, proxy, tabs } = useViewerElements();
   const selectId = viewerScope.useIdentity();
 
-  const selected = snapshot.targets.find(
-    (target) => target.id === snapshot.selectedTargetId,
-  );
+  const empty =
+    snapshot.status === "unavailable" &&
+    !snapshot.targets.length &&
+    (!snapshot.error || snapshot.error.kind === "target-unavailable");
+  const canCreate =
+    interactive &&
+    connected &&
+    !pending &&
+    (snapshot.status === "streaming" || (empty && windowId === undefined));
+  const recovery =
+    snapshot.status === "error" ||
+    snapshot.status === "disconnected" ||
+    (snapshot.status === "unavailable" &&
+      snapshot.error?.kind !== "target-unavailable" &&
+      !!snapshot.error);
   return (
-    <section
+    <Tabs.Root
+      render={<section />}
       aria-label="Remote browser viewer"
       className={`cdpv-root cdpv:flex cdpv:flex-col ${className ?? ""}`}
       style={style}
       data-status={snapshot.status}
+      data-color-scheme={colorScheme}
+      value={snapshot.selectedTargetId}
+      onValueChange={(value) => {
+        if (typeof value === "string") select(value);
+      }}
     >
-      <div className="cdpv-toolbar cdpv:flex cdpv:items-center cdpv:gap-2">
-        <Monitor size={18} aria-hidden="true" />
-        <label htmlFor={selectId}>Page</label>
-        <select
+      <div className="cdpv-toolbar">
+        <Tabs.List
           id={selectId}
-          value={snapshot.selectedTargetId ?? ""}
-          disabled={
-            !snapshot.targets.length || snapshot.status === "disconnected"
-          }
-          onChange={(event) => select(event.target.value)}
+          ref={tabs}
+          className="cdpv-tabs"
+          aria-label="Browser tabs"
+          activateOnFocus={false}
         >
-          {!snapshot.selectedTargetId && (
-            <option value="">Select a page</option>
-          )}
           {snapshot.targets.map((target) => (
-            <option key={target.id} value={target.id}>
-              {target.title}
-            </option>
+            <div
+              className="cdpv-tab-item"
+              key={target.id}
+              data-selected={
+                target.id === snapshot.selectedTargetId ? "" : undefined
+              }
+            >
+              <Tabs.Tab
+                className="cdpv-tab"
+                value={target.id}
+                title={target.title}
+                disabled={snapshot.status === "disconnected"}
+                data-target-id={target.id}
+              >
+                <Globe size={14} aria-hidden="true" />
+                <span>{target.title}</span>
+              </Tabs.Tab>
+              {interactive && (
+                <Button
+                  type="button"
+                  className="cdpv-close"
+                  aria-label={`Close ${target.title}`}
+                  title={`Close ${target.title}`}
+                  data-close-target={target.id}
+                  aria-busy={
+                    pending?.type === "close" && pending.targetId === target.id
+                  }
+                  disabled={!connected || !!pending}
+                  onClick={() => closeTab(target.id)}
+                >
+                  {pending?.type === "close" &&
+                  pending.targetId === target.id ? (
+                    <LoaderCircle
+                      className="cdpv-spinning"
+                      size={14}
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <X size={14} aria-hidden="true" />
+                  )}
+                </Button>
+              )}
+            </div>
           ))}
-        </select>
-        <Button
-          type="button"
-          className="cdpv-button"
-          aria-label="Reconnect viewer"
-          onClick={() => reconnect()}
-        >
-          <RotateCw size={16} aria-hidden="true" />
-        </Button>
+        </Tabs.List>
+        {interactive && (
+          <Button
+            type="button"
+            className="cdpv-button cdpv-new-tab"
+            aria-label="New tab"
+            aria-busy={pending?.type === "create"}
+            title="New tab"
+            disabled={!canCreate}
+            onClick={() => createTab()}
+          >
+            {pending?.type === "create" ? (
+              <LoaderCircle
+                className="cdpv-spinning"
+                size={17}
+                aria-hidden="true"
+              />
+            ) : (
+              <Plus size={18} aria-hidden="true" />
+            )}
+            {pending?.type === "create" && (
+              <span aria-hidden="true">Creating…</span>
+            )}
+          </Button>
+        )}
       </div>
       {interactive && (
         <NavigationToolbar
@@ -77,7 +156,18 @@ function ViewerSurface({
           disabled={snapshot.status !== "streaming"}
         />
       )}
-      <div className={`cdpv-stage${interactive ? " cdpv-interactive" : ""}`}>
+      {snapshot.error && snapshot.status === "streaming" && (
+        <div className="cdpv-error" role="alert">
+          <CircleAlert size={16} aria-hidden="true" />
+          <span>{snapshot.error.message}</span>
+        </div>
+      )}
+      <Tabs.Panel
+        tabIndex={-1}
+        keepMounted
+        value={snapshot.selectedTargetId}
+        className={`cdpv-stage${interactive ? " cdpv-interactive" : ""}`}
+      >
         <canvas ref={canvas} role="img" aria-label="Live browser view">
           Your browser needs Canvas 2D to show the remote page.
         </canvas>
@@ -98,35 +188,78 @@ function ViewerSurface({
         )}
         {snapshot.status !== "streaming" && (
           <div className="cdpv-placeholder">
-            <Monitor size={28} aria-hidden="true" />
-            <span>
-              {snapshot.status === "paused"
-                ? "Viewing paused"
-                : snapshot.status === "connecting"
-                  ? "Connecting to browser…"
-                  : "Browser view unavailable"}
-            </span>
+            {recovery ? (
+              <CircleAlert size={28} aria-hidden="true" />
+            ) : (
+              <Monitor size={28} aria-hidden="true" />
+            )}
+            <strong>
+              {snapshot.status === "disconnected"
+                ? "Browser disconnected"
+                : snapshot.status === "error"
+                  ? snapshot.error?.kind === "connection"
+                    ? "Unable to connect"
+                    : "Unable to show browser"
+                  : empty
+                    ? "No tabs open"
+                    : snapshot.status === "paused"
+                      ? "Viewing paused"
+                      : snapshot.status === "connecting"
+                        ? "Connecting to browser…"
+                        : recovery
+                          ? "Browser view unavailable"
+                          : "Choose a tab to continue"}
+            </strong>
+            {snapshot.error && (
+              <span className="cdpv-placeholder-message" role="alert">
+                {snapshot.error.message}
+              </span>
+            )}
+            {empty && windowId !== undefined && (
+              <span className="cdpv-placeholder-message">
+                Open a page in this window, or reconnect after updating the
+                window scope.
+              </span>
+            )}
+            {(recovery || empty) && (
+              <div className="cdpv-recovery-actions">
+                {empty && interactive && windowId === undefined && (
+                  <Button
+                    type="button"
+                    className="cdpv-button cdpv-primary"
+                    disabled={!canCreate}
+                    onClick={() => createTab()}
+                  >
+                    <Plus size={16} aria-hidden="true" />
+                    {pending?.type === "create"
+                      ? "Creating tab…"
+                      : "Create new tab"}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  className="cdpv-button cdpv-action"
+                  onClick={() => reconnect()}
+                >
+                  <RotateCw size={16} aria-hidden="true" />
+                  Reconnect viewer
+                </Button>
+              </div>
+            )}
           </div>
         )}
+      </Tabs.Panel>
+      <div className="cdpv-sr-only" role="status" aria-live="polite">
+        {pending?.type === "create"
+          ? "Creating tab"
+          : pending
+            ? "Closing tab"
+            : snapshot.status}
+        {interactive
+          ? ". Press F8 to release remote keyboard focus."
+          : ". View only."}
       </div>
-      <div
-        className="cdpv-footer cdpv:flex cdpv:items-center cdpv:gap-2"
-        role="status"
-        aria-live="polite"
-      >
-        <span className="cdpv-dot" />
-        <span>{snapshot.status}</span>
-        <span className="cdpv-title">{selected?.title}</span>
-        <span>{interactive ? "Interactive" : "View only"}</span>
-        {interactive && <span>F8: release keyboard</span>}
-      </div>
-      {snapshot.error && (
-        <div className="cdpv-error" role="alert">
-          <CircleAlert size={16} aria-hidden="true" />
-          <span>{snapshot.error.message}</span>
-        </div>
-      )}
-    </section>
+    </Tabs.Root>
   );
 }
 
@@ -138,6 +271,7 @@ function NavigationToolbar({
   disabled: boolean;
 }) {
   const model = viewerScope.useModel();
+  const { address: addressElement } = useViewerElements();
   const addressId = viewerScope.useIdentity() + "-address";
   const address = viewerScope.useValue(model.address$);
   const edit = viewerScope.useCommand(model.editAddress$);
@@ -182,10 +316,12 @@ function NavigationToolbar({
         <RotateCw size={16} aria-hidden="true" />
       </Button>
       <input
+        ref={addressElement}
         id={addressId}
         type="text"
         className="cdpv-address"
         aria-label="Remote page address"
+        placeholder="Enter a URL"
         autoComplete="off"
         autoCapitalize="none"
         spellCheck={false}
@@ -194,9 +330,6 @@ function NavigationToolbar({
         onFocus={() => focus()}
         onBlur={() => blur()}
       />
-      <Button className="cdpv-button" type="submit" disabled={disabled}>
-        Go
-      </Button>
     </form>
   );
 }

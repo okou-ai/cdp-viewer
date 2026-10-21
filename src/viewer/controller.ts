@@ -8,11 +8,12 @@ import {
   validateConfiguration,
 } from "../cdp/errors";
 import { TargetDirectory } from "../cdp/targets";
+import { openTab } from "../cdp/tabs";
 import { InputSession } from "../input/session";
 import type { InputStop } from "../input/lifecycle";
 import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
-import type { ViewerModel } from "./model";
+import type { TabAction, ViewerModel } from "./model";
 
 interface Selection {
   targetId: string;
@@ -32,6 +33,8 @@ interface ControllerOptions {
   interactive?: boolean;
   onInputReset?: () => void;
   onCaret?: (point: Point) => void;
+  onTabCreated?: () => void;
+  onTabClosed?: (targetId: string) => void;
 }
 
 /** Lifetime is one mounted connection, never an endpoint-keyed global. */
@@ -47,6 +50,8 @@ export class ViewerController {
   private refreshing = false;
   private refreshWanted = false;
   private targetRevision = 0;
+  private selectionRevision = 0;
+  private mutatingTab = false;
   private paused: boolean;
 
   constructor(
@@ -81,6 +86,7 @@ export class ViewerController {
     )
       return;
     this.chosenOnce = true;
+    this.selectionRevision++;
     this.stopSelection();
     this.model.update({
       selectedTargetId: targetId,
@@ -119,9 +125,168 @@ export class ViewerController {
     }
   }
 
+  createTab(): void {
+    const source = this.selection;
+    const owner = source?.input?.owner;
+    const revision = this.selectionRevision;
+    const snapshot = this.model.getSnapshot();
+    if (
+      !this.canMutateTab() ||
+      (source
+        ? !source.sessionId || !owner
+        : this.options.windowId !== undefined ||
+          snapshot.targets.length > 0 ||
+          snapshot.status !== "unavailable" ||
+          (!!snapshot.error && snapshot.error.kind !== "target-unavailable"))
+    )
+      return;
+    const client = this.client!;
+    const directory = this.directory!;
+    const current = () =>
+      this.connected &&
+      !this.disposed &&
+      this.selectionRevision === revision &&
+      (!source ||
+        (this.isCurrent(source) &&
+          source.input?.owner?.document === owner?.document));
+    this.chosenOnce = true;
+    this.mutateTab(
+      { type: "create" },
+      async () => {
+        const targetId = await openTab(
+          client,
+          directory,
+          source?.sessionId
+            ? {
+                targetId: source.targetId,
+                sessionId: source.sessionId,
+              }
+            : null,
+          current,
+        );
+        if (!current()) return;
+        const targets = await directory.list();
+        if (!current()) return;
+        if (!targets.some((target) => target.id === targetId))
+          throw new CdpFault(
+            "tab",
+            "The new tab is no longer available in this scope.",
+          );
+        this.targetRevision++;
+        const created = targets.find((target) => target.id === targetId)!;
+        const latest = this.model.getSnapshot().targets;
+        this.model.update({
+          targets: latest.some((target) => target.id === targetId)
+            ? latest
+            : Object.freeze([...latest, created]),
+          error: null,
+        });
+        this.model.run(this.model.resetAddress$);
+        this.select(targetId);
+        this.options.onTabCreated?.();
+      },
+      current,
+    );
+  }
+
+  closeTab(targetId: string): void {
+    if (!this.canMutateTab()) return;
+    const snapshot = this.model.getSnapshot();
+    const index = snapshot.targets.findIndex(
+      (target) => target.id === targetId,
+    );
+    if (index < 0) return;
+    const selected = snapshot.selectedTargetId === targetId;
+    const revision = this.selectionRevision;
+    this.mutateTab({ type: "close", targetId }, async () => {
+      await this.directory!.assertMember(targetId);
+      if (this.disposed || !this.connected) return;
+      if (
+        !this.model
+          .getSnapshot()
+          .targets.some((target) => target.id === targetId)
+      )
+        return;
+      const result = await this.client!.request("Target.closeTarget", {
+        targetId,
+      });
+      if (this.disposed || !this.connected) return;
+      if (!result.success)
+        throw new CdpFault("tab", "The browser did not close the tab.");
+      this.targetRevision++;
+      this.options.onTabClosed?.(targetId);
+      const targets = Object.freeze(
+        this.model
+          .getSnapshot()
+          .targets.filter((target) => target.id !== targetId),
+      );
+      this.model.update({ targets, error: null });
+      if (this.model.getSnapshot().selectedTargetId === targetId) {
+        this.stopSelection();
+        this.model.update({
+          selectedTargetId: null,
+          status: "unavailable",
+          navigation: null,
+        });
+      }
+      if (selected && revision === this.selectionRevision) {
+        const next = targets[Math.min(index, targets.length - 1)];
+        if (next) this.select(next.id);
+        else {
+          this.stopSelection();
+          this.model.update({
+            selectedTargetId: null,
+            status: "unavailable",
+            navigation: null,
+          });
+        }
+      }
+      this.refresh();
+    });
+  }
+
+  private canMutateTab(): boolean {
+    return (
+      !!this.options.interactive &&
+      this.connected &&
+      !this.disposed &&
+      !this.mutatingTab
+    );
+  }
+
+  private mutateTab(
+    action: TabAction,
+    task: () => Promise<void>,
+    report: () => boolean = () => true,
+  ): void {
+    this.mutatingTab = true;
+    this.model.run(this.model.setTabAction$, action);
+    this.model.update({ error: null });
+    task()
+      .catch((error: unknown) => {
+        if (!this.disposed && this.connected && report())
+          this.model.update({
+            error: diagnostic(
+              error instanceof CdpFault &&
+                ["tab", "scope", "unsupported-capability"].includes(error.kind)
+                ? error
+                : new CdpFault(
+                    "tab",
+                    "The tab operation could not be completed. Check the browser before trying again.",
+                  ),
+            ),
+          });
+      })
+      .finally(() => {
+        this.mutatingTab = false;
+        if (!this.disposed) this.model.run(this.model.setTabAction$, null);
+      });
+  }
+
   close(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.model.run(this.model.setConnected$, false);
     this.lifetime.abort();
     this.stopSelection("disposed");
     this.sink.dispose();
@@ -141,16 +306,22 @@ export class ViewerController {
     client.onEvent(this.onEvent);
     client.onDisconnected((error) => {
       if (this.disposed) return;
+      const established = this.connected;
       this.connected = false;
+      this.model.run(this.model.setConnected$, false);
       this.lifetime.abort();
       this.stopSelection("disconnected");
-      this.model.update({ status: "disconnected", error: diagnostic(error) });
+      this.model.update({
+        status: established ? "disconnected" : "error",
+        error: diagnostic(error),
+      });
     });
     await client.opened;
     if (this.disposed) return;
     await client.request("Target.setDiscoverTargets", { discover: true });
     if (this.disposed) return;
     this.connected = true;
+    this.model.run(this.model.setConnected$, true);
     if (this.options.windowId !== undefined) {
       interval(() => this.refresh(), 2_000, { signal: this.lifetime.signal });
     }

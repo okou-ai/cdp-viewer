@@ -288,8 +288,10 @@ export class NativeInput {
       this.cancel();
       this.canvas
         .closest(".cdpv-root")
-        ?.querySelector<HTMLSelectElement>(".cdpv-toolbar select")
-        ?.focus();
+        ?.querySelector<HTMLElement>(
+          '[role="tab"][aria-selected="true"], .cdpv-new-tab',
+        )
+        ?.focus({ preventScroll: true });
       return;
     }
     const shortcut =

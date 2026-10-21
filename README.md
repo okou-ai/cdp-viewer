@@ -3,7 +3,7 @@
 A browser-native React viewer for existing Chrome DevTools Protocol browsers.
 It provides **live streaming, target selection, optional window filtering,
 and independent viewers**. Viewers are read-only by default. Enable `interactive`
-for mouse, keyboard, native text composition and remote navigation. Clipboard
+for mouse, keyboard, native text composition, remote navigation and tab creation/closure. Clipboard
 transfer and vendor adapters are not yet supported. Genuine macOS/Windows IME
 validation remains pending; see the [interaction support matrix](demo/interaction.md).
 
@@ -92,15 +92,16 @@ and connection without closing the remote browser or its tabs.
 
 ## API
 
-| Prop                    | Purpose                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------- |
-| `cdpUrl: string`        | Required browser-level WS(S) endpoint                                            |
-| `windowId?: number`     | Optional presentation/selection scope                                            |
-| `paused?: boolean`      | Release this viewer's current stream while retaining connection/selection        |
-| `interactive?: boolean` | Enable mouse, keyboard, native text input and page navigation; defaults to false |
-| `className`, `style`    | Host layout and instance-scoped theme customization                              |
-| `onStatusChange`        | Readonly semantic snapshot: status, page targets, selected ID, diagnostic        |
-| `onError`               | Fixed diagnostic category/message, excluding raw provider payloads               |
+| Prop                                          | Purpose                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `cdpUrl: string`                              | Required browser-level WS(S) endpoint                                            |
+| `windowId?: number`                           | Optional presentation/selection scope                                            |
+| `paused?: boolean`                            | Release this viewer's current stream while retaining connection/selection        |
+| `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
+| `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
+| `className`, `style`                          | Host layout and instance-scoped theme customization                              |
+| `onStatusChange`                              | Readonly semantic snapshot: status, page targets, selected ID, diagnostic        |
+| `onError`                                     | Fixed diagnostic category/message, excluding raw provider payloads               |
 
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
@@ -114,12 +115,14 @@ data; do not log or persist snapshots indiscriminately.
 ```
 
 Click the remote image to focus its native input proxy. Local toolbar and host
-fields retain their own input. **F8** releases remote keyboard focus to the page
-selector. Keyboard input follows Chromium's current focus, including automatic
+fields retain their own input. **F8** releases remote keyboard focus to the selected
+tab. Keyboard input follows Chromium's current focus, including automatic
 focus changes and focused frames. Composition stays in a stable local textarea
 and sends committed text once through CDP; candidate confirmation is distinct
 from a later remote Enter. Optional caret metadata does not block input.
-The navigation toolbar accepts absolute HTTP(S) addresses and supports reload and
+The tab strip scrolls horizontally and supports explicit tab selection. Interactive
+viewers add new/close actions. Enter in the address bar navigates to an absolute
+HTTP(S) address. The navigation toolbar supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).
 
 Each instance has its own socket, request IDs, timers, controller, private ccstate
@@ -139,6 +142,13 @@ is discarded and closed. No connection credentials are persisted by the library.
 
 ## Styling
 
+The Chrome-style controls include light and dark palettes. Appearance defaults to
+the host container's CSS `color-scheme`. Pass the host's existing preference as
+`colorScheme="light"`, `"dark"` or `"system"` to override it; `system` follows OS
+changes. Class-based host themes can pass their setting or declare `color-scheme`
+on the surrounding container. Changing appearance preserves the connection,
+selection and native input nodes. Each viewer can use a different override.
+
 Import `cdp-viewer/style.css` once. The package includes committed compiled prefixed Tailwind
 utilities and scoped component selectors, without global Preflight. It works in
 plain hosts and alongside conflicting unprefixed utility names.
@@ -146,6 +156,8 @@ plain hosts and alongside conflicting unprefixed utility names.
 Set instance-specific `--cdpv-background`, `--cdpv-foreground`, `--cdpv-muted`,
 `--cdpv-border`, `--cdpv-accent`, or `--cdpv-radius` variables through `style`.
 Default height is 28rem; set `style={{ height: "70vh" }}` for host layout.
+`--cdpv-tab-background`, `--cdpv-address-background` and `--cdpv-stage-background`
+customize the individual surfaces.
 Canvas decode/paint does not cause a React update for every frame.
 
 ## Validation and compatibility

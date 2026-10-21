@@ -4,6 +4,8 @@ import type { ViewerSnapshot } from "./types";
 
 export interface ViewerActions {
   select(targetId: string): void;
+  createTab(): void;
+  closeTab(targetId: string): void;
   navigate(action: "back" | "forward" | "reload" | { url: string }): void;
 }
 
@@ -11,6 +13,10 @@ interface AddressDraft {
   value: string;
   editing: boolean;
 }
+
+export type TabAction =
+  | { readonly type: "create" }
+  | { readonly type: "close"; readonly targetId: string };
 
 function createViewerSignals() {
   const internalSnapshot$ = state<ViewerSnapshot>(
@@ -25,11 +31,22 @@ function createViewerSignals() {
   const internalRevision$ = state(0);
   const actions$ = state<ViewerActions | null>(null);
   const draft$ = state<AddressDraft | null>(null);
+  const pendingTab$ = state<TabAction | null>(null);
+  const internalConnected$ = state(false);
+  const connected$ = computed((get) => get(internalConnected$));
+  const setConnected$ = command(({ set }, value: boolean) =>
+    set(internalConnected$, value),
+  );
+  const tabAction$ = computed((get) => get(pendingTab$));
+  const setTabAction$ = command(({ set }, action: TabAction | null) => {
+    set(pendingTab$, action);
+  });
   const snapshot$ = computed((get) => get(internalSnapshot$));
   const revision$ = computed((get) => get(internalRevision$));
   const address$ = computed((get) => {
     const draft = get(draft$);
-    const url = get(snapshot$).navigation?.url ?? "";
+    const remoteUrl = get(snapshot$).navigation?.url ?? "";
+    const url = remoteUrl === "about:blank" ? "" : remoteUrl;
     return draft ? draft.value : url;
   });
   const update$ = command(({ get, set }, patch: Partial<ViewerSnapshot>) => {
@@ -42,10 +59,15 @@ function createViewerSignals() {
     set(internalSnapshot$, next);
   });
   const bind$ = command(({ set }, actions: ViewerActions) => {
+    set(pendingTab$, null);
     set(actions$, actions);
   });
   const unbind$ = command(({ get, set }, actions: ViewerActions) => {
-    if (get(actions$) === actions) set(actions$, null);
+    if (get(actions$) === actions) {
+      set(actions$, null);
+      set(pendingTab$, null);
+      set(internalConnected$, false);
+    }
   });
   const reconnect$ = command(({ set }) => {
     set(internalRevision$, (value) => value + 1);
@@ -53,6 +75,10 @@ function createViewerSignals() {
   const select$ = command(({ get }, targetId: string) => {
     get(actions$)?.select(targetId);
   });
+  const createTab$ = command(({ get }) => get(actions$)?.createTab());
+  const closeTab$ = command(({ get }, targetId: string) =>
+    get(actions$)?.closeTab(targetId),
+  );
   const navigate$ = command(
     ({ get }, action: "back" | "forward" | "reload") => {
       get(actions$)?.navigate(action);
@@ -90,6 +116,12 @@ function createViewerSignals() {
     snapshot$,
     revision$,
     address$,
+    tabAction$,
+    connected$,
+    setConnected$,
+    setTabAction$,
+    createTab$,
+    closeTab$,
     update$,
     bind$,
     unbind$,

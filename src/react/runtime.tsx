@@ -18,6 +18,8 @@ import { viewerScope } from "./context";
 interface Elements {
   canvas: RefObject<HTMLCanvasElement | null>;
   proxy: RefObject<HTMLTextAreaElement | null>;
+  address: RefObject<HTMLInputElement | null>;
+  tabs: RefObject<HTMLDivElement | null>;
 }
 const ElementsContext = createContext<Elements | null>(null);
 
@@ -43,7 +45,14 @@ export function ViewerRuntime({
   const revision = viewerScope.useValue(model.revision$);
   const canvas = useRef<HTMLCanvasElement>(null);
   const proxy = useRef<HTMLTextAreaElement>(null);
-  const elements = useMemo(() => ({ canvas, proxy }), [canvas, proxy]);
+  const address = useRef<HTMLInputElement>(null);
+  const tabs = useRef<HTMLDivElement>(null);
+  const restoreTabFocus = useRef(false);
+  const closingFocusTarget = useRef<string | null>(null);
+  const elements = useMemo(
+    () => ({ canvas, proxy, address, tabs }),
+    [canvas, proxy, address, tabs],
+  );
   const native = useRef<NativeInput | null>(null);
   const runtime = useRef<ViewerController | null>(null);
   const inViewport = useRef(true);
@@ -75,6 +84,15 @@ export function ViewerRuntime({
           interactive,
           onInputReset: () => native.current?.reset(),
           onCaret: (point) => native.current?.place(point),
+          onTabCreated: () => address.current?.focus({ preventScroll: true }),
+          onTabClosed: (targetId) => {
+            restoreTabFocus.current =
+              closingFocusTarget.current === targetId &&
+              (document.activeElement === document.body ||
+                document.activeElement?.getAttribute("data-close-target") ===
+                  targetId);
+            closingFocusTarget.current = null;
+          },
         },
       );
     } catch (error) {
@@ -84,6 +102,14 @@ export function ViewerRuntime({
     runtime.current = controller;
     const actions: ViewerActions = {
       select: (id) => controller.select(id),
+      createTab: () => controller.createTab(),
+      closeTab: (id) => {
+        closingFocusTarget.current =
+          document.activeElement?.getAttribute("data-close-target") === id
+            ? id
+            : null;
+        controller.closeTab(id);
+      },
       navigate: (action) => controller.input?.navigate(action),
     };
     model.run(model.bind$, actions);
@@ -114,6 +140,29 @@ export function ViewerRuntime({
       if (runtime.current === controller) runtime.current = null;
     };
   }, [cdpUrl, windowId, revision, model, interactive]);
+  useLayoutEffect(() => {
+    const list = tabs.current;
+    const selected = list?.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]',
+    );
+    if (list && selected) {
+      const item = selected.parentElement!.getBoundingClientRect();
+      const strip = list.getBoundingClientRect();
+      if (item.left < strip.left) list.scrollLeft += item.left - strip.left;
+      else if (item.right > strip.right)
+        list.scrollLeft += item.right - strip.right;
+    }
+    if (restoreTabFocus.current) {
+      restoreTabFocus.current = false;
+      (
+        selected ??
+        list?.querySelector<HTMLElement>('[role="tab"]') ??
+        list?.parentElement?.querySelector<HTMLElement>(
+          '[aria-label="New tab"]',
+        )
+      )?.focus({ preventScroll: true });
+    }
+  }, [snapshot.selectedTargetId, snapshot.targets]);
   useLayoutEffect(() => {
     if (!interactive || !canvas.current || !proxy.current) return;
     const input = new NativeInput(
