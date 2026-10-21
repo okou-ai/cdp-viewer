@@ -154,7 +154,7 @@ test("installed viewers stream separate windows, detect a real moved tab, and is
     await expect(a).toHaveAttribute("data-status", "streaming");
     await expect(b).toHaveAttribute("data-status", "streaming");
     await expect(a).toHaveCSS("display", "flex");
-    await expect(a.locator(".cdpv-toolbar")).toHaveCSS("column-gap", "4px");
+    await expect(a.locator(".cdpv-toolbar")).toHaveCSS("column-gap", "6px");
     await expect(page.locator("#host-prefix-probe")).toHaveCSS(
       "display",
       "inline",
