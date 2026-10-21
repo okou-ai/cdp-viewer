@@ -380,6 +380,10 @@ export class ViewerController {
         }
       } catch (error) {
         if (!this.disposed && this.connected) {
+          if (revision !== this.targetRevision) {
+            this.refreshWanted = true;
+            continue;
+          }
           this.stopSelection();
           this.model.update({
             targets: Object.freeze([]),

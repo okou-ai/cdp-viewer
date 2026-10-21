@@ -87,6 +87,7 @@ test("real tab actions preserve window placement, later selection and stable nat
       "data-target-id",
       first.targetId,
     );
+    await expect(a).toHaveAttribute("data-status", "streaming");
     const targetId = await selected.getAttribute("data-target-id");
     expect(
       (
@@ -258,7 +259,13 @@ for (const colorScheme of ["light", "dark"] as const) {
       holdCreate = false;
       release!();
       await expect(a.getByRole("tab")).toHaveCount(4);
+      await expect(a.getByRole("tab", { selected: true })).not.toHaveAttribute(
+        "data-target-id",
+        first.targetId,
+      );
       await expect(a).toHaveAttribute("data-status", "streaming");
+      await expect(a.getByLabel("Remote page address")).toHaveValue("");
+      await expect(a.getByLabel("Remote page address")).toBeFocused();
       await a.screenshot({ path: info.outputPath("12-new-blank.png") });
       await a.locator(`[data-target-id="${first.targetId}"]`).click();
       for (let index = 1; index <= 9; index++)
@@ -298,6 +305,12 @@ for (const colorScheme of ["light", "dark"] as const) {
       await backend.session.send("Target.closeTarget", { targetId: lost! });
       await expect(a).toHaveAttribute("data-status", "unavailable");
       await expect(a.getByRole("tab", { selected: true })).toHaveCount(0);
+      await expect(
+        a.locator(`[data-target-id="${first.targetId}"]`),
+      ).toBeVisible();
+      await expect(
+        a.getByText("Choose a tab to continue", { exact: true }),
+      ).toBeVisible();
       await a.screenshot({ path: info.outputPath("13-selection-lost.png") });
       await a.locator(`[data-target-id="${first.targetId}"]`).click();
       await expect(a).toHaveAttribute("data-status", "streaming");
