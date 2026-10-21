@@ -400,7 +400,9 @@ export class InputSession {
     )
       this.invalidateClipboard();
     this.queue.enqueue((job) => {
-      this.setError(null);
+      // Releasing the clipboard shortcut's modifier is cleanup, not a new
+      // successful edit. Preserve any copy/paste diagnostic until a new action.
+      if (key.type !== "keyUp") this.setError(null);
       const pressed = this.lifecycle.pressedKey(job.owner, key);
       if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
       job.dispatch("Input.dispatchKeyEvent", key, () => {

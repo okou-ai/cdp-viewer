@@ -89,11 +89,12 @@ export async function readSelection(
     expression: captureSelection,
     returnByValue: false,
   });
+  // The queue already released all handles on an exceptional result.
+  if (snapshot.exceptionDetails) throw new Error("Selection unavailable");
   const objectId = snapshot.result.objectId;
   try {
     check();
-    if (snapshot.exceptionDetails || !objectId)
-      throw new Error("Selection unavailable");
+    if (!objectId) throw new Error("Selection unavailable");
     const result = await job.request("Runtime.callFunctionOn", {
       objectId,
       functionDeclaration: "function() { return this.read(); }",

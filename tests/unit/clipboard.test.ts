@@ -217,6 +217,26 @@ it("settles a timed-out selection and releases a handle arriving after its deadl
   expect(error).not.toHaveBeenCalled();
 });
 
+it("leaves exceptional result handles with the queue's cleanup owner", async () => {
+  const { input, socket, held, hold, error } = await fixture();
+  hold("Runtime.evaluate");
+  const read = input.selection(input.owner!);
+  const rejected = expect(read).rejects.toThrow("Selection unavailable");
+  await vi.waitFor(() => expect(held).toHaveLength(1));
+  socket.reply(held[0]!, {
+    result: { type: "object", objectId: "exception-result" },
+    exceptionDetails: {
+      exception: { type: "object", objectId: "exception-detail" },
+    },
+  });
+  await rejected;
+  const released = socket.commands
+    .filter((command) => command.method === "Runtime.releaseObject")
+    .map((command) => command.params!.objectId);
+  expect(released).toEqual(["exception-result", "exception-detail"]);
+  expect(error).not.toHaveBeenCalled();
+});
+
 it("keeps recovery text private and isolated from status snapshots and sibling models", () => {
   const first = createViewerModel();
   const second = createViewerModel();
@@ -233,4 +253,21 @@ it("keeps recovery text private and isolated from status snapshots and sibling m
   first.transition({ type: "reset" });
   expect(first.read(first.clipboard$)).toBeNull();
   unsubscribe();
+});
+
+it("preserves clipboard diagnostics through shortcut release until a new input action", async () => {
+  const { input, socket, error } = await fixture();
+  input.clipboardError("Clipboard text exceeds the supported size.");
+  input.key({ type: "keyUp", key: "Control", code: "ControlLeft" });
+  await vi.waitFor(() =>
+    expect(socket.commands).toContainEqual(
+      expect.objectContaining({ method: "Input.dispatchKeyEvent" }),
+    ),
+  );
+  expect(error).toHaveBeenCalledTimes(1);
+  expect(error.mock.calls[0]![0]).toMatchObject({
+    message: "Clipboard text exceeds the supported size.",
+  });
+  input.text("next owned input");
+  await vi.waitFor(() => expect(error).toHaveBeenLastCalledWith(null));
 });
