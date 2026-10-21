@@ -196,7 +196,7 @@ test("delayed tab creation preserves a later host input focus", async ({
   }
 });
 
-test("tab discovery preserves manual scrolling and reveals a new selection", async ({
+test("tab discovery preserves manual scrolling while selection and focus stay visible", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -237,12 +237,29 @@ test("tab discovery preserves manual scrolling and reveals a new selection", asy
     expect(await strip.evaluate((element) => element.scrollLeft)).toBe(
       scrolled,
     );
+    await viewer.getByRole("img", { name: "Live browser view" }).click();
+    const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
+    await page.keyboard.press("F8");
+    await expect(firstTab).toBeFocused();
+    await expect(firstTab).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
     await firstTab.focus();
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
     const lastTab = viewer.getByRole("tab").last();
     await expect(lastTab).toHaveAttribute("aria-selected", "true");
     await expect(lastTab).toBeInViewport({ ratio: 1 });
+    await expect(viewer).toHaveAttribute("data-status", "streaming");
+    await strip.evaluate((element) => {
+      element.scrollLeft = 0;
+    });
+    await expect(lastTab).not.toBeInViewport();
+    await viewer.locator(".cdpv-close").first().click();
+    await expect(viewer.getByRole("tab")).toHaveCount(3);
+    await expect(lastTab).toHaveAttribute("aria-selected", "true");
+    await expect(lastTab).toBeFocused();
+    await expect(lastTab).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
   } finally {
     await backend.close();
   }

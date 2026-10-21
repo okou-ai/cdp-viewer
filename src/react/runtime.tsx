@@ -23,6 +23,14 @@ interface Elements {
 }
 const ElementsContext = createContext<Elements | null>(null);
 
+function revealTab(list: HTMLDivElement, tab: HTMLElement): void {
+  const item = tab.parentElement!.getBoundingClientRect();
+  const strip = list.getBoundingClientRect();
+  if (item.left < strip.left) list.scrollLeft += item.left - strip.left;
+  else if (item.right > strip.right)
+    list.scrollLeft += item.right - strip.right;
+}
+
 export function useViewerElements(): Elements {
   const elements = useContext(ElementsContext);
   if (!elements)
@@ -155,16 +163,21 @@ export function ViewerRuntime({
   }, [cdpUrl, windowId, revision, model, interactive]);
   useLayoutEffect(() => {
     const list = tabs.current;
+    if (!list) return;
+    const focused = (event: FocusEvent) => {
+      const tab = event.target;
+      if (tab instanceof HTMLElement && tab.getAttribute("role") === "tab")
+        revealTab(list, tab);
+    };
+    list.addEventListener("focusin", focused);
+    return () => list.removeEventListener("focusin", focused);
+  }, [tabs]);
+  useLayoutEffect(() => {
+    const list = tabs.current;
     const selected = list?.querySelector<HTMLElement>(
       '[role="tab"][aria-selected="true"]',
     );
-    if (list && selected) {
-      const item = selected.parentElement!.getBoundingClientRect();
-      const strip = list.getBoundingClientRect();
-      if (item.left < strip.left) list.scrollLeft += item.left - strip.left;
-      else if (item.right > strip.right)
-        list.scrollLeft += item.right - strip.right;
-    }
+    if (list && selected) revealTab(list, selected);
   }, [snapshot.selectedTargetId]);
   useLayoutEffect(() => {
     if (restoreTabFocus.current) {
