@@ -193,3 +193,68 @@ it("cancels native composition and rejects orphaned composition input", () => {
     "ordinary",
   );
 });
+
+it("deduplicates preedit updates and excludes already consumed local text and selection suffixes", () => {
+  const owner = new InputLifecycle("owned-session").owner;
+  const composition = new NativeComposition();
+  composition.start(owner, "中", 1, 1);
+  expect(composition.update("ni", owner)).toEqual({
+    text: "ni",
+    selectionStart: 2,
+    selectionEnd: 2,
+  });
+  expect(composition.input("中ni", owner, true, true).preedit).toBeNull();
+  expect(composition.input("中nihao", owner, true, true).preedit?.text).toBe(
+    "nihao",
+  );
+  expect(composition.update("", owner)?.text).toBe("");
+  expect(composition.update("", owner)).toBeNull();
+  expect(
+    composition.update("stale", new InputLifecycle("other").owner),
+  ).toBeNull();
+  composition.start(owner, "leftOLDright", 4, 7);
+  expect(
+    composition.input("leftniright", owner, true, true, 6, 6).preedit?.text,
+  ).toBe("ni");
+  expect(composition.end("你", owner).text).toBe("你");
+  expect(composition.input("你", owner, true, false).text).toBe("");
+});
+
+it("mirrors selection changes within preedit without resending identical state", () => {
+  const owner = new InputLifecycle("owned-session").owner;
+  const composition = new NativeComposition();
+  composition.start(owner, "prefixsuffix", 6, 6);
+  expect(
+    composition.input("prefixnihaosuffix", owner, true, true, 7, 9).preedit,
+  ).toEqual({
+    text: "nihao",
+    selectionStart: 1,
+    selectionEnd: 3,
+  });
+  expect(
+    composition.input("prefixnihaosuffix", owner, false, false, 7, 9).preedit,
+  ).toBeNull();
+  expect(
+    composition.input("prefixnihaosuffix", owner, false, false, 8, 8).preedit,
+  ).toEqual({
+    text: "nihao",
+    selectionStart: 2,
+    selectionEnd: 2,
+  });
+});
+
+it("retains composition cleanup until its matching acknowledgement and only in the original document", () => {
+  const lifecycle = new InputLifecycle("owned-session");
+  const owner = lifecycle.owner;
+  const first = lifecycle.compose(owner);
+  const second = lifecycle.compose(owner);
+  lifecycle.finishComposition(owner, first);
+  expect(lifecycle.composition(owner)).toBe(second);
+  expect(lifecycle.transition("blur")!.composition).toBe(true);
+  expect(lifecycle.retainsDocument(owner)).toBe(true);
+  const current = lifecycle.owner;
+  lifecycle.compose(current);
+  lifecycle.finishComposition(owner, second);
+  expect(lifecycle.transition("document-lost")!.composition).toBe(false);
+  expect(lifecycle.retainsDocument(current)).toBe(false);
+});

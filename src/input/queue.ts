@@ -2,6 +2,7 @@ import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import type { CdpClient } from "../cdp/client";
 import { isRecord } from "../cdp/errors";
 import { releaseRuntimeObjects } from "../cdp/runtime-objects";
+import type { Preedit } from "./composition";
 import type { InputLifecycle, InputOwner } from "./lifecycle";
 import type { Point } from "./geometry";
 
@@ -18,6 +19,7 @@ type InputMethod =
 export interface InputJob {
   readonly owner: InputOwner;
   readonly text?: string;
+  preedit?: Preedit;
   wheel?: Wheel;
   request<M extends keyof ProtocolMapping.Commands>(
     method: M,
@@ -87,6 +89,25 @@ export class InputQueue {
     this.add(run, { text });
   }
 
+  preedit(value: Preedit, run: QueuedJob["run"]): void {
+    if (!this.lifecycle.available) return;
+    if (value.text.length > 64 * 1024) {
+      this.failed();
+      return;
+    }
+    const tail = this.jobs.at(-1);
+    if (tail?.preedit !== undefined && this.lifecycle.owns(tail.owner)) {
+      tail.preedit = value;
+      return;
+    }
+    this.add(run, { preedit: value });
+  }
+
+  discardPreedit(): void {
+    const tail = this.jobs.at(-1);
+    if (tail?.preedit && this.lifecycle.owns(tail.owner)) this.jobs.pop();
+  }
+
   wheel(
     wheel: Wheel,
     run: QueuedJob["run"],
@@ -140,6 +161,7 @@ export class InputQueue {
     options: {
       move?: boolean;
       text?: string;
+      preedit?: Preedit;
       wheel?: Wheel;
       prepare?: NonNullable<QueuedJob["prepare"]>;
       barrier?: boolean;

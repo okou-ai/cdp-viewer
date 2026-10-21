@@ -59,6 +59,7 @@ export class InputSession {
   private caretJob: InputJob | null = null;
   private caretReading = false;
   private caretVersion = 0;
+  private preeditSupported = true;
 
   constructor(
     private readonly client: CdpClient,
@@ -109,6 +110,7 @@ export class InputSession {
     if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
     this.invalidateCaret();
     this.queue.clear();
+    if (cleanup.composition) this.cancelComposition(cleanup.owner);
     for (const key of cleanup.keys)
       this.client.notify(
         "Input.dispatchKeyEvent",
@@ -298,9 +300,77 @@ export class InputSession {
     if (!this.lifecycle.owns(owner)) return;
     this.queue.text(text, (job) => {
       this.setError(null);
-      job.dispatch("Input.insertText", { text: job.text! });
+      const token = this.lifecycle.composition(job.owner);
+      job.dispatch("Input.insertText", { text: job.text! }, () =>
+        this.lifecycle.finishComposition(job.owner, token),
+      );
       this.refreshCaret(job);
     });
+  }
+
+  preedit(
+    text: string,
+    owner: InputOwner,
+    selectionStart = text.length,
+    selectionEnd = selectionStart,
+  ): void {
+    if (!this.preeditSupported || !this.lifecycle.owns(owner)) return;
+    this.queue.preedit({ text, selectionStart, selectionEnd }, async (job) => {
+      if (!this.preeditSupported) return;
+      const value = job.preedit!;
+      const token = value.text
+        ? this.lifecycle.compose(job.owner)
+        : this.lifecycle.composition(job.owner);
+      try {
+        await job.request("Input.imeSetComposition", value);
+        if (!value.text) this.lifecycle.finishComposition(job.owner, token);
+        this.refreshCaret(job);
+      } catch (error) {
+        if (error instanceof CdpFault && error.code === -32601) {
+          this.preeditSupported = false;
+          this.lifecycle.finishComposition(job.owner, token);
+        } else throw error;
+      } finally {
+        // Finish original-document cleanup before the queue admits a new owner.
+        if (
+          !this.lifecycle.owns(job.owner) &&
+          this.lifecycle.retainsDocument(job.owner)
+        )
+          this.cancelComposition(job.owner);
+      }
+    });
+  }
+
+  commitComposition(text: string, owner: InputOwner): void {
+    if (!this.lifecycle.owns(owner)) return;
+    // The final result replaces the composing range; an unsent preview is obsolete.
+    this.queue.discardPreedit();
+    if (text) {
+      this.text(text, owner);
+      return;
+    }
+    this.queue.enqueue(async (job) => {
+      const token = this.lifecycle.composition(job.owner);
+      if (!token) return;
+      await job.request("Input.imeSetComposition", {
+        text: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      });
+      this.lifecycle.finishComposition(job.owner, token);
+    });
+  }
+
+  private cancelComposition(owner: InputOwner): void {
+    this.client.notify(
+      "Input.imeSetComposition",
+      {
+        text: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      },
+      owner.sessionId,
+    );
   }
 
   key(key: Key): void {

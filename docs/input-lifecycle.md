@@ -48,6 +48,13 @@ Coalescing must preserve ordering and observable intent. A dispatched payload is
 immutable; later work must not change a request that is already awaiting
 acknowledgement.
 
+Remote composition is transient owned editing state. Keep preedit updates,
+final commits and cancellation ordered, and retain cleanup ownership until the
+matching acknowledgement. A late acknowledgement cannot clear a later composing
+generation. Release an old composing range only while its original document
+exists, before the executor admits replacement-owner input. Use the browser's
+native composition range rather than guessing committed-text deletions.
+
 Optional background work must have a captured owner, bounded concurrency and a
 way to discard stale results. It must not authorize a write or overwrite newer
 state. Keep it off the critical path when correctness does not require it.

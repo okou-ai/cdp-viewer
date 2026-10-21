@@ -39,6 +39,200 @@ async function mount() {
 }
 
 describe("owned remote input", () => {
+  it("coalesces only unsent preedit and commits after the acknowledged composition", async () => {
+    const { browser, controller, socket } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    browser.holdMethod = "Input.imeSetComposition";
+    input.preedit("n", owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.preedit("ni", owner);
+    input.preedit("nihao", owner);
+    const first = browser.heldCommands[0]!;
+    first.socket.reply(first.command);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+    input.commitComposition("你好", owner);
+    expect(
+      socket.commands.filter((c) => c.method === "Input.insertText"),
+    ).toHaveLength(0);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[1]!;
+    held.socket.reply(held.command);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(1),
+    );
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.imeSetComposition")
+        .map((c) => c.params!.text),
+    ).toEqual(["n", "nihao"]);
+    expect(
+      socket.commands.find((c) => c.method === "Input.insertText")!.params,
+    ).toEqual({ text: "你好" });
+  });
+
+  it("drops an unsent preedit burst when the final commit can replace the in-flight range", async () => {
+    const { browser, controller, socket, model } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    browser.holdMethod = "Input.imeSetComposition";
+    input.preedit("n", owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    for (let index = 0; index < 200; index++)
+      input.preedit(`ni${index}`, owner);
+    input.commitComposition("你", owner);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(1),
+    );
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.imeSetComposition")
+        .map((c) => c.params!.text),
+    ).toEqual(["n"]);
+    expect(
+      socket.commands.find((c) => c.method === "Input.insertText")!.params,
+    ).toEqual({ text: "你" });
+    expect(model.getSnapshot().error).toBeNull();
+  });
+
+  it("falls back after a definite unsupported composition command without losing the final commit", async () => {
+    const { browser, controller, model, socket } = await mount();
+    const input = controller.input!;
+    browser.holdMethod = "Input.imeSetComposition";
+    input.preedit("ni", input.owner!);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.commitComposition("你", input.owner!);
+    const held = browser.heldCommands[0]!;
+    browser.holdMethod = null;
+    held.socket.reject(held.command, -32601);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(1),
+    );
+    input.preedit("next", input.owner!);
+    input.commitComposition("好", input.owner!);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(2),
+    );
+    expect(
+      socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
+    ).toHaveLength(1);
+    expect(model.getSnapshot().error).toBeNull();
+  });
+
+  it("does not let a delayed final acknowledgement release the next composition", async () => {
+    const { browser, controller, socket } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    input.preedit("ni", owner);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
+      ).toHaveLength(1),
+    );
+    browser.holdMethod = "Input.insertText";
+    input.commitComposition("你", owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.preedit("hao", owner);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
+      ).toHaveLength(2),
+    );
+    const held = browser.heldCommands[0]!;
+    browser.holdMethod = null;
+    held.socket.reply(held.command);
+    input.key({ type: "keyDown", key: "Shift", code: "ShiftLeft" });
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.some((c) => c.method === "Input.dispatchKeyEvent"),
+      ).toBe(true),
+    );
+    input.blur();
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.imeSetComposition")
+        .map((c) => c.params!.text),
+    ).toEqual(["ni", "hao", ""]);
+  });
+
+  it("discards queued text after an uncertain composition failure instead of falling back or replaying", async () => {
+    const { browser, controller, socket, model } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    browser.holdMethod = "Input.imeSetComposition";
+    input.preedit("ni", owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.commitComposition("你", owner);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reject(held.command, -32000);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().error?.kind).toBe("input"),
+    );
+    expect(
+      socket.commands.filter((c) => c.method === "Input.insertText"),
+    ).toHaveLength(0);
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.imeSetComposition")
+        .map((c) => c.params!.text),
+    ).toEqual(["ni", ""]);
+    expect(input.owner).not.toBe(owner);
+  });
+
+  it.each(["blur", "document-lost"] as const)(
+    "cleans delayed preedit only in its retained document after %s",
+    async (reason) => {
+      const { browser, controller, socket } = await mount();
+      const input = controller.input!;
+      const owner = input.owner!;
+      browser.holdMethod = "Input.imeSetComposition";
+      input.preedit("old", owner);
+      await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+      input.commitComposition("must not arrive", owner);
+      if (reason === "blur") input.blur();
+      else
+        input.event({
+          method: "Runtime.executionContextsCleared",
+          params: {},
+          sessionId: input.sessionId,
+        });
+      input.preedit("replacement", input.owner!);
+      browser.holdMethod = null;
+      const held = browser.heldCommands[0]!;
+      held.socket.reply(held.command);
+      await vi.waitFor(() =>
+        expect(
+          socket.commands
+            .filter((c) => c.method === "Input.imeSetComposition")
+            .at(-1)?.params!.text,
+        ).toBe("replacement"),
+      );
+      const updates = socket.commands
+        .filter((c) => c.method === "Input.imeSetComposition")
+        .map((c) => c.params!.text);
+      expect(updates).toEqual(
+        reason === "blur"
+          ? ["old", "", "", "replacement"]
+          : ["old", "replacement"],
+      );
+      expect(
+        socket.commands.filter((c) => c.method === "Input.insertText"),
+      ).toHaveLength(0);
+    },
+  );
+
   describe.each(["Runtime.evaluate"] as const)(
     "%s result ownership",
     (method) => {
