@@ -74,18 +74,25 @@ pointer cancellation stops the drag at its current size. The sliders remain
 available for precise changes. Resizing a preview keeps its live viewer and input
 nodes and only changes local presentation.
 
-| Public prop      | Playground surface                             | When it changes                                                         |
-| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `cdpUrl`         | Masked connection bar                          | Connect or Apply & connect                                              |
-| `windowId`       | Connection options                             | Connect or Apply & connect; blank means omitted                         |
-| `extensions`     | Optional adapter checkboxes                    | Connect or Apply & connect                                              |
-| `paused`         | Pause stream / Resume stream                   | Immediately, without replacing the connection                           |
-| `interactive`    | Control mode                                   | Immediately; restarts this viewer using its applied connection settings |
-| `colorScheme`    | Appearance & layout → Viewer theme             | Immediately; Inherit page omits the prop, while System follows the OS   |
-| `style`          | Height, width, corner radius and custom accent | Immediately; adjusts the local component, not the remote viewport       |
-| `className`      | Framed presentation preset                     | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
-| `onStatusChange` | State & events                                 | Always observed while connected                                         |
-| `onError`        | State & events                                 | Always observed while connected                                         |
+| Public prop              | Playground surface                             | When it changes                                                         |
+| ------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `cdpUrl`                 | Masked connection bar                          | Connect or Apply & connect                                              |
+| `windowId`               | Connection options                             | Connect or Apply & connect; blank means omitted                         |
+| `extensions`             | Optional adapter checkboxes                    | Connect or Apply & connect                                              |
+| `paused`                 | Pause stream / Resume stream                   | Immediately, without replacing the connection                           |
+| `interactive`            | Control mode                                   | Immediately; restarts this viewer using its applied connection settings |
+| `colorScheme`            | Appearance & layout → Viewer theme             | Immediately; Inherit page omits the prop, while System follows the OS   |
+| `style`                  | Height, width, corner radius and custom accent | Immediately; adjusts the local component, not the remote viewport       |
+| `className`              | Framed presentation preset                     | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
+| `onStatusChange`         | State & events                                 | Always observed while connected                                         |
+| `onError`                | State & events                                 | Always observed while connected                                         |
+| `windowSizeSync`         | Browser menu / controlled usage guide          | Omitted in the playground so each viewer's menu owns its mode           |
+| `onWindowSizeSyncChange` | Controlled usage guide                         | The host accepts a requested mode by updating its controlled prop       |
+
+The address-bar menu offers **Do not sync automatically**, **Sync once on opening**,
+**Sync continuously** and one combined size/DPR **Sync now** action. The playground
+uses menu-owned state. The [controlled usage example](../README.md#display-adaptation)
+shows how a host supplies `windowSizeSync` and accepts `onWindowSizeSyncChange`.
 
 The demo initially enables interaction, while the library's default remains
 view-only. Changing control mode creates a fresh viewer generation, using the last

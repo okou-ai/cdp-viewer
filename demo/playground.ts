@@ -12,6 +12,8 @@ export const propGuide = {
   windowId: "Connection options",
   paused: "Pause / resume",
   interactive: "Control mode",
+  windowSizeSync: "Browser menu / controlled usage guide",
+  onWindowSizeSyncChange: "Controlled usage guide",
   extensions: "Connection options",
   colorScheme: "Viewer theme",
   className: "Framed presentation preset",
