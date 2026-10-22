@@ -1,4 +1,5 @@
 import { chromium } from "@playwright/test";
+import type { Browser } from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
@@ -85,11 +86,10 @@ export async function serveConsumer(
   };
 }
 
-export async function launchBackend(profile: string, origin: string) {
-  await mkdir(profile, { recursive: true });
+function browserOptions(origin: string, headless: boolean) {
   const extension = fileURLToPath(new URL("./extension", import.meta.url));
-  const context = await chromium.launchPersistentContext(profile, {
-    headless: true,
+  return {
+    headless,
     // Extension support requires Chromium's new headless mode, not headless shell.
     // https://playwright.dev/docs/chrome-extensions
     channel: "chromium",
@@ -102,7 +102,15 @@ export async function launchBackend(profile: string, origin: string) {
       `--disable-extensions-except=${extension}`,
       `--load-extension=${extension}`,
     ],
-  });
+  };
+}
+
+export async function launchBackend(profile: string, origin: string) {
+  await mkdir(profile, { recursive: true });
+  const context = await chromium.launchPersistentContext(
+    profile,
+    browserOptions(origin, true),
+  );
   try {
     const endpoint = await waitForDebuggerEndpoint(
       profile,
@@ -119,6 +127,37 @@ export async function launchBackend(profile: string, origin: string) {
     };
   } catch (error) {
     await context.close();
+    throw error;
+  }
+}
+
+/** Inspect an owned browser without Playwright's per-page focus emulation. */
+export async function launchNativeBackend(origin: string, headless = true) {
+  const owner = await chromium.launchServer(browserOptions(origin, headless));
+  let inspection: Browser | undefined;
+  const close = async () => {
+    try {
+      await inspection?.close();
+    } finally {
+      await owner.close();
+    }
+  };
+  try {
+    const profile = owner
+      .process()
+      .spawnargs.find((arg) => arg.startsWith("--user-data-dir="));
+    if (!profile) throw new Error("Owned Chromium has no profile directory.");
+    const endpoint = await waitForDebuggerEndpoint(
+      profile.slice("--user-data-dir=".length),
+      AbortSignal.timeout(5_000),
+    );
+    inspection = await chromium.connectOverCDP(endpoint, { noDefaults: true });
+    const context = inspection.contexts()[0];
+    if (!context) throw new Error("Owned Chromium has no default context.");
+    const session = await inspection.newBrowserCDPSession();
+    return { context, session, endpoint, close };
+  } catch (error) {
+    await close();
     throw error;
   }
 }

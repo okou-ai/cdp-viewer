@@ -1,4 +1,44 @@
-# Guarded adjacent-input experiment
+# Manual browser experiments
+
+These opt-in experiments run through explicit configurations, outside the normal
+browser correctness suite and default CI.
+
+## Window isolation capability probe
+
+Verify one owned browser endpoint with two real windows using direct CDP and
+installed public viewers. This checks key/text/pointer routing, text during
+bidirectional tab activation, and sibling input/pixel progress while one real
+reply is held. It is separate from the guarded executor experiments below.
+
+Run from the repository root with an immutable pushed source revision:
+
+```sh
+CDP_VIEWER_SOURCE_SHA=<full-40-character-sha> pnpm exec playwright test --config tests/experiments/window-isolation.config.ts
+```
+
+The manual config reuses the normal consumer setup and browser settings. It
+selects only `windows.spec.ts`, retains the normal case timeout and writes local
+synthetic `test-results/window-isolation/**/window-isolation.json` receipts.
+The default CI does not run these scenarios or upload their receipts.
+
+For native foreground/activation validation, use the direct scenario headed.
+On Linux, with Xvfb and Openbox installed, own the temporary display and window
+manager for this invocation:
+
+```sh
+CDP_VIEWER_SOURCE_SHA=<full-40-character-sha> xvfb-run -a sh -c '
+  openbox >/dev/null 2>&1 &
+  pnpm exec playwright test --config tests/experiments/window-isolation.config.ts --headed --grep "cdp sessions"
+'
+```
+
+The remote browser uses its default context with `noDefaults: true` so Playwright
+does not force page focus. Record native window focus separately from selected
+tabs and DOM focus. Virtual X11 evidence does not establish physical
+macOS/Windows input/IME or live Browser Use service routing. Keep dated findings
+and environment-specific conclusions in issues/PRs, not this guide.
+
+## Guarded adjacent-input experiment
 
 This opt-in evaluation compares the independently installed public interactive
 viewer with test-only executors close to an owned Chromium: the narrow

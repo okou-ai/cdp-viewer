@@ -76,6 +76,30 @@ Check transitions separately by moving a selected target between windows with
 queued or held input and late results or cleanup. Stable-window concurrency
 alone does not establish correctness during an in-flight window handover.
 
+The opt-in [window capability probe](../tests/experiments/README.md#window-isolation-capability-probe)
+distinguishes direct CDP sessions from installed public viewers. It provides
+manual capability evidence outside default CI. Normal project regressions remain
+in the browser and unit suites. Direct checks overlap text, keys and pointer
+dispatch across windows and continue text input during another window's tab
+activation. Public checks cover sibling wheel queues and separate-client
+keyboard/text input. A held real reply establishes sibling input and painting
+progress. A single host document's physical keyboard focus is separate from
+these remote operation lanes.
+
+Remove any automation framework's remote-page focus emulation before native
+focus acceptance. The native-focus fixture inspects the owned default context
+with `noDefaults: true`. A headed browser alone is insufficient: verify that
+unselected tabs are not forced focused, and record DOM focus separately from
+native window focus. Keep local client input focus separate from the remote
+browser's focus when interpreting results.
+
+Use the manual guide's explicit immutable-source and headed commands. Any
+temporary display must belong to that invocation. Local JSON records the source,
+browser, mode, window/target/session mapping and observed focus state. Virtual
+X11 evidence does not establish physical macOS/Windows IME or a live provider's
+event routing. Keep synthetic Browser Use window-following coverage distinct
+from live service evidence.
+
 ## Deterministic asynchronous tests
 
 Hold and release actual protocol or event boundaries to test delayed work,
