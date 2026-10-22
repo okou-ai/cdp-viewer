@@ -176,6 +176,13 @@ addresses remain in memory and may contain sensitive data; do not record them in
 snapshots/logs. CDP endpoint validation and discovery are separate from page
 address completion.
 
+The remote tab owns its back/forward history. Reloading it or reattaching a viewer
+to that same live tab preserves the browser's records; the viewer reads its
+address and available history actions again. Optional toolbar-state refresh runs
+independently of native input. Actual back/forward actions still wait for prior
+input completion and query current browser history before navigating. Each
+viewer owns its refresh work; late or superseded results cannot update a new owner.
+
 ## Support and evidence matrix
 
 | Surface                                          | Automated fixture                                      | Candidate anchor / limitation                                                 |
