@@ -139,6 +139,64 @@ it("initial mode restores density across tabs without fitting a resized local st
   });
 });
 
+it("preserves a queued manual sync when automatic synchronization is turned off", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "initial", 0);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  controller.measureDisplay({ width: 900, height: 700, dpr: 1 });
+  controller.syncDisplay();
+  controller.setWindowSizeSync("off");
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  expect(resizes(browser)[1]!.params).toEqual({
+    windowId: 0,
+    width: 900,
+    height: 700,
+  });
+  expect(emulations(browser).at(-1)!.params).toMatchObject({
+    width: 900,
+    height: 700,
+    deviceScaleFactor: 1,
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  controller.measureDisplay({ width: 1000, height: 800, dpr: 2 });
+  expect(model.read(model.display$).pending).toBe(false);
+  expect(resizes(browser)).toHaveLength(2);
+});
+
+it("clears queued busy state for a zero-area stage and resumes at the latest valid size", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0);
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  controller.setWindowSizeSync("live");
+  controller.measureDisplay(null);
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      ready: false,
+      pending: false,
+    }),
+  );
+  expect(emulations(browser)).toHaveLength(0);
+  expect(resizes(browser)).toHaveLength(0);
+  controller.measureDisplay({ width: 900, height: 700, dpr: 1 });
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  expect(resizes(browser)[0]!.params).toEqual({
+    windowId: 0,
+    width: 900,
+    height: 700,
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      ready: true,
+      pending: false,
+    }),
+  );
+});
+
 it("does not write after ownership is lost while a guard is pending", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser);

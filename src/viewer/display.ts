@@ -103,7 +103,7 @@ export class DisplaySync {
     this.mode = mode;
     this.revision++;
     this.faulted = false;
-    this.wanted = mode !== "off";
+    this.wanted = this.manual || mode !== "off";
     this.schedule();
     this.publish();
   }
@@ -195,8 +195,10 @@ export class DisplaySync {
       !this.wanted ||
       this.faulted ||
       !this.current(target)
-    )
+    ) {
+      this.publish();
       return;
+    }
     const revision = this.revision;
     const manual = this.manual;
     const mode = this.mode;
