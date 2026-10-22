@@ -184,10 +184,10 @@ The adapter follows browser-level `BrowserUse.activeTargetChanged` events with a
 nonempty string `targetId`. Session-level, malformed, unknown, unavailable and
 out-of-window suggestions are ignored. A candidate must already appear in the
 viewer's discovered page list; the core rechecks its live page identity and window
-membership before changing selection. Selecting the current target does nothing,
-so activation echoes do not restart streams. Pending requests lose authority on
-adapter/connection replacement, intervening target discovery changes, a newer
-valid suggestion or explicit user selection. Events are not buffered or replayed.
+membership before changing selection. Selecting the current target supersedes
+older pending suggestions without restarting its stream. Pending requests lose
+authority on adapter/connection replacement, intervening target discovery changes,
+a newer valid suggestion or explicit user selection. Events are not buffered or replayed.
 The event has no required sequence/timestamp; ordering follows this connection's
 locally observed events rather than a provider clock. Live Browser Use service
 compatibility requires separate provider evidence.

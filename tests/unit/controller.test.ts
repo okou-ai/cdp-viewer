@@ -61,6 +61,41 @@ describe("viewer lifecycle", () => {
     ).toHaveLength(2);
   });
 
+  it("keeps the latest activation when it reselects the current target", async () => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser);
+    let context!: ExtensionContext;
+    controller.setExtensions([
+      {
+        id: "custom",
+        setup: (owner) => {
+          context = owner;
+        },
+      },
+    ]);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.holdMethod = "Target.getTargetInfo";
+    const pending = context.requestTargetSelection("page-b");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    expect(await context.requestTargetSelection("page-a")).toBe(false);
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command, {
+      targetInfo: { targetId: "page-b", type: "page" },
+    });
+    expect(await pending).toBe(false);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "page-a",
+    });
+    expect(
+      held.socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("finishes adapter cleanup before replacing its configuration on the same connection", async () => {
     const browser = new FakeBrowser();
     const { controller, model } = mount(browser);

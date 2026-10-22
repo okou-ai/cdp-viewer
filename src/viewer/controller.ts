@@ -151,11 +151,12 @@ export class ViewerController {
       !ownerCurrent() ||
       typeof targetId !== "string" ||
       !targetId.trim() ||
-      snapshot.selectedTargetId === targetId ||
       !snapshot.targets.some((target) => target.id === targetId)
     )
       return false;
     const request = ++this.extensionRequest;
+    // The current target still supersedes an older pending suggestion.
+    if (snapshot.selectedTargetId === targetId) return false;
     const selectionRevision = this.selectionRevision;
     const targetRevision = this.targetRevision;
     const current = () =>
