@@ -437,7 +437,7 @@ export class FakeBrowser {
           break;
         }
         case "Page.startScreencast":
-          if (this.unsupportedStream) {
+          if (this.unsupportedStream || this.streams.has(command.sessionId!)) {
             socket.reject(command);
             break;
           }

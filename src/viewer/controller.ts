@@ -440,7 +440,7 @@ export class ViewerController {
       refresh: async (prepare) => {
         const selection = this.selection;
         if (selection && this.isCurrent(selection))
-          await this.refreshCapture(selection, prepare);
+          await this.restartCapture(selection, prepare);
       },
     });
     this.display.setMode(this.displayMode);
@@ -668,23 +668,7 @@ export class ViewerController {
 
   private async upgradeCapture(selection: Selection): Promise<void> {
     if (selection.highDensity || !selection.sessionId) return;
-    const client = this.client!;
-    const session = selection.sessionId;
-    await client.request("Page.stopScreencast", undefined, session);
-    if (!this.isCurrent(selection)) return;
-    try {
-      await this.startScreencast(session, true);
-      if (this.isCurrent(selection)) selection.highDensity = true;
-    } catch (error) {
-      if (this.isCurrent(selection)) {
-        try {
-          await this.startScreencast(session, false);
-        } catch (restoreError) {
-          if (this.isCurrent(selection)) this.fail(restoreError);
-        }
-      }
-      throw error;
-    }
+    await this.restartCapture(selection);
   }
 
   private startScreencast(sessionId: string, highDensity: boolean) {
@@ -700,22 +684,38 @@ export class ViewerController {
     );
   }
 
-  private async refreshCapture(
+  private async restartCapture(
     selection: Selection,
-    prepare: () => Promise<void>,
+    prepare?: () => Promise<void>,
   ): Promise<void> {
     if (!selection.sessionId) return;
+    const client = this.client!;
     const session = selection.sessionId;
-    await this.client!.request("Page.stopScreencast", undefined, session);
-    if (!this.isCurrent(selection)) return;
+    const previousDensity = selection.highDensity;
+    let phase: "stopping" | "stopped" | "starting" = "stopping";
     try {
-      await prepare();
+      await client.request("Page.stopScreencast", undefined, session);
+      phase = "stopped";
       if (!this.isCurrent(selection)) return;
+      await prepare?.();
+      if (!this.isCurrent(selection)) return;
+      phase = "starting";
       await this.startScreencast(session, true);
+      if (this.isCurrent(selection)) selection.highDensity = true;
     } catch (error) {
-      if (this.isCurrent(selection)) {
+      // A definite stop rejection leaves the original stream running. Otherwise
+      // restore once; an unconfirmed start may already be active and cannot be
+      // repeated until a stop is acknowledged by the same selected session.
+      const stopRejected =
+        phase === "stopping" &&
+        error instanceof CdpFault &&
+        error.code !== undefined;
+      if (this.isCurrent(selection) && !stopRejected) {
         try {
-          await this.startScreencast(session, true);
+          if (phase !== "stopped")
+            await client.request("Page.stopScreencast", undefined, session);
+          if (!this.isCurrent(selection)) return;
+          await this.startScreencast(session, previousDensity);
         } catch (restoreError) {
           if (this.isCurrent(selection)) this.fail(restoreError);
         }

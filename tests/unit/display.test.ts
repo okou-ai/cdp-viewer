@@ -814,12 +814,7 @@ it.each(["Browser.getWindowForTarget", "Page.stopScreencast"])(
     controller.measureDisplay(null);
     browser.holdMethod = null;
     const held = browser.heldCommands[0]!;
-    held.socket.reply(
-      held.command,
-      boundary === "Browser.getWindowForTarget"
-        ? { windowId: 0, bounds: { windowState: "normal" } }
-        : {},
-    );
+    browser.resume(held.command, held.socket);
     await vi.waitFor(() =>
       expect(model.read(model.display$)).toMatchObject({
         ready: false,
@@ -884,6 +879,159 @@ it("contains unsupported display failures without leaking provider payloads or s
   controller.syncDisplay();
   await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
   await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+});
+
+it.each([
+  ["upgrade", "Page.stopScreencast"],
+  ["upgrade", "Page.startScreencast"],
+  ["refresh", "Page.stopScreencast"],
+  ["refresh", "Page.startScreencast"],
+] as const)(
+  "retains preview and retry after %s loses an applied %s acknowledgement",
+  async (stage, method) => {
+    const browser = new FakeBrowser(),
+      painted = vi.fn();
+    const { controller, model } = mount(browser, "off", 0, 100, painted);
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    if (stage === "refresh") {
+      controller.syncDisplay();
+      await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(model.read(model.display$).pending).toBe(false),
+      );
+      // Keep the native raster identical while changing layout/density.
+      controller.measureDisplay({ width: 320, height: 240, dpr: 4 });
+    }
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    const before = socket.commands.length;
+    socket.holdReplyMethod = method;
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+    socket.holdReplyMethod = null;
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(model.getSnapshot().status).toBe("streaming");
+    expect(model.getSnapshot().error?.kind).toBe("display");
+    const transitions = socket.commands
+      .slice(before)
+      .filter(
+        (command) =>
+          command.method === "Page.stopScreencast" ||
+          command.method === "Page.startScreencast",
+      );
+    expect(transitions.at(-1)?.method).toBe("Page.startScreencast");
+    expect(transitions.length).toBeLessThanOrEqual(stage === "upgrade" ? 4 : 6);
+    for (const [index, command] of transitions.entries())
+      if (command.method === "Page.startScreencast")
+        expect(transitions[index - 1]?.method).toBe("Page.stopScreencast");
+    expect(
+      transitions.every((command) => command.sessionId === input.sessionId),
+    ).toBe(true);
+    expect(
+      transitions.find((command) => command.method === "Page.startScreencast")
+        ?.params,
+    ).toMatchObject(
+      stage === "upgrade" && method === "Page.stopScreencast"
+        ? { maxWidth: 1920, maxHeight: 1080 }
+        : { maxWidth: 4096, maxHeight: 4096 },
+    );
+    if (stage === "upgrade")
+      expect(transitions.at(-1)?.params).toMatchObject({
+        maxWidth: 1920,
+        maxHeight: 1080,
+      });
+    // Completing the original response cannot change the restored stream or owner.
+    const held = socket.heldReplies.shift()!;
+    socket.reply(held.command, held.result);
+    input.text("after capture recovery");
+    await input.completion(input.owner!);
+    expect(controller.input).toBe(input);
+    expect(
+      socket.commands.some((command) => command.method === "Input.insertText"),
+    ).toBe(true);
+    const paints = painted.mock.calls.length;
+    controller.measureDisplay({ width: 640, height: 480, dpr: 2 });
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(painted.mock.calls.length).toBeGreaterThan(paints);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+  },
+);
+
+it("keeps the running preview when stopping capture is definitely rejected", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0);
+  await vi.waitFor(() => expect(controller.input).not.toBeNull());
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  browser.holdMethod = "Page.stopScreencast";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  browser.holdMethod = null;
+  socket.reject(browser.heldCommands[0]!.command, -32000);
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(model.getSnapshot().status).toBe("streaming");
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    ),
+  ).toHaveLength(1);
+  expect(emulations(browser)).toHaveLength(0);
+  expect(controller.input).toBe(input);
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+});
+
+it("does not restart a retired session after its capture restoration stop completes", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0, 100);
+  await vi.waitFor(() => expect(controller.input).not.toBeNull());
+  const sessionId = controller.input!.sessionId,
+    socket = browser.sockets[0]!;
+  socket.holdReplyMethod = "Page.startScreencast";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+  socket.holdReplyMethod = null;
+  browser.holdMethod = "Page.stopScreencast";
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  controller.setPaused(true);
+  browser.holdMethod = null;
+  const restoration = browser.heldCommands[0]!;
+  browser.resume(restoration.command, restoration.socket);
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(model.getSnapshot().status).toBe("paused");
+  controller.setPaused(false);
+  await vi.waitFor(() => expect(controller.input?.sessionId).toBe("session-2"));
+  const late = socket.heldReplies.shift()!;
+  socket.reply(late.command, late.result);
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(model.getSnapshot().error).toBeNull();
+  expect(
+    socket.commands.filter(
+      (command) =>
+        command.method === "Page.startScreencast" &&
+        command.sessionId === sessionId,
+    ),
+  ).toHaveLength(2);
+  expect(controller.input?.sessionId).toBe("session-2");
 });
 
 it.each([false, true])(

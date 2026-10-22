@@ -84,6 +84,10 @@ native keys and release of already-owned buttons retain their input ownership.
 
 The controller retains target/session lifetime and frame acknowledgement. DOM
 observation and the effective host/menu mode remain in the runtime/model layers.
+Capture transitions also belong to the controller. Bounded restoration preserves
+the previous capture policy, distinguishes a rejected stop from an uncertain
+stop/start, and confirms a stopped stream before repeating a possible start.
+Every continuation revalidates its selected-session owner.
 Capture timestamps order images; they do not identify an adaptation generation
 or make native sizing, emulation and painting atomic.
 
