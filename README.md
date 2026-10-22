@@ -4,7 +4,7 @@ A browser-native React viewer for existing Chrome DevTools Protocol browsers.
 It provides **live streaming, target selection, optional window filtering,
 and independent viewers**. Viewers are read-only by default. Enable `interactive`
 for mouse, keyboard, native text composition, plain-text clipboard transfer,
-remote navigation and tab creation/closure. Vendor adapters are not yet supported. Genuine macOS/Windows IME
+remote navigation and tab creation/closure. Optional extensions can follow vendor activation events. Genuine macOS/Windows IME
 validation remains pending; see the [interaction support matrix](demo/interaction.md).
 
 The package stays private and is distributed as source from GitHub. No npm
@@ -102,6 +102,7 @@ and connection without closing the remote browser or its tabs.
 | `windowId?: number`                           | Optional presentation/selection scope                                            |
 | `paused?: boolean`                            | Release this viewer's current stream while retaining connection/selection        |
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
+| `extensions?: readonly ViewerExtension[]`     | Optional per-connection adapters, reconciled by ID and configuration key         |
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
 | `onStatusChange`                              | Readonly semantic snapshot: status, page targets, selected ID, diagnostic        |
@@ -165,6 +166,97 @@ resuming revalidates and attaches the selected target. Re-entering the viewport
 does not override explicit pause or whole-document invisibility.
 Cleanup cannot cancel a native image decode already in progress, but its result
 is discarded and closed. No connection credentials are persisted by the library.
+
+## Extensions
+
+Standard viewing requires no adapter or vendor runtime. Browser Use activation
+support is an optional import; an endpoint that never emits the event continues
+to work as ordinary CDP:
+
+```tsx
+import { CdpViewer } from "cdp-viewer";
+import { browserUse } from "cdp-viewer/extensions/browser-use";
+
+<CdpViewer cdpUrl={cdpUrl} windowId={windowId} extensions={[browserUse()]} />;
+```
+
+The adapter follows browser-level `BrowserUse.activeTargetChanged` events with a
+nonempty string `targetId`. Session-level, malformed, unknown, unavailable and
+out-of-window suggestions are ignored. A candidate must already appear in the
+viewer's discovered page list; the core rechecks its live page identity and window
+membership before changing selection. Selecting the current target supersedes
+older pending suggestions without restarting its stream. Pending requests lose
+authority on adapter/connection replacement, intervening target discovery changes,
+a newer valid suggestion or explicit user selection. Events are not buffered or replayed.
+The event has no required sequence/timestamp; ordering follows this connection's
+locally observed events rather than a provider clock. Live Browser Use service
+compatibility requires separate provider evidence.
+
+Import `ViewerExtension`, `ExtensionContext`, `ExtensionEvent`, `ExtensionState`
+and `ExtensionCleanup` from the root or the type-only `cdp-viewer/extensions`
+entry. A custom vendor-event adapter needs no core changes:
+
+```tsx
+import type { ViewerExtension } from "cdp-viewer/extensions";
+
+function customVendor(channel: string): ViewerExtension {
+  return {
+    id: "custom-activation",
+    key: channel,
+    setup(context) {
+      return context.subscribe(
+        `${channel}.activeTargetChanged`,
+        async (event) => {
+          const id = event.params.targetId;
+          if (
+            event.sessionId !== undefined ||
+            typeof id !== "string" ||
+            !id.trim()
+          )
+            return;
+          await context.requestTargetSelection(id);
+        },
+      );
+    },
+  };
+}
+
+<CdpViewer cdpUrl={cdpUrl} extensions={[customVendor("MyVendor")]} />;
+```
+
+Each accepted setup runs separately for each viewer and connection, including
+when a descriptor is reused. Put mutable adapter state inside `setup`.
+`context.signal` aborts on removal, configuration replacement, disconnection or
+unmount. Subscriptions are automatically removed; their returned unsubscribe
+functions are also safe to call explicitly. Setup may return a cleanup function
+or a promise for one; cleanup may be asynchronous. Abort/unsubscribe happens
+immediately, late setup results are still cleaned, and same-ID configuration
+replacement waits for the old setup/cleanup to finish. Unrelated adapters proceed
+independently. Custom asynchronous work must cooperate with the signal; a setup
+or cleanup promise that never settles holds up that ID's replacement.
+
+Reconciliation uses `id` plus optional string `key`. New array, descriptor or
+setup callback references alone preserve the existing setup and never reconnect
+the socket. Change `key` when captured configuration/callbacks need a new setup;
+an active setup keeps its original closure. Removing then adding an ID also
+starts a new lifetime. Changing `cdpUrl`, `windowId`, interactive mode or explicitly
+reconnecting creates a fresh connection with the latest supplied descriptors.
+Duplicate IDs or invalid descriptors reject the whole update while retaining the
+last valid set (none initially); repeated equivalent invalid updates do not loop.
+
+`getState()` returns readonly status, selected target ID and configured
+`windowScoped`/`interactive` capabilities, excluding endpoint, page titles/content/
+addresses and raw errors. These capabilities describe viewer configuration,
+not provider support. After retirement it returns a disconnected state.
+`requestTargetSelection(id)` resolves `true` only when the suggestion changes
+selection; ignored, stale, already-selected or unverifiable requests resolve
+`false`. The context exposes no raw transport or arbitrary command interface.
+
+Setup and synchronous/asynchronous event-handler failures retire the offending
+adapter; cleanup failures are contained. Fixed `onError` diagnostics have
+`kind: "extension"` and exclude adapter IDs and raw exception/provider payloads.
+Other adapters and standard viewing remain usable. A failed ID/key is not retried
+by rerendering: change its key, remove/re-add it, or reconnect to retry deliberately.
 
 ## Styling
 

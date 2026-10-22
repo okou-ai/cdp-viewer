@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ViewerController } from "../../src/viewer/controller";
 import { createViewerModel } from "../../src/viewer/model";
 import { FakeBrowser } from "./wire";
+import { browserUse } from "../../src/extensions/browser-use";
+import type { ExtensionContext } from "../../src/extensions/types";
 
 const controllers: ViewerController[] = [];
 afterEach(() => {
@@ -34,6 +36,95 @@ function mount(
 }
 
 describe("viewer lifecycle", () => {
+  it("follows Browser Use activation and preserves the stream on activation echoes", async () => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser);
+    controller.setExtensions([browserUse()]);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const socket = browser.sockets[0]!;
+    socket.emit("BrowserUse.activeTargetChanged", { targetId: "page-b" });
+    await vi.waitFor(() =>
+      expect(model.getSnapshot()).toMatchObject({
+        status: "streaming",
+        selectedTargetId: "page-b",
+      }),
+    );
+    const commands = socket.commands.length;
+    socket.emit("BrowserUse.activeTargetChanged", { targetId: "page-b" });
+    expect(socket.commands).toHaveLength(commands);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("keeps the latest activation when it reselects the current target", async () => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser);
+    let context!: ExtensionContext;
+    controller.setExtensions([
+      {
+        id: "custom",
+        setup: (owner) => {
+          context = owner;
+        },
+      },
+    ]);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.holdMethod = "Target.getTargetInfo";
+    const pending = context.requestTargetSelection("page-b");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    expect(await context.requestTargetSelection("page-a")).toBe(false);
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command, {
+      targetInfo: { targetId: "page-b", type: "page" },
+    });
+    expect(await pending).toBe(false);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "page-a",
+    });
+    expect(
+      held.socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("finishes adapter cleanup before replacing its configuration on the same connection", async () => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser);
+    let finish!: () => void;
+    const retiring = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const cleanup = vi.fn(() => retiring);
+    const setup = vi.fn((_context: ExtensionContext) =>
+      Promise.resolve(cleanup),
+    );
+    const replacement = vi.fn();
+    controller.setExtensions([{ id: "custom", setup }]);
+    await vi.waitFor(() => expect(setup).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    controller.setExtensions([
+      { id: "custom", key: "updated", setup: replacement },
+    ]);
+    await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+    expect(setup.mock.calls[0]![0].signal.aborted).toBe(true);
+    expect(replacement).not.toHaveBeenCalled();
+    finish();
+    await vi.waitFor(() => expect(replacement).toHaveBeenCalledOnce());
+    expect(browser.sockets).toHaveLength(1);
+    expect(model.getSnapshot().status).toBe("streaming");
+  });
+
   it("keeps displayed tab order when discovery reorders and updates targets", async () => {
     const browser = new FakeBrowser();
     const { model } = mount(browser);

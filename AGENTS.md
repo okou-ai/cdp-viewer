@@ -11,7 +11,8 @@ window filtering and multiple independent instances. Optional `interactive` mode
 adds native text input, mouse/keyboard and navigation; physical macOS/Windows IME
 validation is still pending. Plain-text clipboard transfer is available in
 interactive mode; see demo/interaction.md for its supported selection/permission
-boundary. Vendor adapters are not implemented.
+boundary. Optional extensions provide a typed, connection-owned event/selection
+contract and a Browser Use adapter through its own package entry point.
 Keep vendor-specific behavior optional when
 adding extensions; ordinary CDP must remain usable independently.
 
@@ -19,6 +20,7 @@ adding extensions; ordinary CDP must remain usable independently.
 
 - `src/index.ts`: public component and type exports.
 - `src/cdp/`: native WebSocket transport, protocol diagnostics and window lookup.
+- `src/extensions/`: public adapter types, owned registration lifecycle and optional vendors.
 - `src/viewer/`: controller/session lifecycle, ccstate model and public types.
 - `src/react/`: React component and private context/subscription bridge.
 - `src/state/`: per-instance Store entry and private React subscription bridge.

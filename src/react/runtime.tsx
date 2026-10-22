@@ -44,6 +44,7 @@ export function ViewerRuntime({
   windowId,
   paused = false,
   interactive = false,
+  extensions,
   onStatusChange,
   onError,
   children,
@@ -144,6 +145,10 @@ export function ViewerRuntime({
       if (runtime.current === controller) runtime.current = null;
     };
   }, [cdpUrl, windowId, revision, model, interactive, focus]);
+  // Configuration reconciliation does not own or recreate the transport.
+  useLayoutEffect(() => {
+    runtime.current?.setExtensions(extensions ?? []);
+  });
   useLayoutEffect(() => focus.listen(), [focus]);
   useLayoutEffect(() => {
     if (!tabs.current) return;

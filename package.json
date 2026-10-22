@@ -26,7 +26,15 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
-    "./style.css": "./styles/viewer.css"
+    "./style.css": "./styles/viewer.css",
+    "./extensions": {
+      "types": "./src/extensions/index.ts",
+      "import": "./src/extensions/index.ts"
+    },
+    "./extensions/browser-use": {
+      "types": "./src/extensions/browser-use.ts",
+      "import": "./src/extensions/browser-use.ts"
+    }
   },
   "sideEffects": [
     "**/*.css"
