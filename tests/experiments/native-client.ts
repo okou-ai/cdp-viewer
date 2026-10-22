@@ -401,6 +401,7 @@ window.installNativeExperiment = ({
     }
     if (
       value.type !== "ack" ||
+      value.ok !== true ||
       value.sequence === undefined ||
       !pending.has(value.sequence)
     ) {

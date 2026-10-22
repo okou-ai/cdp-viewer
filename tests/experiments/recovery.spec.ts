@@ -190,7 +190,8 @@ async function receipt(
   );
 }
 
-type ReplyFault = "lost" | "rejected" | "partial" | "truncated" | "non-object";
+type ReplyFault =
+  "lost" | "rejected" | "partial" | "missing-ok" | "truncated" | "non-object";
 
 async function clientReplyFault(page: Page, fault: ReplyFault) {
   await page.evaluate((fault) => {
@@ -226,6 +227,7 @@ async function clientReplyFault(page: Page, fault: ReplyFault) {
             return;
           }
           if (fault === "rejected") reply.ok = false;
+          else if (fault === "missing-ok") delete reply.ok;
           else delete reply.sequence;
           this.dispatchEvent(
             new MessageEvent("message", { data: JSON.stringify(reply) }),
@@ -240,6 +242,7 @@ for (const fault of [
   "lost",
   "rejected",
   "partial",
+  "missing-ok",
   "truncated",
   "non-object",
 ] as const) {

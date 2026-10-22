@@ -302,6 +302,10 @@ receipt. A live independent sibling remains usable. Reconnection of the original
 target is evaluated only after positive original retirement. Missing cleanup
 remains denied; no uncertain input or navigation is replayed.
 
+Client batch credit requires a matching pending sequence and an explicit
+successful acknowledgement. A partial reply without its success field revokes
+the client instead of confirming work or replenishing that credit.
+
 ## Limits
 
 The keys/text comparator uses a deliberately smaller local adapter than
