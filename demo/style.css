@@ -63,19 +63,36 @@ body {
 .demo * {
   box-sizing: border-box;
 }
-.demo :where(button, input, select) {
+.demo
+  :where(
+    .demo-button,
+    .demo-icon-button,
+    .demo-text-button,
+    .demo-mode select,
+    .demo-appearance select,
+    .demo-settings input,
+    .demo-settings select,
+    .demo-endpoint-field input
+  ) {
   font: inherit;
 }
-.demo button,
-.demo summary,
-.demo select,
-.demo input[type="checkbox"],
-.demo input[type="range"],
-.demo input[type="color"] {
+.demo-button,
+.demo-icon-button,
+.demo-text-button,
+.demo-settings summary,
+.demo-guide summary,
+.demo-mode select,
+.demo-appearance select,
+.demo-settings select,
+.demo-settings input[type="checkbox"],
+.demo-settings input[type="range"],
+.demo-settings input[type="color"] {
   cursor: pointer;
 }
-.demo button:disabled,
-.demo input:disabled {
+.demo-button:disabled,
+.demo-icon-button:disabled,
+.demo-text-button:disabled,
+.demo-settings input:disabled {
   cursor: default;
   opacity: 0.45;
 }
@@ -674,7 +691,7 @@ body {
   font-weight: 400;
 }
 .demo-field input:not([type="range"]),
-.demo select {
+.demo :where(.demo-mode, .demo-appearance, .demo-field) select {
   min-height: 34px;
   border: 1px solid var(--demo-border);
   border-radius: 6px;
@@ -687,7 +704,8 @@ body {
 .demo-field select {
   width: 100%;
 }
-.demo input::placeholder {
+.demo-endpoint-field input::placeholder,
+.demo-settings input::placeholder {
   color: var(--demo-muted);
   opacity: 0.65;
 }
@@ -716,7 +734,7 @@ body {
   gap: 8px;
   font-size: 12px;
 }
-.demo input[type="checkbox"] {
+.demo-settings input[type="checkbox"] {
   accent-color: var(--demo-accent);
   width: 14px;
   height: 14px;
@@ -737,7 +755,7 @@ body {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
-.demo input[type="range"] {
+.demo-settings input[type="range"] {
   display: block;
   width: 100%;
   height: 12px;
@@ -750,7 +768,7 @@ body {
   justify-content: space-between;
   gap: 10px;
 }
-.demo input[type="color"] {
+.demo-settings input[type="color"] {
   width: 34px;
   height: 27px;
   padding: 3px;
@@ -873,10 +891,15 @@ body {
 }
 .demo
   :is(
-    button,
-    select,
-    summary,
-    input:not(.demo-endpoint-field input)
+    .demo-button,
+    .demo-icon-button,
+    .demo-text-button,
+    .demo-settings input,
+    .demo-settings select,
+    .demo-settings summary,
+    .demo-mode select,
+    .demo-appearance select,
+    .demo-guide summary
   ):focus-visible {
   outline: 2px solid var(--demo-accent);
   outline-offset: 3px;

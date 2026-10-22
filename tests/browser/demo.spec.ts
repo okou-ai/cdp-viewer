@@ -326,6 +326,14 @@ test("playground changes live props independently and observes safe callbacks", 
         element.style.getPropertyValue("--cdpv-accent"),
       ),
     ).toBe("#b84a37");
+    await view.getByRole("button", { name: "Reload remote page" }).press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(
+      view.getByRole("button", { name: "Reload remote page" }),
+    ).toBeFocused();
+    await expect(
+      view.getByRole("button", { name: "Reload remote page" }),
+    ).toHaveCSS("outline-color", "rgb(184, 74, 55)");
     expect(sockets).toBe(opened);
     expect(
       await view
