@@ -1,18 +1,14 @@
 import { expect, test } from "@playwright/test";
 import type { Browser, Locator, Page, TestInfo } from "@playwright/test";
-import { prepareConsumer } from "../../scripts/consumer.mjs";
-import { launchBackend, serveConsumer } from "./backend";
+import { launchBackend, serveBrowserConsumer } from "./backend";
 import type {} from "../consumer/api";
 
-let consumer: Awaited<ReturnType<typeof prepareConsumer>>;
-let server: Awaited<ReturnType<typeof serveConsumer>>;
+let server: Awaited<ReturnType<typeof serveBrowserConsumer>>;
 test.beforeAll(async () => {
-  consumer = await prepareConsumer();
-  server = await serveConsumer(consumer.dist);
+  server = await serveBrowserConsumer();
 });
 test.afterAll(async () => {
   await server?.close();
-  await consumer?.cleanup();
 });
 
 async function remoteTab(
@@ -985,8 +981,21 @@ for (const nativeScrollbars of [false, true]) {
           let empty = false;
           let holdCreate = false;
           let releaseCreate: (() => void) | undefined;
+          let notifyTargetChange:
+            ((targetId: string) => Promise<void>) | undefined;
           await page.routeWebSocket(backend.endpoint, (socket) => {
             const upstream = socket.connectToServer();
+            notifyTargetChange = async (targetId) => {
+              const params = await backend.session.send(
+                "Target.getTargetInfo",
+                {
+                  targetId,
+                },
+              );
+              socket.send(
+                JSON.stringify({ method: "Target.targetInfoChanged", params }),
+              );
+            };
             socket.onMessage((message) => {
               const command = JSON.parse(String(message)) as {
                 id: number;
@@ -1088,9 +1097,7 @@ for (const nativeScrollbars of [false, true]) {
             await expect(viewer.getByRole("tab")).toHaveCount(1);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
             empty = true;
-            await first.remote.evaluate((value) => {
-              document.title = `Empty ${value}`;
-            }, width);
+            await notifyTargetChange!(first.targetId);
             await expect(viewer.getByRole("tab")).toHaveCount(0);
             await expect(viewer).toHaveAttribute("data-status", "unavailable");
             await captureTabScreenshot(viewer, info, `${width}-empty.png`);
@@ -1100,9 +1107,7 @@ for (const nativeScrollbars of [false, true]) {
             } else await expect(create).toHaveCount(0);
             await expectTabBarAlignment(viewer);
             empty = false;
-            await first.remote.evaluate((value) => {
-              document.title = `Layout ${value}`;
-            }, width);
+            await notifyTargetChange!(first.targetId);
             await expect(viewer.getByRole("tab")).toHaveCount(1);
             await viewer.getByRole("tab").click();
             await expect(viewer).toHaveAttribute("data-status", "streaming");

@@ -5,6 +5,15 @@ import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { waitForDebuggerEndpoint } from "./debugger-endpoint";
 
+export function serveBrowserConsumer(
+  headers: Readonly<Record<string, string>> = {},
+) {
+  const dist = process.env.CDP_VIEWER_TEST_CONSUMER_DIST;
+  if (!dist)
+    throw new Error("Browser consumer setup did not provide its build.");
+  return serveConsumer(dist, "/", headers);
+}
+
 export async function serveConsumer(
   dist: string,
   base = "/",

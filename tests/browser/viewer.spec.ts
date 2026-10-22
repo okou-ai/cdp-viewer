@@ -1,18 +1,14 @@
 import { expect, test } from "@playwright/test";
 import type { Locator } from "@playwright/test";
-import { prepareConsumer } from "../../scripts/consumer.mjs";
-import { launchBackend, serveConsumer } from "./backend";
+import { launchBackend, serveBrowserConsumer } from "./backend";
 import type {} from "../consumer/api";
 
-let consumer: Awaited<ReturnType<typeof prepareConsumer>>;
-let server: Awaited<ReturnType<typeof serveConsumer>>;
+let server: Awaited<ReturnType<typeof serveBrowserConsumer>>;
 test.beforeAll(async () => {
-  consumer = await prepareConsumer();
-  server = await serveConsumer(consumer.dist);
+  server = await serveBrowserConsumer();
 });
 test.afterAll(async () => {
   await server?.close();
-  await consumer?.cleanup();
 });
 
 async function pixel(canvas: Locator) {

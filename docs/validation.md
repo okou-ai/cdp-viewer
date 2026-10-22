@@ -26,9 +26,24 @@ browser or external service.
 
 ## Browser captures and durations
 
+Each browser invocation prepares and fully validates one independently installed
+consumer before running cases. Global setup owns that immutable build and releases
+it after the workers finish, including when a case fails. Individual spec files
+serve the build on their own bounded HTTP servers; each case still owns its own
+Chromium profiles and windows. The separate experiment configuration retains its
+own consumer lifecycle.
+
+The default setup uses an explicit full GitHub revision and checks source/CSS,
+peers, public types, frozen reinstall, client build and SSR. CI performs this
+distribution gate in browser setup; `pnpm test:package` remains available as a
+standalone check with its own preparation and cleanup. Before pushing changes,
+`CDP_VIEWER_CONSUMER_SOURCE=tarball` explicitly selects supplementary local-pack
+evidence for either command. It never establishes GitHub installation acceptance.
+
 Browser tests report individual durations in CI. Compare runs with the same
 toolchain, worker policy and fixture setup, and distinguish test-case durations
-from full job time. A slow case is not redundant when it covers a distinct
+from the separately logged consumer setup duration, browser-step and full job
+time. A slow case is not redundant when it covers a distinct
 rendering or lifecycle contract.
 
 Tab tests save manual-review PNGs only when explicitly requested:

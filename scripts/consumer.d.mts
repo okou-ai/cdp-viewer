@@ -15,4 +15,7 @@ export function prepareConsumer(): Promise<{
   };
   cleanup: () => Promise<void>;
 }>;
+export function writePackageReceipt(
+  consumer: Awaited<ReturnType<typeof prepareConsumer>>,
+): Promise<void>;
 export function savePackageReceipt(): Promise<void>;
