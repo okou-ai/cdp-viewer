@@ -24,6 +24,7 @@ interface Selection {
   sessionId: string | null;
   deadline: AbortController;
   painted: boolean;
+  streamStopped: boolean;
   input: InputSession | null;
   inputReady: boolean;
 }
@@ -117,6 +118,7 @@ export class ViewerController {
       sessionId: null,
       deadline: new AbortController(),
       painted: false,
+      streamStopped: false,
       input: null,
       inputReady: !this.options.interactive,
     };
@@ -621,6 +623,7 @@ export class ViewerController {
     this.model.transition({ type: "stopped" });
     if (old) {
       old.deadline.abort();
+      this.stopStream(old);
       const input = old.input;
       if (input && reason !== "disconnected" && !this.disposed) {
         // Publish the fence before retirement can reenter through reset callbacks.
@@ -651,9 +654,17 @@ export class ViewerController {
 
   private release(selection: Selection): void {
     const id = selection.sessionId;
-    if (!id || !this.ownedSessions.delete(id)) return;
-    this.client?.notify("Page.stopScreencast", undefined, id);
+    if (!id || !this.ownedSessions.has(id)) return;
+    this.stopStream(selection);
+    this.ownedSessions.delete(id);
     this.client?.notify("Target.detachFromTarget", { sessionId: id });
+  }
+
+  private stopStream(selection: Selection): void {
+    const id = selection.sessionId;
+    if (!id || selection.streamStopped || !this.ownedSessions.has(id)) return;
+    selection.streamStopped = true;
+    this.client?.notify("Page.stopScreencast", undefined, id);
   }
 
   private fail(error: unknown): void {

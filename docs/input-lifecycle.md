@@ -87,8 +87,9 @@ publishes terminal admission first, cancels unsent preparation, joins dispatched
 work and its late cleanup, and completes through the original connection. Unknown
 cleanup remains unavailable; it cannot authorize replacement or replay.
 
-The public controller retains retiring input sessions until original effects
-settle before detaching. It forwards their document events and fences same-target
+The public controller stops obsolete streams immediately and retains retiring
+input sessions until original effects settle before detaching. It forwards their
+document events and fences same-target
 reuse within that controller. Other targets keep independent admission. This
 local fence is not a lease shared by separate viewers or clients, and connection
 teardown cannot guarantee remote cleanup.

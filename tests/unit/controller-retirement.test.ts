@@ -49,6 +49,12 @@ it("waits for original retirement before same-target reuse while another target 
   await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
   expect(
+    socket.commands.filter(
+      (c) =>
+        c.method === "Page.stopScreencast" && c.sessionId === old.sessionId,
+    ),
+  ).toHaveLength(1);
+  expect(
     socket.commands.some(
       (c) =>
         c.method === "Target.detachFromTarget" &&
@@ -85,6 +91,12 @@ it("waits for original retirement before same-target reuse while another target 
   for (const held of browser.heldCommands) held.socket.reply(held.command);
   await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
   expect(controller.input!.sessionId).not.toBe(old.sessionId);
+  expect(
+    socket.commands.filter(
+      (c) =>
+        c.method === "Page.stopScreencast" && c.sessionId === old.sessionId,
+    ),
+  ).toHaveLength(1);
   expect(
     socket.commands.filter(
       (c) =>
