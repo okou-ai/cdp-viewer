@@ -1043,9 +1043,9 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .demo *,
-  .demo *::before,
-  .demo *::after {
-    transition: none !important;
+  .demo-button,
+  .demo-icon-button,
+  .demo-group > summary > svg {
+    transition: none;
   }
 }
