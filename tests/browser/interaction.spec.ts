@@ -1019,7 +1019,7 @@ test("navigation is explicit, validates addresses and preserves local toolbar ow
     const address = view.getByRole("textbox", { name: "Remote page address" });
     await expect(address).toHaveValue(server.origin + "/fixture/editor");
     for (const invalid of [
-      "javascript:document.body.textContent='unexpected'",
+      "find some text",
       "reload",
       "back",
       "forward",
@@ -1031,16 +1031,17 @@ test("navigation is explicit, validates addresses and preserves local toolbar ow
       await address.fill(invalid);
       await address.press("Enter");
       await expect(view.getByRole("alert")).toContainText(
-        "absolute http:// or https://",
+        "Enter a page address",
       );
       expect(remote.url()).toBe(server.origin + "/fixture/editor");
       await expect(remote.locator("#loads")).toHaveText(loadsBefore!);
     }
-    await address.fill(server.origin + "/fixture/editor?next");
+    const next = server.origin + "/fixture/editor?next#section";
+    await address.fill(next.replace("http://", ""));
     expect(remote.url()).toBe(server.origin + "/fixture/editor");
     await address.press("Enter");
-    await remote.waitForURL(server.origin + "/fixture/editor?next");
-    await expect(address).toHaveValue(server.origin + "/fixture/editor?next");
+    await remote.waitForURL(next);
+    await expect(address).toHaveValue(next);
     await expect(
       view.getByRole("button", { name: "Back remote page" }),
     ).toBeEnabled();
@@ -1050,7 +1051,7 @@ test("navigation is explicit, validates addresses and preserves local toolbar ow
       view.getByRole("button", { name: "Forward remote page" }),
     ).toBeEnabled();
     await view.getByRole("button", { name: "Forward remote page" }).click();
-    await remote.waitForURL(server.origin + "/fixture/editor?next");
+    await remote.waitForURL(next);
     const loads = Number(await remote.locator("#loads").textContent());
     await view.getByRole("button", { name: "Reload remote page" }).click();
     await expect(remote.locator("#loads")).toHaveText(String(loads + 1));
@@ -1060,6 +1061,49 @@ test("navigation is explicit, validates addresses and preserves local toolbar ow
     await expect(
       page.getByRole("textbox", { name: "Host input", exact: true }),
     ).toHaveValue("");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("address submission delegates non-HTTP destinations to remote Chromium", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    const address = view.getByRole("textbox", { name: "Remote page address" });
+    const data =
+      "data:text/html," +
+      encodeURIComponent(
+        "<title>Address fixture</title><p id='result'>Owned destination</p>",
+      );
+    for (const url of ["about:blank", data]) {
+      const previous = remote.url();
+      await address.fill(url);
+      expect(remote.url()).toBe(previous);
+      await address.press("Enter");
+      await remote.waitForURL(url);
+      // The address model intentionally displays about:blank as an empty bar.
+      await expect(address).toHaveValue(url === "about:blank" ? "" : url);
+      await expect(view.getByRole("alert")).toHaveCount(0);
+    }
+    await expect(remote.locator("#result")).toHaveText("Owned destination");
+    await address.fill(
+      "javascript:document.body.dataset.executions=String(Number(document.body.dataset.executions||0)+1);void 0",
+    );
+    await address.press("Enter");
+    await expect(view.getByRole("alert")).toContainText(
+      "The remote page could not be navigated.",
+    );
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-executions",
+      "1",
+    );
   } finally {
     await backend.close();
   }

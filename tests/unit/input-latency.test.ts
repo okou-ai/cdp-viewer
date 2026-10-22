@@ -269,7 +269,7 @@ it("does not clear a newer navigation error when optional geometry succeeds", as
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   input.navigate({ url: "invalid" });
   const error = model.getSnapshot().error;
-  expect(error?.message).toContain("absolute http:// or https://");
+  expect(error?.message).toContain("Enter a page address");
   browser.holdMethod = null;
   const held = browser.heldCommands[0]!;
   held.socket.reply(held.command, focusResult());

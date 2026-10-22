@@ -68,7 +68,7 @@ async function warn(viewer: Locator) {
   await address.fill("not-an-absolute-address");
   await address.press("Enter");
   await expect(viewer.getByRole("alert")).toContainText(
-    "Enter an absolute http:// or https:// page address.",
+    "Enter a page address, such as example.com or about:blank.",
   );
 }
 

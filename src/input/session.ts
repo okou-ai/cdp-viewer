@@ -2,6 +2,7 @@ import type { Protocol } from "devtools-protocol";
 import type { CdpClient, CdpEvent } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
+import { navigationAddress } from "./address";
 import { frameViewport } from "./geometry";
 import type { Point, Viewport } from "./geometry";
 import { InputLifecycle } from "./lifecycle";
@@ -452,15 +453,12 @@ export class InputSession {
   navigate(action: "back" | "forward" | "reload" | { url: string }): void {
     let url = "";
     if (typeof action !== "string") {
-      try {
-        const parsed = new URL(action.url);
-        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
-        url = parsed.href;
-      } catch {
+      url = navigationAddress(action.url) ?? "";
+      if (!url) {
         this.setError(
           new CdpFault(
             "input",
-            "Enter an absolute http:// or https:// page address.",
+            "Enter a page address, such as example.com or about:blank.",
           ),
         );
         return;

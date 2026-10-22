@@ -693,14 +693,128 @@ describe("owned remote input", () => {
     for (const held of browser.heldCommands) held.socket.reply(held.command);
   });
 
-  it("waits for dispatched input before sending toolbar navigation without replay", async () => {
+  it("routes completed addresses and explicit schemes through the owned CDP session", async () => {
+    const { controller, socket } = await mount();
+    const input = controller.input!;
+    const cases = [
+      ["localhost:3000/path?x#y", "http://localhost:3000/path?x#y"],
+      ["about:blank", "about:blank"],
+      ["data:text/plain,fixture", "data:text/plain,fixture"],
+      ["file:///tmp/fixture.html", "file:///tmp/fixture.html"],
+      ["chrome://version/", "chrome://version/"],
+      ["custom:fixture", "custom:fixture"],
+    ] as const;
+    for (const [url, expected] of cases) {
+      const before = socket.commands.length;
+      input.navigate({ url });
+      await vi.waitFor(() =>
+        expect(
+          socket.commands
+            .slice(before)
+            .filter((c) => c.method === "Page.navigate"),
+        ).toEqual([
+          expect.objectContaining({
+            params: { url: expected },
+            sessionId: input.sessionId,
+          }),
+        ]),
+      );
+    }
+  });
+
+  it("rejects search-like addresses without cancelling owned composition or pending input", async () => {
+    const { browser, controller, socket, model } = await mount();
+    const input = controller.input!;
+    const owner = input.owner!;
+    input.preedit("n", owner);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
+      ).toHaveLength(1),
+    );
+    browser.holdMethod = "Input.insertText";
+    input.text("accepted once");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.navigate({ url: "search private fixture text" });
+    expect(input.owner).toBe(owner);
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.imeSetComposition")
+        .map((c) => c.params?.text),
+    ).toEqual(["n"]);
+    expect(model.getSnapshot().error).toMatchObject({
+      kind: "input",
+      message: "Enter a page address, such as example.com or about:blank.",
+    });
+    input.commitComposition("new commit", owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+    expect(socket.commands.some((c) => c.method === "Page.navigate")).toBe(
+      false,
+    );
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text),
+    ).toEqual(["accepted once", "new commit"]);
+    browser.holdMethod = null;
+    for (const held of browser.heldCommands) held.socket.reply(held.command);
+  });
+
+  it("does not retry an explicit script URL after a remote navigation error", async () => {
+    const { browser, controller, socket, model } = await mount();
+    vi.useFakeTimers();
+    browser.holdMethod = "Page.navigate";
+    const url = "javascript:document.title='fixture';void 0";
+    controller.input!.navigate({ url });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const held = browser.heldCommands[0]!;
+    expect(held.command.params).toEqual({ url });
+    held.socket.reply(held.command, { errorText: "private remote failure" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(model.getSnapshot().error).toMatchObject({
+      kind: "input",
+      message: "The remote page could not be navigated.",
+    });
+    expect(
+      socket.commands.filter((c) => c.method === "Page.navigate"),
+    ).toHaveLength(1);
+  });
+
+  it("drops a completed address still waiting for input when its session is replaced", async () => {
+    const { browser, controller, socket } = await mount();
+    browser.holdMethod = "Input.insertText";
+    controller.input!.text("accepted once");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    controller.input!.navigate({ url: "localhost:3000/next" });
+    controller.select("page-b");
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command);
+    await vi.waitFor(() =>
+      expect(controller.input?.sessionId).toMatch(/^session-/),
+    );
+    expect(controller.input!.sessionId).not.toBe(held.command.sessionId);
+    controller.input!.text("replacement input");
+    await vi.waitFor(() =>
+      expect(
+        socket.commands
+          .filter((c) => c.method === "Input.insertText")
+          .map((c) => c.params?.text),
+      ).toEqual(["accepted once", "replacement input"]),
+    );
+    expect(socket.commands.some((c) => c.method === "Page.navigate")).toBe(
+      false,
+    );
+  });
+
+  it("waits for dispatched input before sending completed toolbar navigation without replay", async () => {
     const { browser, controller, socket } = await mount();
     vi.useFakeTimers();
     const input = controller.input!;
     browser.holdMethod = "Input.insertText";
     input.text("accepted once");
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-    input.navigate({ url: "https://fixture.invalid/next" });
+    input.navigate({ url: "fixture.invalid/next" });
     await vi.advanceTimersByTimeAsync(0);
     expect(socket.commands.some((c) => c.method === "Page.navigate")).toBe(
       false,
@@ -716,6 +830,11 @@ describe("owned remote input", () => {
     expect(
       socket.commands.filter((c) => c.method === "Input.insertText"),
     ).toHaveLength(1);
+    expect(
+      socket.commands.find((c) => c.method === "Page.navigate")?.params,
+    ).toEqual({
+      url: "http://fixture.invalid/next",
+    });
   });
 
   it("ignores an old write failure after a new local input owner takes over", async () => {
