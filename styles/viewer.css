@@ -617,7 +617,7 @@
   outline-offset: -2px;
 }
 .cdpv-root .cdpv-clipboard {
-  z-index: 5;
+  z-index: 1;
   border: 1px solid var(--cdpv-border);
   border-radius: var(--cdpv-radius);
   background: var(--cdpv-background);

@@ -30,7 +30,7 @@ async function editor(backend: Awaited<ReturnType<typeof launchBackend>>) {
   const remote = await created;
   await remote.goto(server.origin + "/fixture/editor");
   await expect(remote.locator("#plain")).toBeVisible();
-  return { remote, windowId };
+  return { remote, windowId, targetId: target.targetId };
 }
 
 async function host(
@@ -483,6 +483,84 @@ test("provides native local-copy recovery under real clipboard-write policy deni
     await view.getByRole("textbox", { name: "Remote browser input" }).focus();
     await page.keyboard.insertText("still works");
     await expect(remote.locator("#plain")).toHaveValue("still works");
+  } finally {
+    await backend.close();
+    await denied.close();
+  }
+});
+
+test("keeps tab-menu options clickable above clipboard recovery", async ({
+  page,
+}, info) => {
+  const denied = await serveConsumer(consumer.dist, "/", {
+    "Permissions-Policy": "clipboard-write=()",
+  });
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    denied.origin,
+  );
+  try {
+    const { remote, windowId, targetId } = await editor(backend);
+    let last = targetId;
+    for (let index = 0; index < 8; index++) {
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+      });
+      last = target.targetId;
+      expect(
+        (
+          await backend.session.send("Browser.getWindowForTarget", {
+            targetId: last,
+          })
+        ).windowId,
+      ).toBe(windowId);
+    }
+    const view = await host(
+      page,
+      backend.endpoint,
+      windowId,
+      undefined,
+      denied.origin,
+    );
+    await view.evaluate((root) => {
+      root.style.width = "360px";
+    });
+    const menu = view.getByRole("combobox", { name: "All tabs" });
+    await menu.click();
+    await view.locator(`[data-tab-option="${targetId}"]`).click();
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await remote.locator("#plain").fill("owned recovery behind tab menu");
+    await remote.locator("#plain").selectText();
+    await copy(page, view);
+    const recovery = view.getByRole("textbox", { name: "Text to copy" });
+    await expect(recovery).toHaveValue("owned recovery behind tab menu");
+    const stage = await view.locator(".cdpv-stage").boundingBox();
+    await menu.click();
+    await expect(view.getByRole("option")).toHaveCount(9);
+    const option = view.locator(`[data-tab-option="${last}"]`);
+    await option.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        option.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return element.contains(
+            document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2,
+            ),
+          );
+        }),
+      )
+      .toBe(true);
+    expect(await view.locator(".cdpv-stage").boundingBox()).toEqual(stage);
+    await option.click();
+    await expect(menu).toHaveAttribute("aria-expanded", "false");
+    await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+      "data-target-id",
+      last,
+    );
+    await expect(recovery).toHaveCount(0);
+    await expect(page.locator("#host-submissions")).toHaveText("0");
   } finally {
     await backend.close();
     await denied.close();
