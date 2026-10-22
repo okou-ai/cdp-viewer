@@ -200,6 +200,29 @@ it("keeps the latest initial measurement while the first guard is pending", asyn
   );
 });
 
+it("makes live progress with the latest size without requiring a quiet measurement interval", async () => {
+  const browser = new FakeBrowser();
+  browser.holdMethod = "Runtime.evaluate";
+  const { controller, model } = mount(browser, "live", 0);
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  for (let index = 0; index < 100; index++)
+    controller.measureDisplay({ width: 700 + index, height: 500, dpr: 2 });
+  // Keep later guards held: the first completed guard must still commit the newest size.
+  const held = browser.heldCommands[0]!;
+  held.socket.reply(held.command, {
+    result: { value: { width: 800, height: 600, dpr: 1 } },
+  });
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  expect(resizes(browser)[0]!.params).toEqual({
+    windowId: 0,
+    width: 1598,
+    height: 1000,
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+});
+
 it("requires a normal native window and recovers on a deliberate retry", async () => {
   const browser = new FakeBrowser();
   browser.windowState = "maximized";

@@ -119,7 +119,6 @@ export class DisplaySync {
     )
       return;
     this.local = size;
-    this.revision++;
     if (
       this.mode === "live" ||
       (this.mode === "initial" && (!previous || !this.target?.applied))
@@ -190,10 +189,9 @@ export class DisplaySync {
 
   private async drain(): Promise<void> {
     const target = this.target;
-    const local = this.local;
     if (
       !target ||
-      !local ||
+      !this.local ||
       !this.wanted ||
       this.faulted ||
       !this.current(target)
@@ -235,6 +233,8 @@ export class DisplaySync {
         if (manual) this.manual = this.wanted = true;
         return;
       }
+      const local = this.local;
+      if (!local) return;
       this.assertWindow(window);
       const value: unknown = remote.result.value;
       if (
@@ -261,7 +261,7 @@ export class DisplaySync {
       }
       const remembered = this.initial.get(window.windowId);
       const restore = mode === "initial" && !manual && remembered !== undefined;
-      const size = constrainDisplay(
+      let size = constrainDisplay(
         restore
           ? {
               width: (value.width * value.dpr) / remembered,
@@ -270,17 +270,26 @@ export class DisplaySync {
             }
           : local,
       );
-      const scale = size.dpr / target.nativeDpr!;
-      const key = [window.windowId, size.width, size.height, size.dpr].join(
-        ":",
-      );
-      if (!manual && target.applied === key) return;
+      if (
+        !manual &&
+        target.applied ===
+          [window.windowId, size.width, size.height, size.dpr].join(":")
+      )
+        return;
       await this.host.capture();
       if (!this.current(target)) return;
       if (revision !== this.revision) {
         if (manual) this.manual = this.wanted = true;
         return;
       }
+      if (!this.local) return;
+      if (!restore) size = constrainDisplay(this.local);
+      const scale = size.dpr / target.nativeDpr!;
+      const key = [window.windowId, size.width, size.height, size.dpr].join(
+        ":",
+      );
+      // Consume measurements coalesced during guards/capture; later changes stay pending.
+      this.wanted = false;
       await this.client.request(
         "Emulation.setDeviceMetricsOverride",
         {
