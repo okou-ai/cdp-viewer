@@ -333,6 +333,87 @@ it("isolates navigation drafts and reconnect ownership while retaining native pr
   ).toHaveValue("https://draft-b.invalid/");
 });
 
+it("retains owned keyboard focus through same-tab resets without reclaiming local focus", async () => {
+  const fake = browser();
+  render(
+    <>
+      <input aria-label="Host input" />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={0} interactive />
+      <CdpViewer cdpUrl="wss://fixture.invalid" windowId={2} interactive />
+    </>,
+  );
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  const [first, second] = screen.getAllByRole("textbox", {
+    name: "Remote browser input",
+  });
+  const socket = fake.sockets[0]!;
+  const session = socket.commands.find(
+    (command) => command.method === "Page.getFrameTree",
+  )!.sessionId!;
+  act(() => first!.focus());
+  fireEvent.compositionStart(first!);
+  act(() =>
+    socket.emit("Page.frameStartedNavigating", { frameId: "main" }, session),
+  );
+  expect(first).toHaveFocus();
+  // Happy DOM does not populate CompositionEvent.data from its constructor.
+  const ended = new Event("compositionend", { bubbles: true });
+  Object.defineProperty(ended, "data", { value: "old composition" });
+  fireEvent(first!, ended);
+  fireEvent.input(first!, {
+    target: { value: "old composition" },
+    inputType: "insertCompositionText",
+  });
+  await userEvent.keyboard("fresh");
+  await waitFor(() =>
+    expect(
+      socket.commands
+        .filter(
+          (command) =>
+            command.method === "Input.dispatchKeyEvent" &&
+            command.params?.type === "keyDown",
+        )
+        .map((command) => command.params?.text)
+        .join(""),
+    ).toBe("fresh"),
+  );
+  expect(
+    socket.commands.filter((command) => command.method === "Input.insertText"),
+  ).toHaveLength(0);
+  for (const [method, params] of [
+    ["Runtime.executionContextsCleared", {}],
+    ["Page.frameNavigated", { frame: { id: "main" } }],
+    ["Page.navigatedWithinDocument", { frameId: "main" }],
+  ] as const) {
+    act(() => socket.emit(method, params, session));
+    expect(first).toHaveFocus();
+  }
+  expect(screen.getAllByLabelText("Remote browser input")).toEqual([
+    first,
+    second,
+  ]);
+  const hostInput = screen.getByRole("textbox", { name: "Host input" });
+  act(() => hostInput.focus());
+  act(() =>
+    socket.emit("Page.frameNavigated", { frame: { id: "main" } }, session),
+  );
+  expect(hostInput).toHaveFocus();
+  act(() => second!.focus());
+  act(() => socket.emit("Runtime.executionContextsCleared", {}, session));
+  expect(second).toHaveFocus();
+  act(() => first!.focus());
+  fake.targets = fake.targets.filter((target) => target.id !== "page-a");
+  act(() => socket.emit("Target.targetDestroyed", { targetId: "page-a" }));
+  await waitFor(() => expect(first).toBeDisabled());
+  expect(first).not.toHaveFocus();
+  expect(second).toBeEnabled();
+  expect(fake.sockets).toHaveLength(2);
+});
+
 it("ends an active address draft when interaction is disabled without resetting its sibling", async () => {
   const fake = browser();
   const content = (interactive: boolean) => (

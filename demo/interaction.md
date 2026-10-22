@@ -22,7 +22,13 @@ after invalidation or missing metadata. Continuous wheel input combines only
 compatible adjacent pending deltas, preserving scroll distance and gesture order.
 
 Keyboard events belong only to the focused viewer's native textarea. Typing in a
-host field or the viewer's address/target controls stays local. **F8**, outside
+host field or the viewer's address/target controls stays local. Remote navigation,
+reload and same-document changes preserve that local keyboard focus while the
+same selected tab remains available, so keyboard use can continue without another
+click. Old-page queued input and composition are still discarded. Remote changes
+never focus a viewer after you move to a local field or another viewer. Wheel
+input follows the pointer over the remote image and does not require keyboard
+focus. **F8**, outside
 composition, releases keyboard focus to the viewer's selected tab. Tab and
 Shift+Tab navigate remote controls while remote input owns focus. Ctrl/Cmd+A and
 Ctrl/Cmd+Z/Shift+Z use explicit Blink select-all/undo/redo commands, avoiding an

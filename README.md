@@ -124,7 +124,9 @@ data; do not log or persist snapshots indiscriminately.
 
 Click the remote image to focus its native input proxy. Local toolbar and host
 fields retain their own input. **F8** releases remote keyboard focus to the selected
-tab. Keyboard input follows Chromium's current focus, including automatic
+tab. Navigation and reload keep the viewer's existing keyboard focus while the
+same selected tab remains available; moving focus to a local control leaves it
+there. Keyboard input follows Chromium's current focus, including automatic
 focus changes and focused frames. Composition stays in a stable local textarea
 and mirrors preedit into the remote editor through CDP before committing the
 selected text once. Unsupported composition commands retain final-text-only

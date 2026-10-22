@@ -337,6 +337,59 @@ test("interactive public viewers route native text, editing shortcuts and local 
   }
 });
 
+test("same-tab search navigation and reload retain keyboard focus without another click", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    const proxy = view.getByRole("textbox", { name: "Remote browser input" });
+    const destination = server.origin + "/fixture/editor?search";
+    await remote.evaluate((url) => {
+      document
+        .querySelector("form")!
+        .addEventListener("submit", () => location.assign(url), { once: true });
+    }, destination);
+    await clickRemote(page, view, remote, "#plain");
+    await page.keyboard.type("search");
+    await page.keyboard.press("Enter");
+    await remote.waitForURL(destination);
+    await expect(
+      view.getByRole("textbox", { name: "Remote page address" }),
+    ).toHaveValue(destination);
+    await expect(proxy).toBeFocused();
+    await expect(view.getByRole("tabpanel")).toHaveCSS("outline-width", "2px");
+    await page.keyboard.press("Tab");
+    await expect(remote.locator("#plain")).toBeFocused();
+    await page.keyboard.insertText("after search");
+    await expect(remote.locator("#plain")).toHaveValue("after search");
+
+    await remote.reload();
+    await expect(proxy).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(remote.locator("#plain")).toBeFocused();
+    await page.keyboard.insertText("after reload");
+    await expect(remote.locator("#plain")).toHaveValue("after reload");
+
+    const local = page.getByRole("textbox", {
+      name: "Host input",
+      exact: true,
+    });
+    await local.fill("local");
+    await remote.reload();
+    await expect(local).toBeFocused();
+    await page.keyboard.type(" only");
+    await expect(local).toHaveValue("local only");
+    await expect(remote.locator("#plain")).toHaveValue("");
+  } finally {
+    await backend.close();
+  }
+});
+
 test("inactive input leaves local Tab navigation usable and resumes remote typing", async ({
   page,
 }, info) => {
@@ -730,7 +783,7 @@ test("same-document navigation releases owned keys and mouse buttons", async ({
     await page.keyboard.up("Shift");
     await expect(
       a.getByRole("textbox", { name: "Remote browser input" }),
-    ).not.toBeFocused();
+    ).toBeFocused();
 
     await clickRemote(page, a, remote, "#plain");
     // Remote focus is already on this input. Wait for both focus-click releases
@@ -754,7 +807,9 @@ test("same-document navigation releases owned keys and mouse buttons", async ({
       "false",
     );
     await page.mouse.up();
-    await clickRemote(page, a, remote, "#plain");
+    await expect(
+      a.getByRole("textbox", { name: "Remote browser input" }),
+    ).toBeFocused();
     await page.keyboard.insertText("recovered");
     await expect(remote.locator("#plain")).toHaveValue("recovered");
   } finally {
@@ -772,14 +827,6 @@ test("uncommitted navigation releases held input in the retained document", asyn
   try {
     const { remote, windowId } = await editor(backend);
     const view = await host(page, backend, windowId);
-    const bounds = await remote.locator("#plain").boundingBox();
-    if (!bounds) throw new Error("Owned input bounds missing.");
-    const recoveryPoint = await imagePosition(
-      view,
-      bounds.x + 20,
-      bounds.y + bounds.height / 2,
-      remote,
-    );
     const observer = await backend.context.newCDPSession(remote);
     await observer.send("Page.enable");
     let starts = 0;
@@ -853,9 +900,6 @@ test("uncommitted navigation releases held input in the retained document", asyn
     expect(remote.url()).toBe(server.origin + "/fixture/editor");
     await page.keyboard.up("Shift");
     await page.mouse.up();
-    // Reuse pre-navigation geometry and inspect the retained execution context;
-    // Playwright locator actions otherwise wait for a commit that 204 forbids.
-    await page.mouse.click(recoveryPoint.x, recoveryPoint.y);
     await expect(
       view.getByRole("textbox", { name: "Remote browser input" }),
     ).toBeFocused();
