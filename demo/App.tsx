@@ -1,7 +1,12 @@
 import { CdpViewer } from "cdp-viewer";
+import { browserUse } from "cdp-viewer/extensions/browser-use";
 import { Monitor, Plus, RotateCw, X } from "lucide-react";
 import { demoScope } from "./context";
 import type { Panel } from "./model";
+
+const extensionOptions = [
+  { label: "Browser Use", extension: browserUse() },
+] as const;
 
 export function App() {
   return (
@@ -81,9 +86,10 @@ function DemoView() {
             </p>
             <p>
               Copy and paste plain text in supported text controls. If automatic
-              copy is blocked, use the local copy recovery controls. Vendor
-              adapters are not supported yet. System IME behavior on macOS and
-              Windows is still being validated.
+              copy is blocked, use the local copy recovery controls. Enable
+              Browser Use under Extensions to follow active tabs reported by
+              your endpoint. System IME behavior on macOS and Windows is still
+              being validated.
             </p>
             <p>
               Browser provisioning and authentication belong to your endpoint
@@ -120,11 +126,19 @@ function DemoView() {
 }
 
 function ConnectionPanel({ panel }: { panel: Panel }) {
-  const { id: number, endpoint, windowDraft, connection, error } = panel;
+  const {
+    id: number,
+    endpoint,
+    windowDraft,
+    extensions,
+    connection,
+    error,
+  } = panel;
   const model = demoScope.useModel();
   const id = demoScope.useIdentity() + "-" + number;
   const remove = demoScope.useCommand(model.remove$);
   const edit = demoScope.useCommand(model.edit$);
+  const setExtension = demoScope.useCommand(model.setExtension$);
   const connect = demoScope.useCommand(model.connect$);
   const reconnect = demoScope.useCommand(model.reconnect$);
   const disconnect = demoScope.useCommand(model.disconnect$);
@@ -184,6 +198,21 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
             aria-describedby={error === "window" ? `${id}-error` : undefined}
           />
         </div>
+        <fieldset className="demo-extensions">
+          <legend>Extensions (optional)</legend>
+          {extensionOptions.map(({ label, extension }) => (
+            <label key={extension.id}>
+              <input
+                type="checkbox"
+                checked={extensions.some((value) => value.id === extension.id)}
+                onChange={(event) =>
+                  setExtension(number, extension, event.target.checked)
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
         {error && (
           <p id={`${id}-error`} className="demo-validation" role="alert">
             {error === "endpoint"
@@ -220,6 +249,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
         <CdpViewer
           key={connection.generation}
           cdpUrl={connection.cdpUrl}
+          extensions={connection.extensions}
           interactive
           {...(connection.windowId === undefined
             ? {}

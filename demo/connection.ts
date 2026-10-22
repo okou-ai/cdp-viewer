@@ -1,6 +1,7 @@
-import type { CdpViewerProps } from "cdp-viewer";
+import type { CdpViewerProps, ViewerExtension } from "cdp-viewer";
 
 export type Connection = Pick<CdpViewerProps, "cdpUrl" | "windowId"> & {
+  readonly extensions: readonly ViewerExtension[];
   generation: number;
 };
 export type ConnectionError = "endpoint" | "window";

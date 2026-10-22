@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { createDemoModel } from "../../demo/model";
+import { browserUse } from "../../src/extensions/browser-use";
 import { createViewerModel } from "../../src/viewer/model";
 import type { ViewerTransition } from "../../src/viewer/model";
 import type { ViewerError } from "../../src/viewer/types";
@@ -329,8 +330,12 @@ it("preserves an active address draft and releases completed drafts on URL ident
 
 it("keeps applied demo connections independent from invalid drafts and sibling actions", () => {
   const model = createDemoModel();
+  const activation = browserUse();
+  const other = { id: "other", setup: vi.fn() };
   model.run(model.edit$, 1, "endpoint", "wss://first.invalid/browser");
   model.run(model.edit$, 1, "windowDraft", "0");
+  model.run(model.setExtension$, 1, activation, true);
+  model.run(model.setExtension$, 1, other, true);
   model.run(model.connect$, 1);
   model.run(model.add$);
   model.run(model.edit$, 2, "endpoint", "wss://second.invalid/browser");
@@ -343,8 +348,13 @@ it("keeps applied demo connections independent from invalid drafts and sibling a
   expect(first?.connection).toEqual({
     cdpUrl: "wss://first.invalid/browser",
     windowId: 0,
+    extensions: [activation, other],
     generation: 1,
   });
+  expect(second?.connection?.extensions).toEqual([]);
+  model.run(model.setExtension$, 1, activation, false);
+  expect(model.read(model.panels$)[0]?.extensions).toEqual([other]);
+  expect(model.read(model.panels$)[0]?.connection).toBe(first?.connection);
   model.run(model.edit$, 1, "endpoint", "not a valid endpoint");
   model.run(model.connect$, 1);
   expect(model.read(model.panels$)[0]?.connection).toBe(first?.connection);
@@ -355,6 +365,14 @@ it("keeps applied demo connections independent from invalid drafts and sibling a
     generation: 2,
   });
   expect(model.read(model.panels$)[1]).toBe(second);
+  model.run(model.edit$, 1, "endpoint", "wss://first.invalid/browser");
+  model.run(model.connect$, 1);
+  expect(model.read(model.panels$)[0]?.connection).toEqual({
+    ...first?.connection,
+    extensions: [other],
+    generation: 3,
+  });
+  expect(first?.connection?.extensions).toEqual([activation, other]);
   model.run(model.remove$, 1);
   expect(model.read(model.panels$)).toEqual([second]);
   model.run(model.add$);
@@ -366,6 +384,7 @@ it("keeps applied demo connections independent from invalid drafts and sibling a
   expect(another.read(another.panels$)[0]).toMatchObject({
     id: 1,
     endpoint: "",
+    extensions: [],
     connection: null,
   });
 });
