@@ -17,17 +17,17 @@ test.afterAll(async () => {
 });
 
 async function editor(backend: Backend, name: string, source?: Page) {
-  const created = backend.context.waitForEvent("page");
-  if (source)
-    await source.evaluate(() => {
-      window.open("about:blank");
-    });
-  else
-    await backend.session.send("Target.createTarget", {
-      url: "about:blank",
-      newWindow: true,
-    });
-  const page = await created;
+  const [page] = await Promise.all([
+    backend.context.waitForEvent("page"),
+    source
+      ? source.evaluate(() => {
+          window.open("about:blank");
+        })
+      : backend.session.send("Target.createTarget", {
+          url: "about:blank",
+          newWindow: true,
+        }),
+  ]);
   await page.goto(server.origin + "/fixture/editor?" + name);
   await expect(page.locator("#plain")).toBeVisible();
   const inspection = await backend.context.newCDPSession(page);
@@ -191,6 +191,7 @@ test("cdp sessions keep input independent while the other window activates a tab
   try {
     clients.push(new CdpClient(backend.endpoint));
     clients.push(new CdpClient(backend.endpoint));
+    await Promise.all(clients.map((client) => client.opened));
     const a = await editor(backend, "a");
     const aNext = await editor(backend, "a-next", a.page);
     const b = await editor(backend, "b");
@@ -198,7 +199,6 @@ test("cdp sessions keep input independent while the other window activates a tab
     expect(a.windowId).not.toBe(b.windowId);
     expect(aNext.windowId).toBe(a.windowId);
     expect(bNext.windowId).toBe(b.windowId);
-    await Promise.all(clients.map((client) => client.opened));
     const owners = await Promise.all(
       [a, aNext, b, bNext].map(async (target, index): Promise<Owner> => {
         const client = clients[index < 2 ? 0 : 1]!;
