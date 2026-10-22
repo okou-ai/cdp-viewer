@@ -78,9 +78,10 @@ alone does not establish correctness during an in-flight window handover.
 
 The focused `tests/browser/windows.spec.ts` scenarios distinguish direct CDP
 sessions from installed public viewers. Direct checks overlap text, keys and
-pointer dispatch while another window activates a tab, and inspect actual tab
-selection and page/window focus. Public checks cover sibling viewers' wheel
-queues and separate client documents' keyboard/text input. A held real reply
+pointer dispatch across windows, continue text input while another window
+activates a tab, and inspect actual tab selection and page/window focus. Public
+checks cover sibling viewers' wheel queues and separate client documents'
+keyboard/text input. A held real reply
 establishes that the sibling completes input and paints while the first viewer
 still owns in-flight work. A single host document's physical keyboard focus is
 separate from these independent remote operation lanes.

@@ -555,6 +555,11 @@ for (const separate of [false, true]) {
       await record(info, backend, {
         headless: true,
         separateClientPages: separate,
+        owners: [a, b].map(({ name, windowId, targetId }) => ({
+          name,
+          windowId,
+          targetId,
+        })),
         links,
         inputs,
         result: "B edited/scrolled and painted while A awaited its own reply",
