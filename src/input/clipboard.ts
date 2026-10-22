@@ -1,5 +1,5 @@
 import { clipboardTextLimit } from "./selection";
-import type { InputSession } from "./session";
+import type { NativeInputPort } from "./port";
 
 export interface ClipboardRecovery {
   readonly message: string;
@@ -24,7 +24,7 @@ export class NativeClipboard {
 
   constructor(
     private readonly proxy: HTMLTextAreaElement,
-    private readonly input: () => InputSession | null,
+    private readonly input: () => NativeInputPort | null,
     private readonly composing: () => boolean,
     private readonly changed: (recovery: ClipboardRecovery | null) => void,
     signal: AbortSignal,
@@ -53,7 +53,7 @@ export class NativeClipboard {
     this.changed(value);
   }
 
-  private focused(): InputSession | null {
+  private focused(): NativeInputPort | null {
     return document.activeElement === this.proxy ? this.input() : null;
   }
 

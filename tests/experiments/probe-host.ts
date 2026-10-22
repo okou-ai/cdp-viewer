@@ -17,10 +17,12 @@ export class ProbeHost {
     targetId,
     windowId,
     reply,
+    mode,
   }: {
     targetId: string;
     windowId: number;
     reply: (value: ProbeReply) => void;
+    mode?: "keys" | "native";
   }): Promise<GuardedProbe> {
     if (this.lifetime.signal.aborted) throw new Error("Fixture host is closed");
     if (this.targets.has(targetId))
@@ -34,6 +36,7 @@ export class ProbeHost {
       windowId,
       reply,
       signal: this.lifetime.signal,
+      ...(mode ? { mode } : {}),
       ...(this.factory ? { factory: this.factory } : {}),
     });
     if (this.lifetime.signal.aborted) {

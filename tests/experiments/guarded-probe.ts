@@ -6,6 +6,7 @@ import { isRecord } from "../../src/cdp/errors";
 import { TargetDirectory } from "../../src/cdp/targets";
 import { InputSession } from "../../src/input/session";
 import type { InputStop } from "../../src/input/lifecycle";
+import { nativeActions } from "./native-actions";
 
 type Key = Protocol.Input.DispatchKeyEventRequest;
 type Intent = { kind: "key"; key: Key } | { kind: "text"; text: string };
@@ -83,6 +84,7 @@ export class GuardedProbe {
   private retirement: Promise<boolean> | undefined;
   private retirementFailed: (() => void) | undefined;
   private readonly native = new Map<number, NativeReply>();
+  private readonly batches = new Map<number, number>();
   private ready = false;
   private readonly outstanding = new Set<number>();
   private readonly waiting: number[] = [];
@@ -96,6 +98,7 @@ export class GuardedProbe {
   private constructor(
     endpoint: string,
     readonly targetId: string,
+    private readonly mode: "keys" | "native",
     private readonly reply: (value: ProbeReply) => void,
     factory: SocketFactory,
   ) {
@@ -201,6 +204,7 @@ export class GuardedProbe {
     reply,
     factory = (url) => new WebSocket(url),
     signal,
+    mode = "keys",
   }: {
     endpoint: string;
     targetId: string;
@@ -208,8 +212,9 @@ export class GuardedProbe {
     reply: (value: ProbeReply) => void;
     factory?: SocketFactory;
     signal?: AbortSignal;
+    mode?: "keys" | "native";
   }): Promise<GuardedProbe> {
-    const probe = new GuardedProbe(endpoint, targetId, reply, factory);
+    const probe = new GuardedProbe(endpoint, targetId, mode, reply, factory);
     const abort = () => probe.close();
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -271,6 +276,7 @@ export class GuardedProbe {
       this.revoke();
       return false;
     }
+    if (this.mode === "native") return this.receiveBatch(value);
     const action = isRecord(value) ? intent(value) : null;
     if (
       !isRecord(value) ||
@@ -297,6 +303,57 @@ export class GuardedProbe {
     if (action.kind === "key") this.input!.key(action.key);
     else this.input!.text(action.text);
     return true;
+  }
+
+  private receiveBatch(value: unknown): boolean {
+    const actions =
+      isRecord(value) && value.kind === "batch"
+        ? nativeActions(value.actions)
+        : null;
+    if (
+      !isRecord(value) ||
+      value.owner !== this.owner ||
+      value.sequence !== this.next ||
+      !Number.isSafeInteger(value.sequence) ||
+      !Number.isSafeInteger(value.acknowledged) ||
+      Number(value.acknowledged) < this.receivedThrough ||
+      Number(value.acknowledged) > this.completedThrough ||
+      !actions
+    ) {
+      this.revoke();
+      return false;
+    }
+    this.receivedThrough = Number(value.acknowledged);
+    for (const sequence of this.batches.keys())
+      if (sequence <= this.receivedThrough) this.batches.delete(sequence);
+    const count =
+      [...this.batches.values()].reduce((sum, n) => sum + n, 0) +
+      actions.length;
+    if (count > 64) {
+      this.revoke();
+      return false;
+    }
+    const sequence = this.next++;
+    this.batches.set(sequence, actions.length);
+    this.peakOutstanding = Math.max(this.peakOutstanding, count);
+    const owner = this.input!.owner!;
+    for (const action of actions) {
+      if (this.stopped) return false;
+      if (action.kind === "key") this.input!.key(action.key);
+      else if (action.kind === "text") this.input!.text(action.text, owner);
+      else this.input!.pointer(action.type, action.point, action.details);
+    }
+    void this.input!.completion(owner).then(
+      () => {
+        if (this.stopped || this.writeFailed) return;
+        this.completed.add(sequence);
+        while (this.completed.delete(this.completedThrough + 1))
+          this.completedThrough++;
+        this.emit({ type: "ack", sequence, ok: true });
+      },
+      () => this.revoke(),
+    );
+    return !this.stopped;
   }
 
   holdNext(method: "Browser.getWindowForTarget" | "Input.dispatchKeyEvent") {
@@ -395,6 +452,7 @@ export class GuardedProbe {
     this.outstanding.clear();
     this.requests.clear();
     this.completed.clear();
+    this.batches.clear();
     this.hold = undefined;
   }
 }

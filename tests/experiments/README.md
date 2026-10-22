@@ -1,8 +1,9 @@
 # Guarded adjacent-input experiment
 
-This opt-in feasibility experiment compares the independently installed public
-interactive viewer with a **test-only keys/committed-text executor** close to an
-owned Chromium. It is outside the normal browser correctness suite. It does not
+This opt-in evaluation compares the independently installed public interactive
+viewer with test-only executors close to an owned Chromium: the narrow
+keys/committed-text comparator and a separate actual NativeInput pointer/keyboard
+experiment. It is outside the normal browser correctness suite. It does not
 add a public adapter, server dependency, service or deployment to the library.
 
 Run from the repository root using an immutable pushed source revision:
@@ -15,10 +16,11 @@ The prototype reuses this checkout's actual `InputSession`, `InputQueue`,
 `InputLifecycle` and `CdpClient`; the command rejects a source/runtime mismatch.
 The public consumer is independently installed with disabled lifecycle scripts
 and a frozen reinstall, including public types, build and source SSR checks.
-Output is `test-results/adjacent-input/**/measurements.json`. Keep dated results,
+Output is `test-results/adjacent-input/**/measurements.json` or
+`native-measurements.json`. Keep dated results,
 raw samples and acceptance decisions in PRs/issues, not this methodology guide.
 
-## Topology and observation boundaries
+## Keys/text topology and observation boundaries
 
 The direct control uses the normal public `NativeInput` path. The prototype uses
 a minimal stable local textarea and an explicit fixture intent channel, while
@@ -95,10 +97,48 @@ release its new acquisition. These are explicit fixture host lifecycle reports,
 not integration with a shipping client adapter. They remain separate from timing
 samples and ordinary correctness CI.
 
+## Actual NativeInput pointer/keyboard batches
+
+Select `native-input.spec.ts` with the same config/source command to run this
+increment separately. Both paths use the actual NativeInput DOM adapter. The
+direct path uses the installed public interactive viewer; the candidate bundles
+the source-matched private DOM adapter as a test-only entry and mounts it on the
+installed read-only viewer canvas with a stable textarea. No private export is
+added to the package. Only the adapter's type dependency is narrowed to an
+internal port; ordinary production calls and scheduling remain unchanged.
+
+The candidate admits validated key/text/pointer batches of at most 16 actions.
+Opaque owner, contiguous batch sequence and client-confirmed completions bound
+the whole unconfirmed window to 64 logical actions. The existing input queue
+retains its independent capacity, including completion fences; 64 is a ceiling,
+not a promise that every such burst can be accepted. Overflow revokes without
+replay. Queued moves and wheels may coalesce. A receipt therefore completes a
+whole logical batch after an owner-bound cancellable queue fence and actual
+native replies, rather than assigning one native reply to every intent. Fences
+are real candidate overhead; they do not change the normal direct send lane.
+
+The browser fixture verifies click/type ordering, Tab/focus, pointer drag and
+sibling DOM/canvas progress while an actual reply is held. Retirement still uses
+the original connection's native/release/detach receipts. Local blur closes this
+fixture admission; it does not implement nonterminal focus recovery. Optional
+remote caret placement metadata is not queried by the candidate port and cannot
+authorize input. Composition and selection/copy operations are explicitly
+unavailable; local browser clipboard gesture parity and navigation are unproved.
+
+Matched measurements use three trials of immediate click/type and a 300 CSS-pixel
+scroll for one viewer and two concurrent viewers, on one browser URL and distinct
+windows. Both 0/50ms one-way profiles preserve capture defaults; candidate CDP is
+local and all viewer/client intent/reply traffic is shaped. Synthetic DOM effects
+and an actual streamed fixed color marker use the common host clock. Logical
+batch acknowledgements, coalescing and extra guard/fence work are not hidden as
+one-intent/one-write results. Keep raw observations and any regressions or
+variation in the PR. These checks establish this pointer/keyboard increment,
+not complete native-adapter parity or an adoption decision.
+
 ## Limits
 
-This is keys/text stable-window feasibility, using a deliberately smaller local
-adapter than `NativeInput`. It cannot establish complete local-adapter parity,
+The keys/text comparator uses a deliberately smaller local adapter than
+`NativeInput`. Neither increment establishes complete local-adapter parity,
 click/pointer/wheel/navigation/clipboard ordering or genuine OS composition.
 Acknowledged cleanup and controlled tab-move handover cover keys/text only; a full
 interaction and ownership evaluation remains necessary before adopting any public
