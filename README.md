@@ -133,8 +133,10 @@ Arrow keys move through the list; Enter selects, and Escape closes it. The popup
 fits inside the viewer and scrolls vertically for long lists. This compact
 fallback has no search field. Interactive viewers add new/close actions. The compact new-tab button
 follows the tabs and stays reachable, showing a spinner during creation.
-Enter in the address bar navigates to an absolute
-HTTP(S) address. The navigation toolbar supports reload and
+Enter in the address bar completes recognizable host addresses with `http://`
+and passes explicit URL schemes to the remote browser. HTTPS upgrades and
+destination support depend on that browser. Plain text is never sent to a search
+engine. The navigation toolbar supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).
 
 Ctrl/Cmd+V inserts local plain text once into the remote focused control.

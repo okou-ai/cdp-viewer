@@ -151,11 +151,30 @@ cancellation or HTTP 204 can retain the original document. A loading-start event
 alone does not establish document loss; explicit navigation/context facts drive
 the lifecycle transition table.
 
-The toolbar accepts absolute `http://` and `https://` addresses; it does not infer
-a scheme, run JavaScript URLs or perform endpoint discovery. Draft address edits
-do not navigate. Enter, reload and available history actions are explicit standard
-CDP requests and invalidate input before sending. Remote page addresses remain
-in memory and may contain sensitive data; do not record them in snapshots/logs.
+The toolbar completes recognizable host addresses with `http://`, following
+Chrome's URL-fixup default. Domains (including international names), localhost,
+four-component IPv4, bracketed IPv6 and host/port forms retain their path, query
+and fragment. For example, `localhost:3000/path` becomes
+`http://localhost:3000/path`; `//example.com/path` becomes
+`http://example.com/path`. Numeric-port ambiguity follows host/port precedence:
+`printer:3000` is a host address. Other bare single words, relative paths and
+search-like text are rejected; there are no search/history suggestions, network
+probes, file-path guesses or text-to-search conversion.
+
+Explicit URL schemes such as `https:`, `about:`, `data:`, `file:`, `chrome:` and
+`javascript:` are passed through native URL parsing to CDP without a scheme
+allowlist. Dotted prefixes without `://` are treated as hosts, and numeric-port
+forms take host precedence. Supported destinations, script execution, external
+protocol handling and HTTPS upgrades depend on the remote browser and its
+policy. The viewer does not probe HTTPS or retry navigation failures; a URL can
+have an effect even when the browser reports a navigation error.
+
+Draft address edits do not navigate. Enter, reload and available history actions
+are explicit standard CDP requests and invalidate input before sending. Invalid
+address submissions leave existing remote input ownership intact. Remote page
+addresses remain in memory and may contain sensitive data; do not record them in
+snapshots/logs. CDP endpoint validation and discovery are separate from page
+address completion.
 
 ## Support and evidence matrix
 

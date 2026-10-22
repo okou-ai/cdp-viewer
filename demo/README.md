@@ -93,7 +93,9 @@ and keyboard actions. Press **F8** outside composition to release remote keyboar
 focus to the selected tab. Connection fields, page selection and the address
 bar retain their own local input; typing in them is not sent to the remote page.
 
-Enter an absolute `http://` or `https://` address and press **Enter** to navigate.
+Enter a page address and press **Enter** to navigate. Recognizable host addresses
+such as `example.com` or `localhost:3000` receive an `http://` scheme; explicit
+schemes are handled by the remote browser. Plain text does not become a search.
 Editing the address alone does not navigate. The toolbar also provides reload
 and available back/forward actions. Disconnecting or removing a panel discards
 its unsent input without closing the remote browser or tabs.
