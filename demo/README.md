@@ -57,8 +57,10 @@ viewers display it.
 ## Explore the props
 
 The preview leads each panel, with its connection bar above and grouped settings
-alongside. Narrow panels put settings below the preview. All controls belong to
-that panel; adding another viewer starts with independent defaults.
+alongside. Expanding groups leaves the preview height unchanged; overflowing
+settings scroll within that height. Narrow panels put settings below the preview,
+where groups expand with the page. All controls belong to that panel; adding
+another viewer starts with independent defaults.
 
 | Public prop      | Playground surface                             | When it changes                                                         |
 | ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
