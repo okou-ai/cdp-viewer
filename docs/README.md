@@ -10,6 +10,8 @@ This directory holds coding principles, architecture and validation methods.
   stacking, event cooperation and independent component ownership.
 - [Validation strategy](validation.md): test boundaries, deterministic checks and
   evidence requirements.
+- [Adjacent executor assessment](executor-assessment.md): matched interaction
+  measurements, ownership and adoption evidence boundaries.
 
 Describe responsibilities, dependency direction, design decisions and stable
 invariants. Keep concrete feature behavior in implementation and regression

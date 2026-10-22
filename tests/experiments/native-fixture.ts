@@ -602,6 +602,7 @@ export async function observeClipboard(page: Page, gate = false) {
       writes: 0,
       gesture: false,
       settled: 0,
+      completedAt: 0,
       held: false,
       release: () => {},
     };
@@ -612,8 +613,14 @@ export async function observeClipboard(page: Page, gate = false) {
       observed.gesture = navigator.userActivation.isActive;
       const result = write(items);
       result.then(
-        () => observed.settled++,
-        () => observed.settled++,
+        () => {
+          observed.completedAt = Date.now();
+          observed.settled++;
+        },
+        () => {
+          observed.completedAt = Date.now();
+          observed.settled++;
+        },
       );
       return result;
     };
