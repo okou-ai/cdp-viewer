@@ -163,6 +163,7 @@ export class GuardedProbe {
                 "Page.navigate",
                 "Page.reload",
                 "Page.navigateToHistoryEntry",
+                "Target.detachFromTarget",
               ].includes(command.method)
             ) {
               // Normal in-flight intent is capped at 64; cleanup gets one more

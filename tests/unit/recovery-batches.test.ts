@@ -318,6 +318,47 @@ it.each(["lost", "rejected", "partial", "missing-result"] as const)(
   },
 );
 
+it.each(["missing-result", "non-object-result"] as const)(
+  "keeps %s detach uncertain after all original input releases completed",
+  async (failure) => {
+    const f = await fixture();
+    const b = await f.channel("page-b", 2);
+    await acquired(f.a);
+    await acquired(b);
+    f.methods.add("Target.detachFromTarget");
+    const retirement = f.host.retire(f.a.probe);
+    await vi.waitFor(() => expect(f.held).toHaveLength(1));
+    const detach = f.held[0]!;
+    expect(detach.command.method).toBe("Target.detachFromTarget");
+    await denied(f.host);
+    detach.socket.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          id: detach.command.id,
+          ...(failure === "non-object-result" ? { result: null } : {}),
+        }),
+      }),
+    );
+    expect(await retirement).toBe(false);
+    await denied(f.host);
+    expect(f.browser.sockets).toHaveLength(2);
+    expect(
+      f.a.socket.commands.filter(
+        (command) => command.method === "Target.detachFromTarget",
+      ),
+    ).toHaveLength(1);
+    detach.socket.reply(detach.command);
+    await denied(f.host);
+    expect(b.send([{ kind: "commit", text: "sibling remains usable" }])).toBe(
+      true,
+    );
+    await vi.waitFor(() => expect(b.acks()).toHaveLength(2));
+    expect(
+      b.socket.commands.filter((command) => command.params?.type === "keyUp"),
+    ).toHaveLength(0);
+  },
+);
+
 it("delegates truncated native JSON to the canonical decoder without breaking its sibling lane", async () => {
   const f = await fixture();
   const b = await f.channel("page-b", 2);
