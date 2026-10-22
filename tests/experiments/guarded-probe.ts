@@ -190,7 +190,14 @@ export class GuardedProbe {
       // Installed before CdpClient's listener: a hold blocks its real await.
       socket.addEventListener("message", (event: MessageEvent<unknown>) => {
         if (typeof event.data !== "string") return;
-        const response: unknown = JSON.parse(event.data);
+        let response: unknown;
+        try {
+          response = JSON.parse(event.data);
+        } catch {
+          // The following CdpClient listener owns malformed-protocol failure
+          // and original-connection cleanup. This observer must not throw first.
+          return;
+        }
         if (!isRecord(response) || typeof response.id !== "number") return;
         const hold = this.hold;
         if (hold?.id === response.id) {

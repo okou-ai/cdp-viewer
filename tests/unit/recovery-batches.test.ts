@@ -312,6 +312,30 @@ it.each(["lost", "rejected", "partial"] as const)(
   },
 );
 
+it("delegates truncated native JSON to the canonical decoder without breaking its sibling lane", async () => {
+  const f = await fixture();
+  const b = await f.channel("page-b", 2);
+  await acquired(f.a);
+  await acquired(b);
+  f.methods.add("Input.imeSetComposition");
+  expect(f.a.send([preview("uncertain")])).toBe(true);
+  await vi.waitFor(() => expect(f.held).toHaveLength(1));
+  expect(() =>
+    f.a.socket.dispatchEvent(new MessageEvent("message", { data: "{" })),
+  ).not.toThrow();
+  expect(await f.host.retire(f.a.probe)).toBe(false);
+  await denied(f.host);
+  expect(f.browser.sockets).toHaveLength(2);
+  expect(b.send([{ kind: "commit", text: "sibling remains usable" }])).toBe(
+    true,
+  );
+  await vi.waitFor(() => expect(b.acks()).toHaveLength(2));
+  expect(b.socket.readyState).toBe(1);
+  expect(
+    b.socket.commands.filter((command) => command.params?.type === "keyUp"),
+  ).toHaveLength(0);
+});
+
 const navigationCases = [
   {
     method: "Page.navigate",
