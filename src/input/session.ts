@@ -136,7 +136,8 @@ export class InputSession {
         cleanup.owner.sessionId,
       );
     this.resetLocal(reason);
-    if (reason === "blur" && refreshHistory) this.updateHistory();
+    if ((reason === "blur" || reason === "failed") && refreshHistory)
+      this.updateHistory();
   }
 
   dispose(reason: InputStop = "disposed"): void {

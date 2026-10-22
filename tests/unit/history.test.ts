@@ -271,6 +271,37 @@ it("retains the newest requested refresh when the active history read fails", as
   expect(error).not.toHaveBeenCalled();
 });
 
+it("refreshes navigation UI after input failure without replaying the failed input", async () => {
+  const { browser, input, socket, held, changed, error } = await fixture({
+    holdHistory: true,
+  });
+  browser.holdMethod = "Input.insertText";
+  input.text("uncertain input");
+  await vi.waitFor(() =>
+    expect(
+      browser.heldCommands.some((c) => c.command.method === "Input.insertText"),
+    ).toBe(true),
+  );
+  const pending = browser.heldCommands.find(
+    (c) => c.command.method === "Input.insertText",
+  )!;
+  socket.reject(pending.command, -32000);
+  await vi.waitFor(() =>
+    expect(error).toHaveBeenCalledWith(expect.any(CdpFault)),
+  );
+  const fault = error.mock.calls.at(-1)?.[0];
+  browser.holdMethod = "Page.getNavigationHistory";
+  socket.reply(held()[0]!.command, history("https://fixture.invalid/stale"));
+  await vi.waitFor(() => expect(held()).toHaveLength(2));
+  expect(changed).not.toHaveBeenCalled();
+  socket.reply(held()[1]!.command, history());
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(error.mock.calls.at(-1)?.[0]).toBe(fault);
+  expect(
+    socket.commands.filter((c) => c.method === "Input.insertText"),
+  ).toHaveLength(1);
+});
+
 it("clears obsolete navigation UI when current history is empty", async () => {
   const { browser, socket, held, event, changed } = await fixture();
   browser.holdMethod = "Page.getNavigationHistory";
