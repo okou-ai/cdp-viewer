@@ -2,13 +2,23 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ViewerController } from "../../src/viewer/controller";
 import { createViewerModel } from "../../src/viewer/model";
 import { FakeBrowser } from "./wire";
+import { NativeInput } from "../../src/input/native";
+import type { InputTransition } from "../../src/input/lifecycle";
 
 const controllers: ViewerController[] = [];
-afterEach(() =>
-  controllers.splice(0).forEach((controller) => controller.close()),
-);
+const adapters: NativeInput[] = [];
+afterEach(() => {
+  adapters.splice(0).forEach((adapter) => adapter.dispose());
+  controllers.splice(0).forEach((controller) => controller.close());
+  document.body.replaceChildren();
+});
 
-async function mount() {
+async function mount(
+  callbacks: {
+    onInputReset?: (reason: InputTransition) => void;
+    onClipboardReset?: () => void;
+  } = {},
+) {
   const browser = new FakeBrowser();
   browser.targets[1]!.windowId = 0;
   const model = createViewerModel();
@@ -20,6 +30,7 @@ async function mount() {
       windowId: 0,
       interactive: true,
       socketFactory: browser.factory,
+      ...callbacks,
     },
   );
   controllers.push(controller);
@@ -170,4 +181,81 @@ it("keeps retiring-session document events from granting late preedit cleanup a 
     status: "streaming",
     selectedTargetId: "page-b",
   });
+});
+
+it("keeps late retirement callbacks from resetting the current native composition", async () => {
+  let adapter: NativeInput | undefined;
+  const { browser, controller, model, socket } = await mount({
+    onInputReset: (reason) => adapter?.reset(reason),
+    onClipboardReset: () => adapter?.clearClipboard(),
+  });
+  const stage = document.createElement("div");
+  const canvas = document.createElement("canvas");
+  const proxy = document.createElement("textarea");
+  stage.append(canvas, proxy);
+  document.body.append(stage);
+  adapter = new NativeInput(
+    canvas,
+    proxy,
+    () => controller.input,
+    () => {},
+  );
+  adapters.push(adapter);
+  const old = controller.input!;
+  browser.holdMethod = "Input.imeSetComposition";
+  old.preedit("held", old.owner!);
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  controller.select("page-b");
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+  browser.holdMethod = null;
+  const current = controller.input!;
+  proxy.focus();
+  proxy.dispatchEvent(
+    new CompositionEvent("compositionstart", { bubbles: true }),
+  );
+  proxy.value = "current preedit";
+  proxy.setSelectionRange(proxy.value.length, proxy.value.length);
+  proxy.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      isComposing: true,
+      inputType: "insertCompositionText",
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.some(
+        (c) =>
+          c.method === "Input.imeSetComposition" &&
+          c.sessionId === current.sessionId &&
+          c.params?.text === "current preedit",
+      ),
+    ).toBe(true),
+  );
+  for (const held of browser.heldCommands) held.socket.reply(held.command);
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.some(
+        (c) =>
+          c.method === "Target.detachFromTarget" &&
+          c.params?.sessionId === old.sessionId,
+      ),
+    ).toBe(true),
+  );
+  expect(document.activeElement).toBe(proxy);
+  expect(proxy.value).toBe("current preedit");
+  proxy.value = "current commit";
+  const end = new Event("compositionend", { bubbles: true });
+  Object.defineProperty(end, "data", { value: "current commit" });
+  proxy.dispatchEvent(end);
+  await current.completion(current.owner!);
+  expect(
+    socket.commands.filter((c) => c.method === "Input.insertText"),
+  ).toEqual([
+    expect.objectContaining({
+      sessionId: current.sessionId,
+      params: { text: "current commit" },
+    }),
+  ]);
 });

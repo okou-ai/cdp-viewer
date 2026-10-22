@@ -544,7 +544,9 @@ export class ViewerController {
         (navigation) => {
           if (this.isCurrent(selection)) this.model.update({ navigation });
         },
-        (reason) => this.options.onInputReset?.(reason),
+        (reason) => {
+          if (this.isCurrent(selection)) this.options.onInputReset?.(reason);
+        },
         (point) => {
           if (!this.isCurrent(selection)) return;
           this.options.onCaret?.(point);
@@ -556,7 +558,9 @@ export class ViewerController {
           )
             this.model.update({ error: error ? diagnostic(error) : null });
         },
-        () => this.options.onClipboardReset?.(),
+        () => {
+          if (this.isCurrent(selection)) this.options.onClipboardReset?.();
+        },
       );
       selection.input = input;
       inputReady = input.start().then(() => {
@@ -637,6 +641,10 @@ export class ViewerController {
       } else {
         input?.dispose(reason);
         this.release(old);
+      }
+      if (input) {
+        this.options.onClipboardReset?.();
+        this.options.onInputReset?.(reason);
       }
     }
   }

@@ -64,8 +64,10 @@ with committed props and instance state.
 
 Express related visible-state changes as semantic transitions owned by the model.
 Derive shared interaction capabilities from committed configuration and runtime
-facts in readonly projections. Execution still validates current ownership and
-external scope at the point of use; a rendered capability is not write authority.
+facts in readonly projections. Execution validates current input ownership at
+the point of use. Window membership is verified around selection/attachment and
+invalidated by background discovery; stable input does not query it per action.
+A rendered capability is not write authority.
 
 Resource bindings belong to their instance and lifetime. Remove only a matching
 binding during cleanup, so an old owner cannot detach a replacement. Callback
