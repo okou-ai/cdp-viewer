@@ -399,6 +399,119 @@ test("playground changes live props independently and observes safe callbacks", 
   }
 });
 
+test("settings disclosure keeps preview height stable and overflow reachable", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openDemo(page);
+  const a = panel(page, 1);
+  const preview = a.locator(".demo-preview");
+  const stage = a.locator(".demo-stage");
+  const settings = a.getByRole("complementary", {
+    name: "Viewer 1 properties",
+  });
+  const groups = await settings.locator(":scope > details").all();
+  const surfaces = [a, preview, stage];
+  const heights = () =>
+    Promise.all(
+      surfaces.map(async (surface) => (await surface.boundingBox())!.height),
+    );
+  async function expectHeights(expected: number[]) {
+    await expect
+      .poll(async () =>
+        Math.max(
+          ...(await heights()).map((height, i) =>
+            Math.abs(height - expected[i]!),
+          ),
+        ),
+      )
+      .toBeLessThan(1);
+  }
+  async function expectWithinRail(control: Locator) {
+    await expect(control).toBeInViewport();
+    const bounds = (await control.boundingBox())!;
+    const rail = (await settings.boundingBox())!;
+    // Native scrolling rounds offsets when the Grid row has a fractional size.
+    expect(bounds.y).toBeGreaterThanOrEqual(rail.y - 1);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+      rail.y + rail.height + 1,
+    );
+  }
+
+  const initial = await heights();
+  for (const group of groups) {
+    if ((await group.getAttribute("open")) === null) {
+      await group.locator(":scope > summary").click();
+      await expectHeights(initial);
+    }
+  }
+  expect(
+    await settings.evaluate((rail) => rail.scrollHeight > rail.clientHeight),
+  ).toBe(true);
+  const usage = settings.locator("summary").filter({ hasText: "Usage" });
+  await usage.focus();
+  await expect(usage).toBeFocused();
+  await expectWithinRail(usage);
+  expect(await settings.evaluate((rail) => rail.scrollTop)).toBeGreaterThan(0);
+  await usage.press("Space");
+  await expectHeights(initial);
+  await usage.press("Space");
+  await expectHeights(initial);
+  const code = a.getByLabel("Component code");
+  await code.scrollIntoViewIfNeeded();
+  await expectWithinRail(code);
+
+  await a.getByLabel("Height", { exact: true }).fill("800");
+  await expect(a.locator(".demo-disconnected")).toHaveCSS("height", "800px");
+  const tall = await heights();
+  expect(tall[2]!).toBeGreaterThan(initial[2]!);
+  expect(
+    Math.abs((await settings.boundingBox())!.height - tall[1]!),
+  ).toBeLessThan(1);
+  for (const group of groups) {
+    await group.locator(":scope > summary").click();
+    await expectHeights(tall);
+  }
+
+  const appearance = settings
+    .locator("summary")
+    .filter({ hasText: "Appearance & layout" });
+  await appearance.click();
+  await a.getByLabel("Height", { exact: true }).fill("360");
+  await appearance.click();
+  await expectHeights(initial);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const narrowPreview = (await preview.boundingBox())!.height;
+  const closedSettings = (await settings.boundingBox())!.height;
+  for (const group of groups) {
+    await group.locator(":scope > summary").click();
+    expect((await preview.boundingBox())!.height).toBe(narrowPreview);
+  }
+  expect((await settings.boundingBox())!.height).toBeGreaterThan(
+    closedSettings,
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "Add viewer" }).click();
+  const b = panel(page, 2);
+  const siblingHeight = (await b.boundingBox())!.height;
+  const stackedPreview = (await preview.boundingBox())!;
+  expect((await settings.boundingBox())!.y).toBeGreaterThanOrEqual(
+    stackedPreview.y + stackedPreview.height,
+  );
+  for (const group of groups) {
+    await group.locator(":scope > summary").click();
+    expect((await preview.boundingBox())!.height).toBe(stackedPreview.height);
+    expect((await b.boundingBox())!.height).toBe(siblingHeight);
+  }
+});
+
 test("playground layout keeps the preview and controls usable across appearances and narrow screens", async ({
   page,
 }, info) => {

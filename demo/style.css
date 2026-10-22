@@ -610,7 +610,9 @@ body {
 }
 .demo-settings {
   min-width: 0;
-  max-height: 640px;
+  min-height: 0;
+  /* Let the preview size the row while expanded settings scroll within it. */
+  contain: size;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--demo-border) transparent;
@@ -934,7 +936,7 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
   .demo-settings {
-    max-height: none;
+    contain: none;
     border-left: 0;
     border-top: 1px solid var(--demo-border);
   }
