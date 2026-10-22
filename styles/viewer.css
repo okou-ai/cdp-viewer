@@ -36,7 +36,8 @@
     14px/1.45 system-ui,
     sans-serif;
   display: flex;
-  overflow: hidden;
+  position: relative;
+  overflow: clip;
 }
 @supports (color: light-dark(white, black)) {
   .cdpv-root {
@@ -83,6 +84,7 @@
   --cdpv-tab-height: 35px;
   --cdpv-tab-inset: 6px;
   --cdpv-tab-radius: 10px;
+  --cdpv-tab-action: 32px;
   --cdpv-tab-corner: calc(var(--cdpv-tab-radius) + var(--cdpv-tab-inset));
   align-items: center;
   gap: var(--cdpv-tab-inset);
@@ -100,12 +102,11 @@
   min-width: 0;
   padding-inline: var(--cdpv-tab-corner);
   margin-left: calc(-1 * var(--cdpv-tab-corner));
-  scrollbar-width: none;
   flex: 0 auto;
   display: flex;
-  overflow-x: auto;
+  overflow: clip;
 }
-.cdpv-root .cdpv-tabs:has(+ .cdpv-new-tab) {
+.cdpv-root .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
   margin-right: calc(-1 * var(--cdpv-tab-corner));
   -webkit-mask:
     linear-gradient(#000 0 0) left / calc(100% - var(--cdpv-tab-corner)) 100%
@@ -147,14 +148,14 @@
 .cdpv-root .cdpv-tab-item {
   isolation: isolate;
   border-radius: var(--cdpv-tab-radius) var(--cdpv-tab-radius) 0 0;
-  width: 204px;
-  min-width: 140px;
-  max-width: 204px;
+  width: 232px;
+  min-width: 0;
   color: var(--cdpv-muted);
-  flex: 0 0 204px;
+  flex: none;
   align-items: center;
   display: flex;
   position: relative;
+  container: cdpv-tab/inline-size;
 }
 .cdpv-root .cdpv-tab-item[data-selected] {
   z-index: 1;
@@ -217,6 +218,7 @@
   gap: 8px;
   font-size: 12px;
   display: flex;
+  overflow: hidden;
 }
 .cdpv-root .cdpv-tab svg {
   flex: none;
@@ -244,9 +246,126 @@
 }
 .cdpv-root .cdpv-new-tab {
   z-index: 1;
-  width: 32px;
+  width: var(--cdpv-tab-action);
   height: 32px;
   position: relative;
+}
+.cdpv-root .cdpv-tab-picker {
+  z-index: 2;
+  width: var(--cdpv-tab-action);
+  flex: none;
+  height: 32px;
+  position: relative;
+}
+.cdpv-root .cdpv-tab-picker-trigger {
+  width: 100%;
+  height: 100%;
+}
+.cdpv-root .cdpv-tab-picker-trigger[data-popup-open] {
+  background: var(--cdpv-foreground);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root .cdpv-tab-picker-trigger[data-popup-open] {
+    background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  }
+}
+.cdpv-root .cdpv-tab-positioner {
+  z-index: 3;
+}
+.cdpv-root .cdpv-tab-popup {
+  width: min(320px, var(--available-width));
+  max-height: min(360px, var(--available-height));
+  color: var(--cdpv-foreground);
+  background: var(--cdpv-background);
+  border: 1px solid var(--cdpv-border);
+  font: inherit;
+  border-radius: 12px;
+  flex-direction: column;
+  padding: 4px;
+  display: flex;
+  overflow: hidden;
+  box-shadow: 0 4px 18px #0003;
+}
+.cdpv-root .cdpv-tab-popup-heading {
+  color: var(--cdpv-muted);
+  flex: none;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.cdpv-root .cdpv-tab-options {
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+.cdpv-root .cdpv-tab-option {
+  cursor: pointer;
+  border-radius: 8px;
+  outline: none;
+  grid-template-columns: 16px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 13px;
+  display: grid;
+}
+.cdpv-root .cdpv-tab-option-title {
+  overflow-wrap: anywhere;
+}
+.cdpv-root .cdpv-tab-option > svg {
+  color: var(--cdpv-muted);
+}
+.cdpv-root .cdpv-tab-option-check {
+  color: var(--cdpv-accent);
+  display: flex;
+}
+.cdpv-root .cdpv-tab-option[data-selected] {
+  background: var(--cdpv-accent);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root .cdpv-tab-option[data-selected] {
+    background: color-mix(in srgb, var(--cdpv-accent) 12%, transparent);
+  }
+}
+.cdpv-root .cdpv-tab-option[data-highlighted] {
+  background: var(--cdpv-foreground);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root .cdpv-tab-option[data-highlighted] {
+    background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  }
+}
+.cdpv-root .cdpv-tab-option:focus-visible {
+  outline: 2px solid var(--cdpv-accent);
+  outline-offset: -2px;
+}
+@container cdpv-tab not (width>=120px) {
+  .cdpv-root .cdpv-tab-item:not([data-selected]) .cdpv-close {
+    display: none;
+  }
+}
+@container cdpv-tab not (width>=88px) {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab span {
+    display: none;
+  }
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab {
+    gap: 0;
+    padding-inline: 8px;
+  }
+}
+@container cdpv-tab not (width>=72px) {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab svg {
+    display: none;
+  }
+}
+@container cdpv-tab not (width>=56px) {
+  .cdpv-root .cdpv-tab span {
+    display: none;
+  }
+  .cdpv-root .cdpv-tab {
+    gap: 0;
+    padding-inline: 8px;
+  }
 }
 .cdpv-root .cdpv-new-tab:before {
   content: "";

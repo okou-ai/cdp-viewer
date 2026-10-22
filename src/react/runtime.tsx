@@ -15,6 +15,7 @@ import type { ViewerActions } from "../viewer/model";
 import type { CdpViewerProps } from "../viewer/types";
 import { viewerScope } from "./context";
 import { ToolbarFocus } from "./focus";
+import { observeTabStrip } from "./tab-strip";
 
 interface Elements {
   canvas: RefObject<HTMLCanvasElement | null>;
@@ -48,6 +49,7 @@ export function ViewerRuntime({
 }: CdpViewerProps & { children: ReactNode }) {
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
+  const tabLayout = viewerScope.useValue(model.tabLayout$);
   const revision = viewerScope.useValue(model.revision$);
   const notification = viewerScope.useValue(model.notification$);
   const notificationId = notification?.id;
@@ -138,8 +140,14 @@ export function ViewerRuntime({
   }, [cdpUrl, windowId, revision, model, interactive, focus]);
   useLayoutEffect(() => focus.listen(), [focus]);
   useLayoutEffect(() => {
-    focus.revealSelection();
-  }, [focus, snapshot.selectedTargetId]);
+    if (!tabs.current) return;
+    return observeTabStrip(tabs.current, (space) => {
+      model.run(model.resizeTabs$, space);
+    });
+  }, [focus, model, interactive]);
+  useLayoutEffect(() => {
+    focus.restoreLayout();
+  }, [focus, tabLayout]);
   useLayoutEffect(() => {
     focus.restoreAfterClose();
   }, [focus, snapshot.selectedTargetId, snapshot.targets]);

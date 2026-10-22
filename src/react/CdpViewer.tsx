@@ -13,6 +13,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
+import { AllTabs } from "./AllTabs";
 import { viewerScope } from "./context";
 import { ViewerRuntime, useViewerElements } from "./runtime";
 
@@ -36,6 +37,7 @@ function ViewerSurface({
 }: CdpViewerProps) {
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
+  const tabLayout = viewerScope.useValue(model.tabLayout$);
   const select = viewerScope.useCommand(model.select$);
   const reconnect = viewerScope.useCommand(model.reconnect$);
   const createTab = viewerScope.useCommand(model.createTab$);
@@ -67,10 +69,11 @@ function ViewerSurface({
           aria-label="Browser tabs"
           activateOnFocus={false}
         >
-          {snapshot.targets.map((target) => (
+          {tabLayout.items.map(({ target, width }) => (
             <div
               className="cdpv-tab-item"
               key={target.id}
+              style={{ width }}
               data-selected={
                 target.id === snapshot.selectedTargetId ? "" : undefined
               }
@@ -80,6 +83,7 @@ function ViewerSurface({
                 className="cdpv-tab"
                 value={target.id}
                 title={target.title}
+                aria-label={target.title}
                 disabled={controls.tabsDisabled}
                 data-target-id={target.id}
               >
@@ -114,6 +118,7 @@ function ViewerSurface({
             </div>
           ))}
         </Tabs.List>
+        {tabLayout.overflow && <AllTabs />}
         {interactive && (
           <Button
             type="button"
