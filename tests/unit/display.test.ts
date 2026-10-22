@@ -1431,12 +1431,14 @@ it("drops an automatic update disabled during capture preparation", async () => 
   controller.setWindowSizeSync("off");
   browser.holdMethod = null;
   const held = browser.heldCommands[0]!;
-  held.socket.reply(held.command);
+  browser.resume(held.command, held.socket);
   await vi.waitFor(() =>
     expect(model.read(model.display$).pending).toBe(false),
   );
   expect(emulations(browser)).toHaveLength(0);
   expect(resizes(browser)).toHaveLength(0);
+  expect(model.getSnapshot().status).toBe("streaming");
+  expect(model.getSnapshot().error).toBeNull();
 });
 
 it("retires a previous request key when restoration is unconfirmed so a policy change can recover", async () => {
