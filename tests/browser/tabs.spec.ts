@@ -1833,6 +1833,17 @@ for (const colorScheme of ["light", "dark"] as const) {
         })),
       );
       await selectOverflowTab(viewer, ordered[0]!.id);
+      await page.evaluate(() => {
+        document.body.style.minHeight = "200vh";
+      });
+      // Prove native wheel input can scroll this host before testing containment.
+      const viewport = page.viewportSize()!;
+      const initialHostY = await page.evaluate(() => scrollY);
+      await page.mouse.move(viewport.width - 20, viewport.height / 2);
+      await page.mouse.wheel(0, 40);
+      await expect
+        .poll(() => page.evaluate(() => scrollY))
+        .toBeGreaterThan(initialHostY);
       const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
       const list = viewer.getByRole("listbox", { name: "All tabs" });
       const lastOption = viewer.locator(
@@ -1845,8 +1856,16 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect
         .poll(() => list.evaluate((element) => element.scrollTop))
         .toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          list.evaluate(
+            (element) =>
+              element.scrollHeight - element.clientHeight - element.scrollTop,
+          ),
+        )
+        .toBeLessThanOrEqual(1);
       await expect(lastOption).toBeInViewport();
-      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
+      await page.mouse.wheel(0, 1000);
       // Locator.click() would automatically scroll a clipped option into view.
       const lastBounds = (await lastOption.boundingBox())!;
       await page.mouse.click(
@@ -1858,6 +1877,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         "data-target-id",
         ordered.at(-1)!.id,
       );
+      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
       await overflowOptions(viewer);
       await expect(
         viewer.getByRole("option", { selected: true }),
@@ -1869,13 +1889,14 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect
         .poll(() => list.evaluate((element) => element.scrollTop))
         .toBe(0);
+      await page.mouse.wheel(0, -1000);
       const firstOption = viewer.locator(
         `[data-tab-option="${ordered[0]!.id}"]`,
       );
       await expect(firstOption).toBeInViewport({ ratio: 1 });
-      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
       await firstOption.click();
       await expect(allTabs).toBeFocused();
+      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
       await allTabs.press("ArrowDown");
       await expect(
         viewer.locator(`[data-tab-option="${ordered[0]!.id}"]`),
