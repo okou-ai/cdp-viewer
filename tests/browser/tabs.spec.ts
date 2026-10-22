@@ -1859,6 +1859,11 @@ for (const colorScheme of ["light", "dark"] as const) {
         ordered.at(-1)!.id,
       );
       await overflowOptions(viewer);
+      await expect(
+        viewer.getByRole("option", { selected: true }),
+      ).toHaveAttribute("data-tab-option", ordered.at(-1)!.id);
+      await expect(lastOption).toBeFocused();
+      await expect(lastOption).toBeInViewport();
       await list.hover();
       await page.mouse.wheel(0, -1000);
       await expect
@@ -1892,6 +1897,11 @@ for (const colorScheme of ["light", "dark"] as const) {
       );
       await expect(selected).toHaveAccessibleName(ordered.at(-1)!.title);
       await expect(selected).toBeInViewport({ ratio: 1 });
+      await allTabs.press("Enter");
+      await expect(lastOption).toHaveAttribute("aria-selected", "true");
+      await expect(lastOption).toBeFocused();
+      await expect(lastOption).toBeInViewport();
+      await page.keyboard.press("Escape");
       const ids = await viewer
         .getByRole("tab")
         .evaluateAll((items) =>
