@@ -1,6 +1,7 @@
 import { timeout } from "signal-timers";
 import type { CdpClient } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
+import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import type { WindowSizeSync } from "../viewer/types";
 import { constrainDisplay, positive, projectDisplay } from "./geometry";
 import type { DisplaySize } from "./geometry";
@@ -151,6 +152,24 @@ export class DisplaySync {
     );
   }
 
+  private async readPageSize(sessionId: string) {
+    const release = (result: unknown) =>
+      releaseRuntimeObjects(this.client, sessionId, result);
+    const result = await this.client.request(
+      "Runtime.evaluate",
+      {
+        expression:
+          "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
+        returnByValue: true,
+      },
+      sessionId,
+      release,
+    );
+    // Exceptional by-value reads can still allocate result/exception handles.
+    release(result);
+    return result;
+  }
+
   /** Revalidate intent after a read boundary without consuming a hidden surface's request. */
   private currentSize(
     target: Target,
@@ -185,15 +204,7 @@ export class DisplaySync {
         this.client.request("Browser.getWindowForTarget", {
           targetId: target.targetId,
         }),
-        this.client.request(
-          "Runtime.evaluate",
-          {
-            expression:
-              "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
-            returnByValue: true,
-          },
-          target.sessionId,
-        ),
+        this.readPageSize(target.sessionId),
         this.client.request(
           "Page.getLayoutMetrics",
           undefined,

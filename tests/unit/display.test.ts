@@ -488,6 +488,62 @@ it("contains unsupported display failures without leaking provider payloads or s
   await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
 });
 
+it.each([false, true])(
+  "releases exceptional display metric objects when the selected owner is retired=%s",
+  async (retired) => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser, "off", 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.holdMethod = "Runtime.evaluate";
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const held = browser.heldCommands[0]!;
+    if (retired) controller.setPaused(true);
+    browser.holdMethod = null;
+    held.socket.reply(held.command, {
+      result: { type: "object", objectId: "display-result" },
+      exceptionDetails: {
+        text: "synthetic display metrics failure",
+        lineNumber: 0,
+        columnNumber: 0,
+        exception: { type: "object", objectId: "display-exception" },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(
+        held.socket.commands.filter(
+          (command) => command.method === "Runtime.releaseObject",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          params: { objectId: "display-result" },
+          sessionId: held.command.sessionId,
+        }),
+        expect.objectContaining({
+          params: { objectId: "display-exception" },
+          sessionId: held.command.sessionId,
+        }),
+      ]),
+    );
+    expect(emulations(browser)).toHaveLength(0);
+    expect(resizes(browser)).toHaveLength(0);
+    if (retired) {
+      expect(model.getSnapshot().status).toBe("paused");
+      expect(model.getSnapshot().error).toBeNull();
+    } else {
+      expect(model.getSnapshot().status).toBe("streaming");
+      expect(model.getSnapshot().error?.message).toBe(
+        "The page display metrics are unavailable.",
+      );
+      controller.syncDisplay();
+      await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+      await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+    }
+  },
+);
+
 it("retains a newer policy request when the preceding operation finishes rolling back", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "off", 0);
