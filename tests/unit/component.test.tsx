@@ -14,6 +14,8 @@ import { StrictMode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import { CdpViewer } from "../../src/index";
+import type { ExtensionContext, ViewerExtension } from "../../src/index";
+import { browserUse } from "../../src/extensions/browser-use";
 import { FakeBrowser } from "./wire";
 
 afterEach(() => {
@@ -36,6 +38,85 @@ function browser() {
   } as unknown as CanvasRenderingContext2D);
   return fake;
 }
+
+it("reconciles inline adapter configuration while preserving the connection and input", async () => {
+  const fake = browser();
+  const setup = vi.fn<ViewerExtension["setup"]>();
+  const view = (key?: string) => (
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      extensions={[
+        browserUse(),
+        {
+          id: "custom",
+          ...(key === undefined ? {} : { key }),
+          setup: (context) => setup(context),
+        },
+      ]}
+      onStatusChange={() => {}}
+    />
+  );
+  const mounted = render(view());
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  await waitFor(() => expect(setup).toHaveBeenCalledOnce());
+  const canvas = document.querySelector("canvas");
+  const proxy = screen.getByLabelText("Remote browser input");
+  mounted.rerender(view());
+  expect(setup).toHaveBeenCalledOnce();
+  mounted.rerender(view("updated"));
+  await waitFor(() => expect(setup).toHaveBeenCalledTimes(2));
+  expect(setup.mock.calls[0]![0].signal.aborted).toBe(true);
+  expect(fake.sockets).toHaveLength(1);
+  expect(document.querySelector("canvas")).toBe(canvas);
+  expect(screen.getByLabelText("Remote browser input")).toBe(proxy);
+});
+
+it("gives reused adapter descriptors independent viewer and connection lifetimes", async () => {
+  browser();
+  const owners: ExtensionContext[] = [];
+  const cleanup = vi.fn();
+  const shared: ViewerExtension = {
+    id: "shared",
+    setup: (context) => {
+      owners.push(context);
+      return cleanup;
+    },
+  };
+  const view = (url: string) => (
+    <StrictMode>
+      <CdpViewer cdpUrl={url} windowId={0} extensions={[shared]} />
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        windowId={2}
+        extensions={[shared]}
+      />
+    </StrictMode>
+  );
+  const mounted = render(view("wss://fixture.invalid"));
+  await waitFor(() =>
+    expect(document.querySelectorAll('[data-status="streaming"]')).toHaveLength(
+      2,
+    ),
+  );
+  expect(owners).toHaveLength(2);
+  expect(owners[0]!.getState()).toEqual({
+    status: "streaming",
+    selectedTargetId: "page-a",
+    capabilities: { windowScoped: true, interactive: false },
+  });
+  mounted.rerender(view("wss://replacement.invalid"));
+  await waitFor(() => expect(owners).toHaveLength(3));
+  expect(owners[0]!.signal.aborted).toBe(true);
+  expect(owners[1]!.signal.aborted).toBe(false);
+  expect(owners[2]!.signal.aborted).toBe(false);
+  mounted.unmount();
+  await waitFor(() => expect(cleanup).toHaveBeenCalledTimes(3));
+});
 
 it("pauses only an offscreen panel and respects explicit pause on re-entry", async () => {
   const fake = browser();
@@ -316,11 +397,18 @@ it("ends an active address draft when interaction is disabled without resetting 
 
 it("keeps imports and server rendering free of browser connections", () => {
   const socket = vi.fn();
+  const setup = vi.fn();
   vi.stubGlobal("WebSocket", socket);
   expect(
-    renderToString(<CdpViewer cdpUrl="wss://fixture.invalid" />),
+    renderToString(
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        extensions={[browserUse(), { id: "custom", setup }]}
+      />,
+    ),
   ).toContain("Remote browser viewer");
   expect(socket).not.toHaveBeenCalled();
+  expect(setup).not.toHaveBeenCalled();
 });
 
 it.each([{ isComposing: true }, { keyCode: 229 }])(

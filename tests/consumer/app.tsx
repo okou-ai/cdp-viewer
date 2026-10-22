@@ -5,7 +5,6 @@ import type { CdpViewerProps, ViewerSnapshot } from "cdp-viewer";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { FixtureSettings } from "./api";
-import { consumerExtensions } from "./extensions";
 
 const hostStore = createStore();
 const hostCount = state(0);
@@ -57,7 +56,6 @@ function App() {
         cdpUrl: settings.cdpUrl,
         interactive: settings.interactive ?? false,
         paused: settings.paused ?? false,
-        extensions: settings.extensions ? consumerExtensions() : [],
         style: { "--cdpv-radius": "3px" },
       }
     : null;
@@ -66,7 +64,6 @@ function App() {
     <StoreProvider value={hostStore}>
       <HostContainer
         id="host-shell"
-        data-extensions={settings?.extensions ? "on" : "off"}
         onSubmit={(event) => {
           event.preventDefault();
           setSubmissions((count) => count + 1);
