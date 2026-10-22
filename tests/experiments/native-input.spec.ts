@@ -246,17 +246,43 @@ async function position(value: Viewer, selector: string) {
 }
 
 async function painted(value: Viewer, green: boolean) {
-  await expect
-    .poll(() =>
-      value.page.locator("#viewer-a canvas").evaluate(
-        (canvas: HTMLCanvasElement, color) => {
-          const pixel = canvas.getContext("2d")!.getImageData(4, 4, 1, 1).data;
-          return color.every((n, i) => Math.abs(n - pixel[i]!) <= 4);
-        },
-        green ? [24, 224, 80] : [232, 32, 48],
-      ),
-    )
-    .toBe(true);
+  try {
+    await expect
+      .poll(() =>
+        value.page.locator("#viewer-a canvas").evaluate(
+          (canvas: HTMLCanvasElement, color) => {
+            const pixel = canvas
+              .getContext("2d")!
+              .getImageData(4, 4, 1, 1).data;
+            return color.every((n, i) => Math.abs(n - pixel[i]!) <= 4);
+          },
+          green ? [24, 224, 80] : [232, 32, 48],
+        ),
+      )
+      .toBe(true);
+  } catch (error) {
+    // Fixed synthetic diagnostics distinguish a stale stream from a marker error.
+    const remote = await value.remote.evaluate(() => ({
+      color: getComputedStyle(document.querySelector("#native-marker")!)
+        .backgroundColor,
+      scroll: scrollY,
+      observed: (
+        window as unknown as {
+          nativeObserved: { effect: number; events: string[] };
+        }
+      ).nativeObserved,
+    }));
+    const client = await value.page
+      .locator("#viewer-a canvas")
+      .evaluate((canvas: HTMLCanvasElement) => ({
+        width: canvas.width,
+        height: canvas.height,
+        pixel: [...canvas.getContext("2d")!.getImageData(4, 4, 1, 1).data],
+        status: canvas.closest(".cdpv-root")?.getAttribute("data-status"),
+      }));
+    console.log(JSON.stringify({ markerFailure: true, green, remote, client }));
+    throw error;
+  }
 }
 
 async function drained(value: Viewer) {

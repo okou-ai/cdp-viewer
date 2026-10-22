@@ -111,7 +111,7 @@ export class InputSession {
     this.transition("blur");
   }
 
-  /** Fence preceding ordered work and its native replies without blocking sends. */
+  /** Complete preceding ordered work and native replies for the captured owner. */
   completion(owner: InputOwner): Promise<void> {
     return this.queue.read(
       owner,
