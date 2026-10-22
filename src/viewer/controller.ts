@@ -626,8 +626,8 @@ export class ViewerController {
       this.stopStream(old);
       const input = old.input;
       if (input && reason !== "disconnected" && !this.disposed) {
-        // Publish the fence before retirement can reenter through reset callbacks.
-        const complete = Promise.resolve().then(() => input.retire(reason));
+        // Cancel old admission synchronously, then publish the fence before local reset.
+        const complete = input.retire(reason);
         const retirement = { input, complete };
         this.retirements.set(old.targetId, retirement);
         complete.then(

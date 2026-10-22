@@ -271,3 +271,32 @@ it("keeps late retirement callbacks from resetting the current native compositio
     }),
   ]);
 });
+
+it("invalidates a prepared input owner synchronously when selection changes", async () => {
+  let lossMark: number | undefined;
+  const { controller, model, socket } = await mount({
+    onInputReset: (reason) => {
+      if (reason === "target-replaced") lossMark = socket.commands.length;
+    },
+  });
+  const old = controller.input!;
+  old.key({ type: "rawKeyDown", key: "Backspace", code: "Backspace" });
+  queueMicrotask(() => queueMicrotask(() => controller.select("page-b")));
+  await vi.waitFor(() =>
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "page-b",
+    }),
+  );
+  expect(lossMark).toBeDefined();
+  expect(
+    socket.commands
+      .slice(lossMark)
+      .filter(
+        (c) =>
+          c.sessionId === old.sessionId &&
+          c.method === "Input.dispatchKeyEvent" &&
+          c.params?.type !== "keyUp",
+      ),
+  ).toEqual([]);
+});
