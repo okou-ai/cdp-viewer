@@ -7,6 +7,7 @@ import { launchBackend, serveConsumer } from "../browser/backend";
 import type { GuardedProbe } from "./guarded-probe";
 import { installProbeClient } from "./probe-client";
 import { ProbeHost } from "./probe-host";
+import { assertExperimentSource } from "./assert-source";
 import type {} from "../consumer/api";
 
 declare global {
@@ -47,18 +48,9 @@ interface Viewer {
 let consumer: Awaited<ReturnType<typeof prepareConsumer>>;
 let server: Awaited<ReturnType<typeof serveConsumer>>;
 test.beforeAll(async () => {
-  if (!/^[a-f0-9]{40}$/.test(process.env.CDP_VIEWER_SOURCE_SHA ?? ""))
-    throw new Error("Set an explicit immutable public consumer source SHA");
   // The prototype reuses this checkout's private coordinator; its runtime must
   // match the independently installed public control, including working changes.
-  execFileSync("git", [
-    "diff",
-    "--exit-code",
-    process.env.CDP_VIEWER_SOURCE_SHA!,
-    "--",
-    "src",
-    "styles",
-  ]);
+  assertExperimentSource();
   consumer = await prepareConsumer();
   server = await serveConsumer(consumer.dist);
 });

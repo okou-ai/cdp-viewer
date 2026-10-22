@@ -4,12 +4,14 @@ import { prepareConsumer } from "../../scripts/consumer.mjs";
 import { launchBackend, serveConsumer } from "../browser/backend";
 import { ProbeHost } from "./probe-host";
 import { installProbeClient } from "./probe-client";
+import { assertExperimentSource } from "./assert-source";
 import type { GuardedProbe } from "./guarded-probe";
 import type {} from "../consumer/api";
 
 let consumer: Awaited<ReturnType<typeof prepareConsumer>>;
 let server: Awaited<ReturnType<typeof serveConsumer>>;
 test.beforeAll(async () => {
+  assertExperimentSource();
   consumer = await prepareConsumer();
   server = await serveConsumer(consumer.dist);
 });
