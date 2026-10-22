@@ -111,6 +111,15 @@ export class InputSession {
     this.transition("blur");
   }
 
+  /** Complete preceding ordered work and native replies for the captured owner. */
+  completion(owner: InputOwner): Promise<void> {
+    return this.queue.read(
+      owner,
+      async () => undefined,
+      () => this.lifecycle.owns(owner),
+    );
+  }
+
   private transition(reason: InputTransition): void {
     const cleanup = this.lifecycle.transition(reason);
     if (!cleanup) return;

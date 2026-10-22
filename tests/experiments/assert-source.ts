@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-/** Both independently selected experiment entrypoints require matched runtime. */
+/** Each independently selected experiment entrypoint requires matched runtime. */
 export function assertExperimentSource(): void {
   const source = process.env.CDP_VIEWER_SOURCE_SHA;
   if (!source || !/^[a-f0-9]{40}$/.test(source))

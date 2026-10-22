@@ -5,7 +5,7 @@ import type { ClipboardRecovery } from "./clipboard";
 import type { InputTransition } from "./lifecycle";
 import { imagePoint, localPoint } from "./geometry";
 import type { Point } from "./geometry";
-import type { InputSession } from "./session";
+import type { NativeInputPort } from "./port";
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
 const buttonMasks = [1, 4, 2, 8, 16] as const;
@@ -34,7 +34,7 @@ export class NativeInput {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly proxy: HTMLTextAreaElement,
-    private readonly input: () => InputSession | null,
+    private readonly input: () => NativeInputPort | null,
     private readonly releaseFocus: () => void,
     clipboardChanged: (value: ClipboardRecovery | null) => void = () => {},
   ) {
