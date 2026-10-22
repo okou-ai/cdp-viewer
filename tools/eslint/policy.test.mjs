@@ -465,6 +465,16 @@ const accepted = [
     "src/cdp/client.ts",
   ],
   [
+    "queued read settlement primitive",
+    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "src/input/queue.ts",
+  ],
+  [
+    "clipboard representation primitive",
+    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "src/input/clipboard.ts",
+  ],
+  [
     "narrow React bridge",
     "import { useState } from 'react'; export function Provider() { const [model] = useState(createModel); return null; }",
     "src/state/react.tsx",

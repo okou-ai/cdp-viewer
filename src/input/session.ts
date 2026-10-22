@@ -8,6 +8,8 @@ import { InputLifecycle } from "./lifecycle";
 import type { InputOwner, InputStop, InputTransition } from "./lifecycle";
 import { InputQueue } from "./queue";
 import type { InputJob } from "./queue";
+import { readSelection } from "./selection";
+import type { SelectionResult } from "./selection";
 
 type Mouse = Protocol.Input.DispatchMouseEventRequest;
 type Key = Protocol.Input.DispatchKeyEventRequest;
@@ -60,15 +62,17 @@ export class InputSession {
   private caretReading = false;
   private caretVersion = 0;
   private preeditSupported = true;
+  private clipboardVersion = 0;
 
   constructor(
     private readonly client: CdpClient,
     readonly sessionId: string,
     owner: () => Promise<boolean>,
     private readonly changed: (value: ViewerNavigation | null) => void,
-    private readonly resetLocal: () => void,
+    private readonly resetLocal: (reason: InputTransition) => void,
     private readonly caret: (point: Point) => void,
     private readonly setError: (error: CdpFault | null) => void,
+    private readonly resetClipboard: () => void = () => {},
   ) {
     this.lifecycle = new InputLifecycle(sessionId);
     this.queue = new InputQueue(client, this.lifecycle, owner, (error) =>
@@ -107,6 +111,8 @@ export class InputSession {
   private transition(reason: InputTransition): void {
     const cleanup = this.lifecycle.transition(reason);
     if (!cleanup) return;
+    this.clipboardVersion++;
+    if (reason !== "blur") this.resetClipboard();
     if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
     this.invalidateCaret();
     this.queue.clear();
@@ -123,7 +129,7 @@ export class InputSession {
         { type: "mouseReleased", ...cleanup.point, button, buttons: 0 },
         cleanup.owner.sessionId,
       );
-    this.resetLocal();
+    this.resetLocal(reason);
   }
 
   dispose(reason: InputStop = "disposed"): void {
@@ -135,6 +141,17 @@ export class InputSession {
   event(event: CdpEvent): void {
     if (!this.available || event.sessionId !== this.sessionId) return;
     const { method, params } = event;
+    if (
+      [
+        "Page.frameNavigated",
+        "Page.frameStartedNavigating",
+        "Page.frameDetached",
+        "Page.navigatedWithinDocument",
+        "Runtime.executionContextDestroyed",
+        "Runtime.executionContextsCleared",
+      ].includes(method)
+    )
+      this.invalidateClipboard();
     if (method === "Page.frameResized") this.invalidateViewport();
     if (
       method === "Runtime.executionContextCreated" &&
@@ -237,6 +254,7 @@ export class InputSession {
       "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
     >,
   ): void {
+    if (type === "mousePressed") this.invalidateClipboard();
     let viewport: Viewport | null = null;
     let version = this.viewportVersion;
     const prepare = async (job: InputJob) => {
@@ -298,6 +316,7 @@ export class InputSession {
 
   text(text: string, owner: InputOwner = this.lifecycle.owner): void {
     if (!this.lifecycle.owns(owner)) return;
+    this.invalidateClipboard();
     this.queue.text(text, (job) => {
       this.setError(null);
       const token = this.lifecycle.composition(job.owner);
@@ -315,6 +334,7 @@ export class InputSession {
     selectionEnd = selectionStart,
   ): void {
     if (!this.preeditSupported || !this.lifecycle.owns(owner)) return;
+    this.invalidateClipboard();
     this.queue.preedit({ text, selectionStart, selectionEnd }, async (job) => {
       if (!this.preeditSupported) return;
       const value = job.preedit!;
@@ -374,8 +394,15 @@ export class InputSession {
   }
 
   key(key: Key): void {
+    if (
+      key.type !== "keyUp" &&
+      !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
+    )
+      this.invalidateClipboard();
     this.queue.enqueue((job) => {
-      this.setError(null);
+      // Releasing the clipboard shortcut's modifier is cleanup, not a new
+      // successful edit. Preserve any copy/paste diagnostic until a new action.
+      if (key.type !== "keyUp") this.setError(null);
       const pressed = this.lifecycle.pressedKey(job.owner, key);
       if (key.type !== "keyUp") this.lifecycle.pressKey(job.owner, key);
       job.dispatch("Input.dispatchKeyEvent", key, () => {
@@ -388,6 +415,38 @@ export class InputSession {
       )
         this.refreshCaret(job);
     });
+  }
+
+  selection(owner: InputOwner): Promise<SelectionResult> {
+    if (!this.lifecycle.owns(owner))
+      return Promise.reject(new Error("Selection cancelled"));
+    const version = ++this.clipboardVersion;
+    const frameId = this.frameId;
+    const current = () =>
+      this.lifecycle.owns(owner) && version === this.clipboardVersion;
+    return this.queue.read(
+      owner,
+      async (job) => {
+        if (!frameId) throw new Error("Selection unavailable");
+        return readSelection(job, frameId, current, (objectId) =>
+          this.client.notify(
+            "Runtime.releaseObject",
+            { objectId },
+            this.sessionId,
+          ),
+        );
+      },
+      current,
+    );
+  }
+
+  clipboardError(message: string): void {
+    this.setError(new CdpFault("input", message));
+  }
+
+  private invalidateClipboard(): void {
+    this.clipboardVersion++;
+    this.resetClipboard();
   }
 
   navigate(action: "back" | "forward" | "reload" | { url: string }): void {

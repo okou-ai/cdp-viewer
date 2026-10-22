@@ -10,6 +10,7 @@ import {
 import { TargetDirectory } from "../cdp/targets";
 import { openTab } from "../cdp/tabs";
 import { InputSession } from "../input/session";
+import type { InputTransition } from "../input/lifecycle";
 import type { InputStop } from "../input/lifecycle";
 import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
@@ -32,7 +33,8 @@ interface ControllerOptions {
   socketFactory?: SocketFactory;
   requestTimeout?: number;
   interactive?: boolean;
-  onInputReset?: () => void;
+  onInputReset?: (reason: InputTransition) => void;
+  onClipboardReset?: () => void;
   onCaret?: (point: Point) => void;
   onTabCreated?: () => void;
   onTabClosed?: (targetId: string) => void;
@@ -440,7 +442,7 @@ export class ViewerController {
         (navigation) => {
           if (this.isCurrent(selection)) this.model.update({ navigation });
         },
-        () => this.options.onInputReset?.(),
+        (reason) => this.options.onInputReset?.(reason),
         (point) => {
           if (!this.isCurrent(selection)) return;
           this.options.onCaret?.(point);
@@ -452,6 +454,7 @@ export class ViewerController {
           )
             this.model.update({ error: error ? diagnostic(error) : null });
         },
+        () => this.options.onClipboardReset?.(),
       );
       selection.input = input;
       inputReady = input.start().then(() => {

@@ -80,8 +80,10 @@ function DemoView() {
               of the same tab are not guaranteed.
             </p>
             <p>
-              Clipboard transfer and vendor adapters are not supported yet.
-              System IME behavior on macOS and Windows is still being validated.
+              Copy and paste plain text in supported text controls. If automatic
+              copy is blocked, use the local copy recovery controls. Vendor
+              adapters are not supported yet. System IME behavior on macOS and
+              Windows is still being validated.
             </p>
             <p>
               Browser provisioning and authentication belong to your endpoint

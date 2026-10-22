@@ -568,3 +568,29 @@
   outline: 2px solid var(--cdpv-accent);
   outline-offset: -2px;
 }
+.cdpv-root .cdpv-clipboard {
+  position: absolute;
+  /* Keep recovery above the page, below the toolbar's popup controls. */
+  z-index: 1;
+  inset-inline: 12px;
+  bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--cdpv-border);
+  border-radius: var(--cdpv-radius);
+  background: var(--cdpv-background);
+  box-shadow: 0 3px 16px #0003;
+}
+.cdpv-root .cdpv-clipboard p {
+  margin: 0 0 8px;
+}
+.cdpv-root .cdpv-clipboard textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  color: var(--cdpv-foreground);
+  background: var(--cdpv-address-background);
+  border: 1px solid var(--cdpv-border);
+  resize: vertical;
+  user-select: text;
+}

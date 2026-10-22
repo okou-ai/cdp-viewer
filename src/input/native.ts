@@ -1,5 +1,8 @@
 import type { Protocol } from "devtools-protocol";
 import { NativeComposition } from "./composition";
+import { NativeClipboard } from "./clipboard";
+import type { ClipboardRecovery } from "./clipboard";
+import type { InputTransition } from "./lifecycle";
 import { imagePoint, localPoint } from "./geometry";
 import type { Point } from "./geometry";
 import type { InputSession } from "./session";
@@ -20,19 +23,29 @@ export class NativeInput {
   private readonly composition = new NativeComposition();
   private resetting = false;
   private readonly forwarded = new Set<string>();
+  private readonly clipboardKeys = new Set<string>();
   private pointerId: number | null = null;
   private readonly pressedButtons = new Set<number>();
   private moveFrame: number | null = null;
   private latestMove: PointerEvent | null = null;
   private readonly lifetime = new AbortController();
+  private readonly clipboard: NativeClipboard;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly proxy: HTMLTextAreaElement,
     private readonly input: () => InputSession | null,
     private readonly releaseFocus: () => void,
+    clipboardChanged: (value: ClipboardRecovery | null) => void = () => {},
   ) {
     const signal = this.lifetime.signal;
+    this.clipboard = new NativeClipboard(
+      proxy,
+      input,
+      () => this.composition.composing,
+      clipboardChanged,
+      signal,
+    );
     const stage = canvas.parentElement;
     if (!stage) throw new Error("Input requires an owned stage.");
     stage.addEventListener("pointerdown", this.pointerDown, { signal });
@@ -80,19 +93,18 @@ export class NativeInput {
     proxy.addEventListener("compositionend", this.compositionEnd, { signal });
     proxy.addEventListener("input", this.text, { signal });
     proxy.addEventListener("select", this.selection, { signal });
-    for (const event of ["copy", "cut", "paste"] as const) {
-      proxy.addEventListener(event, (e) => e.preventDefault(), { signal });
-    }
     window.addEventListener("blur", this.cancel, { signal });
   }
 
-  reset(): void {
+  reset(reason?: InputTransition): void {
     if (this.resetting) return;
     this.resetting = true;
     try {
+      this.clipboard.reset(reason === "blur");
       this.composition.reset();
       this.proxy.value = "";
       this.forwarded.clear();
+      this.clipboardKeys.clear();
       this.clearMove();
       const pointer = this.pointerId;
       this.pointerId = null;
@@ -107,6 +119,14 @@ export class NativeInput {
     } finally {
       this.resetting = false;
     }
+  }
+
+  clearClipboard(): void {
+    this.clipboard.reset();
+  }
+
+  copyClipboard(): void {
+    this.clipboard.copyRecovery();
   }
 
   dispose(): void {
@@ -125,7 +145,7 @@ export class NativeInput {
   private readonly cancel = () => {
     if (this.resetting) return;
     this.input()?.blur();
-    this.reset();
+    this.reset("blur");
   };
 
   private readonly lostCapture = () => {
@@ -332,9 +352,14 @@ export class NativeInput {
     const shortcut =
       (event.ctrlKey || event.metaKey) && !event.getModifierState("AltGraph");
     const printable = Array.from(event.key).length === 1;
+    if (shortcut && ["c", "v", "x"].includes(event.key.toLowerCase()))
+      this.clipboardKeys.add(event.code || event.key);
+    // Clipboard events carry local gesture activation and the actual paste data.
+    // Let the browser generate them; do not also send a remote C/V chord.
+    if (shortcut && ["c", "v"].includes(event.key.toLowerCase())) return;
     if (!["Shift", "Control", "Alt", "Meta"].includes(event.key))
       event.preventDefault();
-    if (shortcut && ["c", "v", "x"].includes(event.key.toLowerCase())) return;
+    if (shortcut && event.key.toLowerCase() === "x") return;
     const text =
       event.key === "Enter"
         ? "\r"
@@ -362,7 +387,12 @@ export class NativeInput {
   };
 
   private readonly keyUp = (event: KeyboardEvent) => {
-    if (!this.forwarded.delete(event.code || event.key)) return;
+    const id = event.code || event.key;
+    const clipboard = this.clipboardKeys.delete(id);
+    if (!this.forwarded.delete(id)) {
+      if (clipboard) event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     this.input()?.key({

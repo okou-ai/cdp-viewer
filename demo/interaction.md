@@ -28,14 +28,64 @@ Shift+Tab navigate remote controls while remote input owns focus. Ctrl/Cmd+A and
 Ctrl/Cmd+Z/Shift+Z use explicit Blink select-all/undo/redo commands, avoiding an
 assumed remote OS shortcut mapping; Ctrl+Y also requests redo. Other forwarded
 shortcuts retain their modifier bits and depend on the remote platform/site.
-Clipboard transfer is not implemented: copy/cut/paste gestures are suppressed
-on the proxy so its temporary text is not mistaken for a remote selection.
+Plain-text copy/paste uses local clipboard gestures; cut remains suppressed.
+The proxy's temporary composing value is never treated as a remote selection.
 The proxy stays disabled while connecting, paused, unavailable, disconnected or
 errored, so local Tab navigation can pass through the inactive viewer. It keeps
 the same textarea node and becomes focusable again when streaming resumes.
 Offscreen panels pause their owned stream where IntersectionObserver is available;
 returning to view revalidates the selected target. Explicit pause and document
 visibility still apply, and pausing discards unsent input as described below.
+
+## Plain-text clipboard
+
+With the remote proxy focused, Ctrl/Cmd+V consumes the actual local paste event's
+plain text and inserts the whole string once into Chromium's current focused
+control. Newlines do not become Enter keys or submit forms. The viewer does not
+also read the clipboard asynchronously or forward a paste shortcut. Empty text
+does nothing; non-text-only payloads and text over 64 Ki UTF-16 code units receive
+a fixed diagnostic. Finish an active composition before copying or pasting.
+
+Ctrl/Cmd+C reads the supported remote selection after earlier input has been
+acknowledged. The local clipboard write starts in the original gesture with a
+deferred text payload, so remote-read latency does not by itself lose that
+gesture. The focused document/control chain is checked again before text is
+returned. Owner changes cancel pending reads; uncertain writes are never replayed.
+A new copy supersedes earlier pending copies and discards their unsent reads.
+An empty selection preserves the previous clipboard content.
+Handled proxy clipboard events and shortcut releases do not bubble into host
+handlers. Local recovery controls and host fields retain their native events.
+
+If automatic local writing is denied or unavailable, the viewer displays the
+completed selection in a readonly **Text to copy** field. Focus it to select the
+text and use your browser's native Copy command, or try **Copy text** with a fresh
+gesture. These controls are local and do not send input to the remote page.
+Dismissal, new remote edits, navigation, target changes and disposal clear the
+recovery text. Clipboard text stays in the owning viewer's memory; it is excluded
+from public status snapshots, diagnostics and persistence. Unsupported remote
+selection produces a limitation message rather than unrelated fallback text.
+
+| Copy source                                                                                                    | Boundary                                                 |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Native text/search/url/tel inputs and textarea                                                                 | Selected text, including readonly controls               |
+| Page text with document focus and native contenteditable                                                       | Native DOM selection, not a site's custom copy payload   |
+| Focused same-origin frames and open shadow roots                                                               | Bounded focused-chain traversal and document validation  |
+| Password fields and controls without selection APIs                                                            | Unsupported; protected values are never extracted        |
+| Cross-origin/OOPIF, closed shadow roots, opaque/non-editing focused hosts, canvas and custom editor selections | Unsupported; no retained top-document selection fallback |
+
+Copy limits do not prevent normal native input/paste into focused cross-origin
+frames. Rich formats, files/images, cut and application-defined clipboard
+handlers are outside the plain-text contract. `Input.insertText` is text insertion
+and does not synthesize a trusted remote paste event.
+
+The initial automated client is full desktop Chromium, using genuine gestures
+without manually granted clipboard permissions. Tests cover deferred writes,
+trusted paste and browser-enforced Permissions-Policy denial with native recovery.
+Safari, Firefox, physical OS clipboard integrations and actual user-denied
+permission dialogs need separate validation. The client must run in a secure
+context (HTTPS or a trusted loopback origin). An embedding host must allow the
+appropriate clipboard policy for automatic writes; denial retains the native
+manual-copy recovery. No remote system-clipboard permission is required.
 
 ## Composition and candidate placement
 

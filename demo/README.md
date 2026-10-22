@@ -3,8 +3,8 @@
 The [GitHub Pages demo](https://okou-ai.github.io/cdp-viewer/) uses the same public
 `cdp-viewer` component/types and `cdp-viewer/style.css` exports as consumers.
 It enables the public `interactive` option for live viewing, tab selection,
-tab creation/closure, mouse/keyboard input and navigation, with independent panels. Clipboard transfer
-and vendor adapters are not supported. Genuine
+tab creation/closure, mouse/keyboard input, plain-text clipboard transfer and
+navigation, with independent panels. Vendor adapters are not supported. Genuine
 macOS/Windows system IME validation remains pending.
 
 ## Connect
@@ -100,7 +100,9 @@ its unsent input without closing the remote browser or tabs.
 
 The demo uses the same native input proxy and ownership rules as the public
 component. Input follows Chromium's current focus, including automatic control
-changes and focused same/cross-origin frames. Clipboard transfer is not added.
+changes and focused same/cross-origin frames. Plain-text clipboard gestures and
+copy recovery come from the public component, with no separate demo engine.
+The clipboard host/permission requirements still need deployed-Origin validation.
 Genuine OS IME behavior and editor compatibility
 are limited to the recorded evidence in the [interaction guide](interaction.md).
 The component remains read-only by default in other host applications.

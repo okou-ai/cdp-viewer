@@ -25,6 +25,11 @@ const primitiveCapabilities = Object.freeze([
     files: ["src/viewer/controller.ts", "src/input/native.ts"],
     rules: { "ccstate/no-new-abort-controller": "off" },
   },
+  {
+    // These owners settle canceled queued reads and deferred ClipboardItem data.
+    files: ["src/input/queue.ts", "src/input/clipboard.ts"],
+    rules: { "ccstate/no-new-promise": "off" },
+  },
 ]);
 
 export const architecture = [

@@ -3,8 +3,8 @@
 A browser-native React viewer for existing Chrome DevTools Protocol browsers.
 It provides **live streaming, target selection, optional window filtering,
 and independent viewers**. Viewers are read-only by default. Enable `interactive`
-for mouse, keyboard, native text composition, remote navigation and tab creation/closure. Clipboard
-transfer and vendor adapters are not yet supported. Genuine macOS/Windows IME
+for mouse, keyboard, native text composition, plain-text clipboard transfer,
+remote navigation and tab creation/closure. Vendor adapters are not yet supported. Genuine macOS/Windows IME
 validation remains pending; see the [interaction support matrix](demo/interaction.md).
 
 The package stays private and is distributed as source from GitHub. No npm
@@ -21,7 +21,8 @@ you choose **Apply & connect**; reconnect uses the last applied settings.
 
 The demo enables interaction: click the live page to use your mouse and keyboard,
 or use its address and history controls. Press **F8** to release remote keyboard
-focus. Clipboard transfer remains unsupported; genuine
+focus. Interactive viewers support plain-text copy/paste with an explicit local
+copy recovery when automatic clipboard writing is blocked. Genuine
 macOS/Windows system IME validation is pending. Connection details stay in page
 memory and are cleared on refresh. An HTTPS page normally needs a
 `wss://` endpoint whose server permits the page's Origin. See the
@@ -135,6 +136,15 @@ follows the tabs and stays reachable, showing a spinner during creation.
 Enter in the address bar navigates to an absolute
 HTTP(S) address. The navigation toolbar supports reload and
 available history. See [interaction behavior and limits](demo/interaction.md).
+
+Ctrl/Cmd+V inserts local plain text once into the remote focused control.
+Ctrl/Cmd+C copies supported remote text selections; blocked local writes expose
+a readonly text field for native browser copying. Clipboard access requires a
+secure client context and the embedding page's permission policy. Native text
+controls, page text, same-origin frames and open shadow roots are supported;
+password fields, inaccessible frames and application-defined clipboard payloads
+are excluded. See the [clipboard contract](demo/interaction.md#plain-text-clipboard)
+for limits and the client-browser evidence boundary.
 
 Each instance has its own socket, request IDs, timers, controller, private ccstate
 store/context, Canvas queue, and cleanup. A host `ccstate-react` provider is
