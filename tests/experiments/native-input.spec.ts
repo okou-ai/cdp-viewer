@@ -1032,9 +1032,22 @@ for (const oneWayMs of [0, 50])
                     };
                     const at = await position(value, "#plain");
                     if (workload === "scroll") {
+                      const movements = () =>
+                        value.remote.evaluate(
+                          () =>
+                            (
+                              window as unknown as {
+                                nativeObserved: { events: string[] };
+                              }
+                            ).nativeObserved.events.filter(
+                              (event) => event === "mousemove",
+                            ).length,
+                        );
+                      const before = await movements();
                       await value.page.mouse.move(at.x, at.y);
-                      // Pointer positioning is preparation. Join its actual
-                      // batch before cutting the timed wheel command sample.
+                      // Both adapters defer hover through an animation frame.
+                      // Observe its remote effect before the timed wheel cut.
+                      await expect.poll(movements).toBeGreaterThan(before);
                       await drained(value);
                     }
                     await value.page.evaluate(
