@@ -151,8 +151,19 @@ export class DisplaySync {
     );
   }
 
-  private retain(request: Request): void {
-    if (request.source === "manual") this.request = request;
+  /** Revalidate intent after a read boundary without consuming a hidden surface's request. */
+  private currentSize(
+    target: Target,
+    revision: number,
+    request: Request,
+  ): DisplaySize | null {
+    if (!this.current(target)) return null;
+    if (revision !== this.revision) {
+      if (request.source === "manual") this.request = request;
+      return null;
+    }
+    if (!this.local) this.request ??= request;
+    return this.local;
   }
 
   private async drain(): Promise<void> {
@@ -189,12 +200,8 @@ export class DisplaySync {
           target.sessionId,
         ),
       ]);
-      if (!this.current(target)) return;
-      if (revision !== this.revision) {
-        this.retain(request);
-        return;
-      }
-      if (!this.local) return;
+      let local = this.currentSize(target, revision, request);
+      if (!local) return;
       this.assertWindow(window);
       const value: unknown = remote.result.value;
       if (
@@ -223,19 +230,15 @@ export class DisplaySync {
             }
           : { kind: "fit" };
       let size = constrainDisplay(
-        operation.kind === "fit" ? this.local : operation.size,
+        operation.kind === "fit" ? local : operation.size,
       );
       let projected = projectDisplay(window.windowId, size, metrics);
       if (request.source !== "manual" && target.applied === projected.key)
         return;
       await this.host.capture();
-      if (!this.current(target)) return;
-      if (revision !== this.revision) {
-        this.retain(request);
-        return;
-      }
-      if (!this.local) return;
-      if (operation.kind === "fit") size = constrainDisplay(this.local);
+      local = this.currentSize(target, revision, request);
+      if (!local) return;
+      if (operation.kind === "fit") size = constrainDisplay(local);
       projected = projectDisplay(window.windowId, size, metrics);
       // Consume measurements coalesced during guards; later changes stay pending.
       this.request = null;

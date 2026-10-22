@@ -402,6 +402,53 @@ it("clears queued busy state for a zero-area stage and resumes at the latest val
   );
 });
 
+it.each(["Browser.getWindowForTarget", "Page.stopScreencast"])(
+  "retains a manual sync while the surface becomes unavailable during %s",
+  async (boundary) => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser, "off", 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.holdMethod = boundary;
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    controller.measureDisplay(null);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(
+      held.command,
+      boundary === "Browser.getWindowForTarget"
+        ? { windowId: 0, bounds: { windowState: "normal" } }
+        : {},
+    );
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        ready: false,
+        pending: false,
+      }),
+    );
+    expect(emulations(browser)).toHaveLength(0);
+    expect(resizes(browser)).toHaveLength(0);
+    controller.measureDisplay({ width: 900, height: 700, dpr: 1.5 });
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    expect(resizes(browser)[0]!.params).toEqual({
+      windowId: 0,
+      width: 1350,
+      height: 1050,
+    });
+    expect(emulations(browser)[0]!.params).toMatchObject({
+      width: 900,
+      height: 700,
+      deviceScaleFactor: 1.5,
+    });
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
 it("does not write after ownership is lost while a guard is pending", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser);
