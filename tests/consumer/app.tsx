@@ -56,9 +56,9 @@ function App() {
         cdpUrl: settings.cdpUrl,
         interactive: settings.interactive ?? false,
         paused: settings.paused ?? false,
-        ...(settings.defaultWindowSizeSync === undefined
+        ...(settings.windowSizeSync === undefined
           ? {}
-          : { defaultWindowSizeSync: settings.defaultWindowSizeSync }),
+          : { windowSizeSync: settings.windowSizeSync }),
         style: { "--cdpv-radius": "3px" },
       }
     : null;

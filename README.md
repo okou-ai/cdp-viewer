@@ -115,8 +115,7 @@ and connection without closing the remote browser or its tabs.
 | `paused?: boolean`                            | Release this viewer's current stream while retaining connection/selection        |
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
-| `defaultWindowSizeSync?: WindowSizeSync`      | Initial uncontrolled adaptation mode; defaults to `"off"`                        |
-| `onWindowSizeSyncChange`                      | Receives mode changes requested through the browser menu                         |
+| `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
 | `extensions?: readonly ViewerExtension[]`     | Optional per-connection adapters, reconciled by ID and configuration key         |
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
@@ -191,17 +190,26 @@ The three-dot menu to the right of the interactive address bar offers three mode
 **Do not sync automatically**, **Sync once on opening**, and **Sync continuously**.
 Its single **Sync now** action always remains available when the stream and local
 geometry are ready, and synchronizes both the page size and DPR in every mode.
-It is temporarily disabled while a synchronization is pending. Modes are local to
-the component; the library does not persist settings.
+It is temporarily disabled while a synchronization is pending. Modes apply per
+viewer; the library does not persist settings.
 
 ```tsx
+const [syncMode, setSyncMode] = useState<WindowSizeSync>("initial");
+
 <CdpViewer
   cdpUrl={cdpUrl}
   windowId={windowId}
   interactive
-  defaultWindowSizeSync="initial"
-/>
+  windowSizeSync={syncMode}
+  onWindowSizeSyncChange={setSyncMode}
+/>;
 ```
+
+With `windowSizeSync`, the host owns the mode. The change callback requests a new
+value; the mode changes only when the host updates the prop. Omitting the prop
+gives the menu its own state, initially off, and the callback reports its changes.
+Initialize host state to choose another starting mode; no separate default prop
+is needed. Manual synchronization never changes the automatic mode.
 
 Adaptation measures the available page surface in local CSS pixels and the client
 browser's `devicePixelRatio`. It combines native content sizing with session-owned
@@ -222,6 +230,8 @@ same window or page can compete over shared browser state.
 Sizing retains the requested DPR and aspect ratio while reducing dimensions when
 necessary: logical and physical edges are capped at 4096, and physical area at
 3840 × 2160 pixels. The menu reports **Size limit reached** when constrained.
+A density that cannot fit within the physical budget at minimum dimensions is
+refused with a recoverable diagnostic.
 These are protective product limits, not a universal performance guarantee.
 Opting into adaptation raises the screencast ceiling to 4096 × 4096 once on the
 same session; untouched viewing retains JPEG quality 70 and 1920 × 1080 caps.

@@ -8,7 +8,7 @@ export interface FixtureSettings {
   interactive?: boolean;
   paused?: boolean;
   hostForm?: boolean;
-  defaultWindowSizeSync?: WindowSizeSync;
+  windowSizeSync?: WindowSizeSync;
   colorSchemeA?: "light" | "dark" | "system";
   colorSchemeB?: "light" | "dark" | "system";
 }

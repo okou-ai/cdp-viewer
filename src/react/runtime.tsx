@@ -47,7 +47,6 @@ export function ViewerRuntime({
   paused = false,
   interactive = false,
   windowSizeSync,
-  defaultWindowSizeSync = "off",
   onWindowSizeSyncChange,
   extensions,
   onStatusChange,
@@ -96,10 +95,9 @@ export function ViewerRuntime({
   useLayoutEffect(() => {
     model.run(model.configureDisplay$, {
       controlled: windowSizeSync ?? null,
-      initial: defaultWindowSizeSync,
       canChange: windowSizeSync === undefined || !!onWindowSizeSyncChange,
     });
-  }, [model, windowSizeSync, defaultWindowSizeSync, onWindowSizeSyncChange]);
+  }, [model, windowSizeSync, onWindowSizeSyncChange]);
   useLayoutEffect(() => {
     if (!canvas.current) return;
     // The conditional address editor's lifetime ends in view-only mode.

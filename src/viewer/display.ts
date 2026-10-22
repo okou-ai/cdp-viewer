@@ -48,9 +48,20 @@ function constrainDisplay(size: DisplaySize): DisplaySize & {
     4096 / (size.height * size.dpr),
     Math.sqrt((3840 * 2160) / size.width / size.height) / size.dpr,
   );
+  const width = Math.max(1, Math.floor(size.width * scale));
+  const height = Math.max(1, Math.floor(size.height * scale));
+  if (
+    width * size.dpr > 4096 ||
+    height * size.dpr > 4096 ||
+    width * height * size.dpr * size.dpr > 3840 * 2160
+  )
+    throw new CdpFault(
+      "display",
+      "The display density cannot fit within the supported size limits.",
+    );
   return {
-    width: Math.max(1, Math.floor(size.width * scale)),
-    height: Math.max(1, Math.floor(size.height * scale)),
+    width,
+    height,
     dpr: size.dpr,
     constrained: scale < 1,
   };

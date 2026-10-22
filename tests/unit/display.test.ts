@@ -293,3 +293,17 @@ it("lets a sibling window synchronize while another owner's write is held", asyn
   expect(b.model.getSnapshot().status).toBe("streaming");
   expect(browser.sockets[1]!.readyState).toBe(1);
 });
+
+it("refuses density that exceeds the physical budget even at minimum logical dimensions", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser);
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  controller.measureDisplay({ width: 640, height: 480, dpr: 10000 });
+  controller.syncDisplay();
+  await vi.waitFor(() =>
+    expect(model.getSnapshot().error?.message).toContain("density cannot fit"),
+  );
+  expect(resizes(browser)).toHaveLength(0);
+  expect(emulations(browser)).toHaveLength(0);
+  expect(model.getSnapshot().status).toBe("streaming");
+});

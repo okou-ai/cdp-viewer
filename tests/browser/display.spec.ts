@@ -241,10 +241,6 @@ for (const nativeDpr of [1, 2]) {
       await expect(
         view.getByRole("menuitem", { name: "Sync now", exact: true }),
       ).toBeEnabled();
-      await page.screenshot({
-        path: info.outputPath("display-menu.png"),
-        fullPage: true,
-      });
       await page.keyboard.press("Escape");
       expect(await input!.evaluate((element) => element.isConnected)).toBe(
         true,
@@ -307,7 +303,7 @@ test("adapts two windows independently and retains the sibling after unmount", a
         windowA: first.windowId,
         windowB: second.windowId,
         interactive: true,
-        defaultWindowSizeSync: "live" as const,
+        windowSizeSync: "live" as const,
       },
     );
     const a = page.locator("#viewer-a .cdpv-root"),

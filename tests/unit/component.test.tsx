@@ -95,6 +95,40 @@ it("owns the browser menu mode and combined manual sync without replacing native
   expect(fake.sockets).toHaveLength(1);
 });
 
+it("keeps a menu-owned mode when the host changes callback identity", async () => {
+  const fake = browser();
+  const changed = vi.fn();
+  const view = render(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      onWindowSizeSyncChange={changed}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Browser menu" }));
+  await userEvent.click(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  );
+  expect(changed).toHaveBeenCalledWith("live");
+  view.rerender(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      onWindowSizeSyncChange={() => {}}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Browser menu" }));
+  expect(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-checked", "true");
+  expect(fake.sockets).toHaveLength(1);
+});
+
 it("reconciles inline adapter configuration while preserving the connection and input", async () => {
   const fake = browser();
   const setup = vi.fn<ViewerExtension["setup"]>();

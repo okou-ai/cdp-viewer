@@ -53,10 +53,9 @@ export interface CdpViewerProps {
   readonly paused?: boolean;
   /** Enable remote input, navigation and tab creation/closure. Default: false. */
   readonly interactive?: boolean;
-  /** Controlled automatic size/DPR adaptation. Omit for menu-owned mode. */
+  /** Controlled size/DPR adaptation. Omit for menu-owned mode, initially off. */
   readonly windowSizeSync?: WindowSizeSync;
-  /** Initial menu-owned mode; defaults to off. */
-  readonly defaultWindowSizeSync?: WindowSizeSync;
+  /** Requests a controlled update, or reports a menu-owned mode change. */
   readonly onWindowSizeSyncChange?: (mode: WindowSizeSync) => void;
   /** Optional adapters, reconciled by ID and key independently of transport. */
   readonly extensions?: readonly ViewerExtension[];

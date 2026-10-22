@@ -78,7 +78,6 @@ function createViewerSignals() {
   });
   const internalSyncMode$ = state<WindowSizeSync>("off");
   const controlledSyncMode$ = state<WindowSizeSync | null>(null);
-  const initializedSyncMode$ = state(false);
   const canChangeSyncMode$ = state(true);
   const display$ = computed((get) => get(internalDisplay$));
   const windowSizeSync$ = computed(
@@ -86,17 +85,12 @@ function createViewerSignals() {
   );
   const configureDisplay$ = command(
     (
-      { get, set },
+      { set },
       value: {
         controlled: WindowSizeSync | null;
-        initial: WindowSizeSync;
         canChange: boolean;
       },
     ) => {
-      if (!get(initializedSyncMode$)) {
-        set(initializedSyncMode$, true);
-        set(internalSyncMode$, value.initial);
-      }
       set(controlledSyncMode$, value.controlled);
       set(canChangeSyncMode$, value.canChange);
     },
