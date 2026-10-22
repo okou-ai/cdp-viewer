@@ -798,6 +798,113 @@ for (const nativeDpr of [1, 2]) {
   });
 }
 
+for (const mode of ["off", "live"] as const) {
+  test(`remembers a presented fit when changing from ${mode} to initial mode`, async ({
+    page,
+  }) => {
+    const backend = await launchNativeBackend(server.origin, true, 1);
+    try {
+      const created = backend.context.waitForEvent("page");
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+      });
+      const first = await created;
+      await first.goto(server.origin + "/fixture/editor");
+      await first.evaluate(() => {
+        document.title = "First synthetic tab";
+      });
+      const { windowId } = await backend.session.send(
+        "Browser.getWindowForTarget",
+        { targetId: target.targetId },
+      );
+      const opened = backend.context.waitForEvent("page");
+      await first.evaluate((url) => {
+        window.open(url, "_blank");
+      }, server.origin + "/fixture/editor?second");
+      const second = await opened;
+      await second.waitForLoadState();
+      await second.evaluate(() => {
+        document.title = "Second synthetic tab";
+      });
+      let writes = 0;
+      let reads = 0;
+      let attachments = 0;
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as { method: string };
+          if (command.method === "Browser.setContentsSize") writes++;
+          if (command.method === "Page.getLayoutMetrics") reads++;
+          if (command.method === "Target.attachToTarget") attachments++;
+          upstream.send(message);
+        });
+      });
+      await page.goto(server.origin);
+      await page.addStyleTag({
+        content:
+          "#panels{display:block!important}#viewer-a .cdpv-root{width:620px;height:460px}",
+      });
+      await page.waitForFunction(
+        () => typeof window.configureViewers === "function",
+      );
+      const configure = (windowSizeSync: "off" | "initial" | "live") =>
+        page.evaluate(async (settings) => window.configureViewers!(settings), {
+          cdpUrl: backend.endpoint,
+          windowA: windowId,
+          second: false,
+          interactive: true,
+          windowSizeSync,
+        });
+      await configure("off");
+      const view = page.locator("#viewer-a .cdpv-root");
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      await view
+        .getByRole("tab", { name: "First synthetic tab", exact: true })
+        .click();
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      if (mode === "off") {
+        await view.getByRole("button", { name: "Browser menu" }).click();
+        await view
+          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .click();
+      } else await configure("live");
+      await expect.poll(() => first.evaluate(() => devicePixelRatio)).toBe(2);
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      const original = await backend.session.send(
+        "Browser.getWindowForTarget",
+        {
+          targetId: target.targetId,
+        },
+      );
+      const readsBefore = reads;
+      const attachmentsBefore = attachments;
+      await configure("initial");
+      await expect.poll(() => reads).toBeGreaterThan(readsBefore);
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      expect(writes).toBe(1);
+      expect(attachments).toBe(attachmentsBefore);
+      await view.evaluate((element: HTMLElement) => {
+        element.style.width = "700px";
+      });
+      await view
+        .getByRole("tab", { name: "Second synthetic tab", exact: true })
+        .click();
+      await expect.poll(() => second.evaluate(() => devicePixelRatio)).toBe(2);
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      const current = await backend.session.send("Browser.getWindowForTarget", {
+        targetId: target.targetId,
+      });
+      expect(current.bounds).toEqual(original.bounds);
+      expect(writes).toBe(1);
+      expect(attachments).toBe(attachmentsBefore + 1);
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
 test("initial density restoration preserves native bounds across fractional-zoom tab changes", async ({
   page,
 }) => {

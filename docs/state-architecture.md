@@ -67,6 +67,8 @@ reads and paint callbacks without changing native input ownership.
 Preparation revalidates both intent and native geometry after read/capture
 boundaries. Retired facts cannot authorize a display write; the current request
 is retained for recomputation through the same bounded scheduler.
+An already compatible presentation completes the same policy bookkeeping as a
+newly painted write; deduplication skips native effects without skipping state.
 The geometry owner distinguishes native calibration, writing, awaiting
 presentation, presented and uncertain adaptation. Starting a write retires its
 pointer mapping. A definite rejection can restore previous acknowledged units;

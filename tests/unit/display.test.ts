@@ -783,6 +783,44 @@ it("initial mode restores density across tabs without fitting a resized local st
   });
 });
 
+it.each(["off", "live"] as const)(
+  "remembers an already presented fit when changing from %s to initial mode",
+  async (mode) => {
+    const browser = new FakeBrowser();
+    browser.targets[1]!.windowId = 0;
+    const { controller, model } = mount(browser, mode, 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    if (mode === "off") controller.syncDisplay();
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    controller.setWindowSizeSync("initial");
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(resizes(browser)).toHaveLength(1);
+    expect(emulations(browser)).toHaveLength(1);
+    controller.measureDisplay({ width: 900, height: 700, dpr: 1 });
+    controller.select("page-b");
+    await vi.waitFor(() => expect(emulations(browser)).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(resizes(browser)).toHaveLength(1);
+    expect(browser.windowSizes.get(0)).toEqual({ width: 1280, height: 960 });
+    expect(emulations(browser).at(-1)!.params).toMatchObject({
+      width: 640,
+      height: 480,
+      deviceScaleFactor: 2,
+    });
+    expect(model.getSnapshot().error).toBeNull();
+    expect(model.getSnapshot().selectedTargetId).toBe("page-b");
+  },
+);
+
 it("retains current native bounds when restoring initial density and still enforces caps", async () => {
   const browser = new FakeBrowser();
   browser.nativeDpr = 2;

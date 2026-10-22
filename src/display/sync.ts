@@ -311,64 +311,63 @@ export class DisplaySync {
       );
       let projected = projectDisplay(window.windowId, size, metrics);
       if (
-        target.applied === projected.key &&
-        target.geometry.matches(projected.presentation, projected.input)
+        target.applied !== projected.key ||
+        !target.geometry.matches(projected.presentation, projected.input)
       ) {
-        this.constrained = size.constrained;
-        this.host.synchronized();
-        return;
-      }
-      await this.host.capture();
-      local = this.currentSize(target, revision, request);
-      if (!local) return;
-      if (operation.kind === "fit") size = constrainDisplay(local);
-      projected = projectDisplay(window.windowId, size, metrics);
-      // Consume measurements coalesced during guards; later changes stay pending.
-      this.request = null;
-      const freshCapture = target.geometry.needsCaptureFence(
-        metrics,
-        projected.presentation,
-      );
-      rejectWrite = target.geometry.beginWrite();
-      this.publish();
-      override = "pending";
-      await this.client.request(
-        "Emulation.setDeviceMetricsOverride",
-        projected.metrics,
-        target.sessionId,
-      );
-      override = "applied";
-      if (!this.current(target)) return;
-      const confirmed = await this.client.request(
-        "Browser.getWindowForTarget",
-        { targetId: target.targetId },
-      );
-      if (!this.current(target)) return;
-      this.assertWindow(confirmed);
-      if (confirmed.windowId !== window.windowId)
-        throw new CdpFault(
-          "scope",
-          "The page moved during display synchronization.",
+        await this.host.capture();
+        local = this.currentSize(target, revision, request);
+        if (!local) return;
+        if (operation.kind === "fit") size = constrainDisplay(local);
+        projected = projectDisplay(window.windowId, size, metrics);
+        // Consume measurements coalesced during guards; later changes stay pending.
+        this.request = null;
+        const freshCapture = target.geometry.needsCaptureFence(
+          metrics,
+          projected.presentation,
         );
-      if (operation.kind === "fit" || size.constrained)
+        rejectWrite = target.geometry.beginWrite();
+        this.publish();
+        override = "pending";
         await this.client.request(
-          "Browser.setContentsSize",
-          projected.contents,
+          "Emulation.setDeviceMetricsOverride",
+          projected.metrics,
+          target.sessionId,
         );
-      if (!this.current(target)) return;
-      target.geometry.apply(
-        projected.input,
-        projected.presentation,
-        freshCapture,
-      );
-      this.publish();
-      if (freshCapture) await this.fenceCapture(target);
-      if (!this.current(target)) return;
-      await target.geometry.waitForPresentation(
-        this.host.signal,
-        this.host.presentationTimeout,
-      );
-      if (!this.current(target)) return;
+        override = "applied";
+        if (!this.current(target)) return;
+        const confirmed = await this.client.request(
+          "Browser.getWindowForTarget",
+          { targetId: target.targetId },
+        );
+        if (!this.current(target)) return;
+        this.assertWindow(confirmed);
+        if (confirmed.windowId !== window.windowId)
+          throw new CdpFault(
+            "scope",
+            "The page moved during display synchronization.",
+          );
+        if (operation.kind === "fit" || size.constrained)
+          await this.client.request(
+            "Browser.setContentsSize",
+            projected.contents,
+          );
+        if (!this.current(target)) return;
+        target.geometry.apply(
+          projected.input,
+          projected.presentation,
+          freshCapture,
+        );
+        this.publish();
+        if (freshCapture) await this.fenceCapture(target);
+        if (!this.current(target)) return;
+        await target.geometry.waitForPresentation(
+          this.host.signal,
+          this.host.presentationTimeout,
+        );
+        if (!this.current(target)) return;
+      }
+      // A compatible existing presentation completes the same policy bookkeeping
+      // as a newly painted write, without repeating its native effects.
       target.applied = projected.key;
       this.constrained = size.constrained;
       this.host.synchronized();
