@@ -66,14 +66,44 @@ discard unsent work; uncertain native effects are never replayed. This prototype
 does not readmit a revoked channel. Cleanup closes only owned sessions and
 connections; the fixture owns and tears down its browser and client profiles.
 
+## Acknowledged keys/text retirement
+
+An explicit fixture host reserves each target before asynchronous admission.
+Each viewer still owns its independent CDP connection and input lane. The host
+does not admit overlapping owners or treat an endpoint as a shared connection
+pool. Client intent cannot choose a target or session.
+
+Retirement immediately revokes admission and discards unsent work through the
+actual input coordinator. It keeps the original connection until all dispatched
+native writes and required original-session key releases have positive replies,
+then waits for acknowledged detach. Repeated retirement shares the same result.
+Only confirmed retirement releases the host reservation. A missing/rejected
+reply, bounded cleanup deadline or CDP loss leaves the target unavailable; local
+teardown never becomes proof of remote cleanup. No uncertain input is replayed
+and no second connection attempts cleanup. The observer also bounds unconfirmed
+native receipts during retirement. Emergency fixture close is not a handover
+receipt.
+
+The opt-in lifecycle cases in `handover.spec.ts` hold actual native replies while
+two real windows hold modifiers. Fixture host commands report pause/unmount or
+viewer-channel loss, and the sibling must continue native input and actual
+streamed feedback. A lost viewer reply channel can still retire through live
+CDP; losing CDP cannot confirm cleanup. A separate case actually moves a tab,
+discards held old input, confirms original-owner release and admits a replacement
+only after verifying the destination window. Late old continuations cannot
+release its new acquisition. These are explicit fixture host lifecycle reports,
+not integration with a shipping client adapter. They remain separate from timing
+samples and ordinary correctness CI.
+
 ## Limits
 
 This is keys/text stable-window feasibility, using a deliberately smaller local
 adapter than `NativeInput`. It cannot establish complete local-adapter parity,
-click/pointer/wheel/navigation/clipboard ordering, genuine OS composition,
-acknowledged cleanup or safe tab-move handover. Those need a full interaction and
-ownership evaluation before adopting any public adapter. A fresh local check and
-CDP send are still not atomic against arbitrary external tab movement.
+click/pointer/wheel/navigation/clipboard ordering or genuine OS composition.
+Acknowledged cleanup and controlled tab-move handover cover keys/text only; a full
+interaction and ownership evaluation remains necessary before adopting any public
+adapter. A fresh local check and CDP send are still not atomic against arbitrary
+external tab movement.
 
 Opaque fixture admission is not production authentication or endpoint access
 control. Public wire versioning, authorization, browser provisioning, recovery,

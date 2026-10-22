@@ -4,8 +4,9 @@ import { writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { prepareConsumer } from "../../scripts/consumer.mjs";
 import { launchBackend, serveConsumer } from "../browser/backend";
-import { GuardedProbe } from "./guarded-probe";
+import type { GuardedProbe } from "./guarded-probe";
 import { installProbeClient } from "./probe-client";
+import { ProbeHost } from "./probe-host";
 import type {} from "../consumer/api";
 
 declare global {
@@ -79,6 +80,7 @@ for (const oneWayMs of [0, 50]) {
     );
     let client: Browser | undefined;
     const rows: object[] = [];
+    const host = new ProbeHost(backend.endpoint);
     let heldIsolation = 0;
     try {
       client = await playwright.chromium.launch({
@@ -236,8 +238,7 @@ for (const oneWayMs of [0, 50]) {
             if (adjacent) {
               const endpoint = `wss://executor.fixture.invalid/viewer-${index}`;
               let sendReply: ((message: string) => void) | undefined;
-              probe = await GuardedProbe.open({
-                endpoint: backend.endpoint,
+              probe = await host.admit({
                 targetId,
                 windowId,
                 reply: (value) =>
@@ -250,7 +251,11 @@ for (const oneWayMs of [0, 50]) {
                     probe!.receive(String(message));
                   }),
                 );
-                socket.onClose(() => transit(() => probe!.close()));
+                socket.onClose(() =>
+                  transit(() => {
+                    void host.retire(probe!);
+                  }),
+                );
               });
             }
             viewers.push({
@@ -263,7 +268,7 @@ for (const oneWayMs of [0, 50]) {
               close: async () => {
                 closed = true;
                 for (const timer of timers) clearTimeout(timer);
-                probe?.close();
+                if (probe) await host.retire(probe);
                 await context.close();
                 await remote.close();
               },
@@ -564,6 +569,7 @@ for (const oneWayMs of [0, 50]) {
         ),
       );
     } finally {
+      host.close();
       try {
         await client?.close();
       } finally {
