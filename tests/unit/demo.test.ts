@@ -26,6 +26,78 @@ function connectedModel() {
   return model;
 }
 
+it("owns bounded resize gestures without replacing live connections or siblings", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  const [before, sibling] = model.read(model.panels$);
+  expect(
+    model.run(model.beginResize$, 1, {
+      pointerId: 1,
+      x: 900,
+      y: 500,
+      width: 1000,
+      height: 360,
+    }),
+  ).toBe(true);
+  expect(
+    model.run(model.beginResize$, 1, {
+      pointerId: 2,
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 360,
+    }),
+  ).toBe(false);
+  expect(model.run(model.moveResize$, 1, 2, 700, 637, 1000)).toBe(false);
+  expect(model.run(model.moveResize$, 1, 1, 700, 637, 1000)).toBe(true);
+  let current = model.read(model.panels$)[0]!;
+  expect(current.options).toMatchObject({ width: 80, height: 497 });
+  expect(current.connection).toBe(before?.connection);
+  expect(current.generation).toBe(before?.generation);
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  expect(model.run(model.endResize$, 1, 2)).toBeNull();
+  model.run(model.moveResize$, 1, 1, -5000, 5000, 600);
+  expect(model.read(model.panels$)[0]?.options).toMatchObject({
+    width: 50,
+    height: 800,
+  });
+  model.run(model.moveResize$, 1, 1, 5000, -5000, 600);
+  expect(model.read(model.panels$)[0]?.options).toMatchObject({
+    width: 100,
+    height: 240,
+  });
+  expect(model.run(model.endResize$, 1, 1)).toBe(1);
+  const finished = model.read(model.panels$);
+  expect(model.run(model.moveResize$, 1, 1, 0, 0, 1000)).toBe(false);
+  expect(model.read(model.panels$)).toBe(finished);
+  model.run(model.nudgeResize$, 1, -1, 10);
+  current = model.read(model.panels$)[0]!;
+  expect(current.options).toMatchObject({ width: 99, height: 250 });
+  expect(current.resize).toBeNull();
+});
+
+it("retires resizing on size-control takeover, cancellation and removal", () => {
+  const model = createDemoModel();
+  const start = { pointerId: 0, x: 200, y: 200, width: 600, height: 360 };
+  model.run(model.beginResize$, 1, start);
+  model.run(model.configure$, 1, { height: 520 });
+  const configured = model.read(model.panels$);
+  expect(configured[0]?.resize).toBeNull();
+  expect(model.run(model.moveResize$, 1, 0, 300, 300, 600)).toBe(false);
+  expect(model.read(model.panels$)).toBe(configured);
+  model.run(model.beginResize$, 1, start);
+  expect(model.run(model.endResize$, 1)).toBe(0);
+  model.run(model.beginResize$, 1, start);
+  expect(model.run(model.nudgeResize$, 1, -5, 40)).toBe(0);
+  expect(model.read(model.panels$)[0]?.resize).toBeNull();
+  model.run(model.beginResize$, 1, start);
+  model.run(model.remove$, 1);
+  const removed = model.read(model.panels$);
+  expect(model.run(model.moveResize$, 1, 0, 400, 400, 600)).toBe(false);
+  expect(model.run(model.endResize$, 1, 0)).toBeNull();
+  expect(model.read(model.panels$)).toBe(removed);
+});
+
 it("keeps live presentation separate from drafts and uses applied settings for mode changes", () => {
   const model = connectedModel();
   model.run(model.add$);

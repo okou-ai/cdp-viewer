@@ -8,7 +8,12 @@ import type {
 import { createInstance } from "../src/state/instance";
 import { parseConnection } from "./connection";
 import type { Connection, ConnectionError } from "./connection";
-import { callbackLimit, defaultOptions, summarizeSnapshot } from "./playground";
+import {
+  callbackLimit,
+  defaultOptions,
+  sizeLimits,
+  summarizeSnapshot,
+} from "./playground";
 import type {
   CallbackEvent,
   PlaygroundOptions,
@@ -24,9 +29,31 @@ export interface Panel {
   readonly error: ConnectionError | null;
   readonly generation: number;
   readonly options: PlaygroundOptions;
+  readonly resize: ResizeGesture | null;
   readonly snapshot: SnapshotSummary | null;
   readonly activity: readonly CallbackEvent[];
   readonly sequence: number;
+}
+
+export interface ResizeGesture {
+  readonly pointerId: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+function boundedSize(width: number, height: number) {
+  return {
+    width: Math.max(
+      sizeLimits.width.min,
+      Math.min(sizeLimits.width.max, Math.round(width)),
+    ),
+    height: Math.max(
+      sizeLimits.height.min,
+      Math.min(sizeLimits.height.max, Math.round(height)),
+    ),
+  };
 }
 
 function panel(id: number): Panel {
@@ -39,6 +66,7 @@ function panel(id: number): Panel {
     error: null,
     generation: 0,
     options: { ...defaultOptions },
+    resize: null,
     snapshot: null,
     activity: [],
     sequence: 0,
@@ -159,9 +187,102 @@ function createDemoSignals() {
               activity: [],
             };
           }
-          return { ...item, options };
+          return {
+            ...item,
+            options,
+            resize:
+              patch.width !== undefined || patch.height !== undefined
+                ? null
+                : item.resize,
+          };
         }),
       );
+    },
+  );
+  const beginResize$ = command(
+    ({ get, set }, id: number, gesture: ResizeGesture) => {
+      const owner = get(internalPanels$).find((item) => item.id === id);
+      if (!owner || owner.resize || gesture.width <= 0 || gesture.height <= 0)
+        return false;
+      set(internalPanels$, (values) =>
+        values.map((item) =>
+          item.id === id ? { ...item, resize: gesture } : item,
+        ),
+      );
+      return true;
+    },
+  );
+  const moveResize$ = command(
+    (
+      { get, set },
+      id: number,
+      pointerId: number,
+      x: number,
+      y: number,
+      availableWidth: number,
+    ) => {
+      const owner = get(internalPanels$).find((item) => item.id === id);
+      const gesture = owner?.resize;
+      if (
+        !owner ||
+        !gesture ||
+        gesture.pointerId !== pointerId ||
+        availableWidth <= 0
+      )
+        return false;
+      const size = boundedSize(
+        ((gesture.width + x - gesture.x) / availableWidth) * 100,
+        gesture.height + y - gesture.y,
+      );
+      if (
+        size.width !== owner.options.width ||
+        size.height !== owner.options.height
+      ) {
+        set(internalPanels$, (values) =>
+          values.map((item) =>
+            item.id === id
+              ? { ...item, options: { ...item.options, ...size } }
+              : item,
+          ),
+        );
+      }
+      return true;
+    },
+  );
+  const endResize$ = command(({ get, set }, id: number, pointerId?: number) => {
+    const gesture = get(internalPanels$).find((item) => item.id === id)?.resize;
+    if (
+      !gesture ||
+      (pointerId !== undefined && gesture.pointerId !== pointerId)
+    )
+      return null;
+    set(internalPanels$, (values) =>
+      values.map((item) => (item.id === id ? { ...item, resize: null } : item)),
+    );
+    return gesture.pointerId;
+  });
+  const nudgeResize$ = command(
+    ({ get, set }, id: number, width: number, height: number) => {
+      const owner = get(internalPanels$).find((item) => item.id === id);
+      if (!owner) return null;
+      const size = boundedSize(
+        owner.options.width + width,
+        owner.options.height + height,
+      );
+      if (
+        !owner.resize &&
+        size.width === owner.options.width &&
+        size.height === owner.options.height
+      )
+        return null;
+      set(internalPanels$, (values) =>
+        values.map((item) =>
+          item.id === id
+            ? { ...item, resize: null, options: { ...item.options, ...size } }
+            : item,
+        ),
+      );
+      return owner.resize?.pointerId ?? null;
     },
   );
   const clearActivity$ = command(({ set }, id: number) => {
@@ -232,6 +353,10 @@ function createDemoSignals() {
     reconnect$,
     disconnect$,
     configure$,
+    beginResize$,
+    moveResize$,
+    endResize$,
+    nudgeResize$,
     clearActivity$,
     observeStatus$,
     observeError$,
