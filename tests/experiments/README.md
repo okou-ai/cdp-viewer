@@ -305,6 +305,8 @@ remains denied; no uncertain input or navigation is replayed.
 Client batch credit requires a matching pending sequence and an explicit
 successful acknowledgement. A partial reply without its success field revokes
 the client instead of confirming work or replenishing that credit.
+Original native cleanup likewise requires an explicit CDP result object; an
+ID-only reply cannot confirm retirement or release the target reservation.
 
 ## Limits
 

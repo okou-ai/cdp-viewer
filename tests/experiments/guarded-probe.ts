@@ -224,14 +224,14 @@ export class GuardedProbe {
             this.mode === "composition" &&
             row.method === "Input.imeSetComposition" &&
             !this.imeSupported &&
+            response.result === undefined &&
             isRecord(response.error) &&
             response.error.code === -32601;
-          if (
-            row.method === "Input.imeSetComposition" &&
-            !isRecord(response.error)
-          )
+          const acknowledged =
+            response.error === undefined && isRecord(response.result);
+          if (row.method === "Input.imeSetComposition" && acknowledged)
             this.imeSupported = true;
-          const ok = !isRecord(response.error) || unsupported;
+          const ok = acknowledged || unsupported;
           if (!ok) this.writeFailed = true;
           this.native.delete(response.id);
           native.settle(ok);

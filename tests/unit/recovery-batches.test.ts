@@ -283,7 +283,7 @@ it("drops queued composition/text/selection/navigation behind an old native effe
   ).toHaveLength(0);
 });
 
-it.each(["lost", "rejected", "partial"] as const)(
+it.each(["lost", "rejected", "partial", "missing-result"] as const)(
   "keeps mixed native %s cleanup uncertain without another connection or retry",
   async (failure) => {
     const f = await fixture();
@@ -293,8 +293,14 @@ it.each(["lost", "rejected", "partial"] as const)(
     const retirement = f.host.retire(f.a.probe);
     await vi.waitFor(() => expect(f.held).toHaveLength(3));
     const first = f.held[0]!;
-    if (failure === "rejected") {
-      first.socket.reject(first.command, -32000);
+    if (failure === "rejected" || failure === "missing-result") {
+      if (failure === "rejected") first.socket.reject(first.command, -32000);
+      else
+        first.socket.dispatchEvent(
+          new MessageEvent("message", {
+            data: JSON.stringify({ id: first.command.id }),
+          }),
+        );
       for (const held of f.held.slice(1)) held.socket.reply(held.command);
     } else {
       if (failure === "partial") first.socket.reply(first.command);
