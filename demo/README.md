@@ -14,7 +14,8 @@ macOS/Windows system IME validation remains pending.
 2. Paste it into the masked **CDP URL** field. Optionally supply an actual
    **Window ID**. Choose **Connect**.
 3. Select a page in the viewer's top tab strip. Add another viewer
-   to control a different window independently.
+   to control a different window independently. For windows of the same browser,
+   use the same **CDP URL** in each panel with different actual **Window ID** values.
 
 Selecting a page activates that tab in its remote window so it can produce live
 frames.

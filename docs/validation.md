@@ -24,6 +24,24 @@ do not replace internal modules merely to make assertions easier. Cleanup must
 release fixture resources even after failure and must not mutate an unowned
 browser or external service.
 
+## Concurrent viewers
+
+Use installed public exports with one test-owned browser endpoint and distinct
+real windows. Exercise sibling viewers in the same host page using the same
+`cdpUrl` and different `windowId` values; cover separate client pages when
+validating independent clients. Verify that frames and input reach the intended
+window.
+
+Hold one viewer at an actual protocol boundary and verify that the other makes
+independent progress. Pause, disconnect and unmount one viewer while confirming
+that the sibling continues streaming and accepting input. Check that cleanup
+releases only the originating owner's resources and preserves the remote browser
+and tabs.
+
+Check transitions separately by moving a selected target between windows with
+queued or held input and late results or cleanup. Stable-window concurrency
+alone does not establish correctness during an in-flight window handover.
+
 ## Deterministic asynchronous tests
 
 Hold and release actual protocol or event boundaries to test delayed work,

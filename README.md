@@ -57,14 +57,17 @@ import "cdp-viewer/style.css";
 export function BrowserViews({ cdpUrl }: { cdpUrl: string }) {
   return (
     <>
-      <CdpViewer cdpUrl={cdpUrl} />
+      <CdpViewer cdpUrl={cdpUrl} windowId={41} />
       <CdpViewer cdpUrl={cdpUrl} windowId={42} />
     </>
   );
 }
 ```
 
-Use actual window IDs from your provisioned browser; `42` is illustrative.
+These viewers run in the same host page and use the same browser-level `cdpUrl`
+with different `windowId` values to access different windows of that browser
+concurrently. Use actual window IDs from that browser; `41` and `42` are
+illustrative. Each viewer opens its own connection and selected-target session.
 
 ## Connection and scope
 

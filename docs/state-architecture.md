@@ -35,6 +35,26 @@ Keep writable atoms private. Expose computed projections for reads and commands
 for transitions. Create graph identities during instance initialization, not
 while running another command or rendering an ordinary view.
 
+## Concurrent viewers of one browser
+
+Support multiple viewer instances on the same host page using the same
+browser-level `cdpUrl` with distinct real `windowId` values to access different
+windows of that browser concurrently. Separate client pages can use this
+arrangement too.
+
+Sharing an endpoint address preserves each viewer's own connection,
+selected-target sessions, mutable state, input queue, protocol acknowledgement
+bookkeeping, held input, rendering queue and cleanup. Keep operations ordered
+within their owning session while allowing viewers of different windows to make
+independent progress. Future resource and performance changes must preserve this
+independence.
+
+Pausing, disconnecting or unmounting a viewer releases only that owner's
+applicable resources, preserving sibling streams and input and the remote
+browser and tabs. Window filtering remains presentation scope; the host owns
+endpoint authorization. A window scope does not create a separate browser profile
+or isolate website state. See [concurrent-viewer validation](validation.md#concurrent-viewers).
+
 ## Commands and runtime resources
 
 Views invoke bound commands from event handlers. Keep semantic transitions in
