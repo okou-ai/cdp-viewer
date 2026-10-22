@@ -5,13 +5,28 @@ import type { SocketFactory } from "../../src/cdp/client";
 import { isRecord } from "../../src/cdp/errors";
 import { TargetDirectory } from "../../src/cdp/targets";
 import { InputSession } from "../../src/input/session";
-import type { InputStop } from "../../src/input/lifecycle";
+import type {
+  InputOwner,
+  InputStop,
+  InputTransition,
+} from "../../src/input/lifecycle";
 import { nativeActions } from "./native-actions";
 
 type Key = Protocol.Input.DispatchKeyEventRequest;
 type Intent = { kind: "key"; key: Key } | { kind: "text"; text: string };
+export type ProbeMode = "keys" | "native" | "composition";
 export type ProbeReply =
-  { type: "ack"; sequence: number; ok: boolean } | { type: "revoked" };
+  | { type: "ack"; sequence: number; ok: boolean; generation?: string }
+  | { type: "revoked" }
+  | {
+      type: "suspended";
+      previous: string;
+      generation: string;
+      reason: InputTransition;
+      document: number;
+      focus: number;
+    }
+  | { type: "ready"; generation: string; document: number; focus: number };
 
 interface Trace {
   method: string;
@@ -81,11 +96,15 @@ export class GuardedProbe {
   private stopped = false;
   private closed = false;
   private writeFailed = false;
+  private imeSupported = false;
   private retirement: Promise<boolean> | undefined;
   private retirementFailed: (() => void) | undefined;
   private readonly native = new Map<number, NativeReply>();
   private readonly batches = new Map<number, number>();
   private ready = false;
+  private transitioning = false;
+  private transitionDeadline: ReturnType<typeof setTimeout> | undefined;
+  private currentGeneration = randomUUID();
   private readonly outstanding = new Set<number>();
   private readonly waiting: number[] = [];
   private readonly requests = new Map<number, Trace>();
@@ -98,7 +117,8 @@ export class GuardedProbe {
   private constructor(
     endpoint: string,
     readonly targetId: string,
-    private readonly mode: "keys" | "native",
+    private readonly mode: ProbeMode,
+    private readonly transitionDeadlineMs: number,
     private readonly reply: (value: ProbeReply) => void,
     factory: SocketFactory,
   ) {
@@ -172,7 +192,20 @@ export class GuardedProbe {
         row.response = Date.now();
         const native = this.native.get(response.id);
         if (native) {
-          const ok = !isRecord(response.error);
+          // Definite unsupported IME is the real session's final-text fallback,
+          // not an uncertain native effect or permission/transport failure.
+          const unsupported =
+            this.mode === "composition" &&
+            row.method === "Input.imeSetComposition" &&
+            !this.imeSupported &&
+            isRecord(response.error) &&
+            response.error.code === -32601;
+          if (
+            row.method === "Input.imeSetComposition" &&
+            !isRecord(response.error)
+          )
+            this.imeSupported = true;
+          const ok = !isRecord(response.error) || unsupported;
           if (!ok) this.writeFailed = true;
           this.native.delete(response.id);
           native.settle(ok);
@@ -205,6 +238,7 @@ export class GuardedProbe {
     factory = (url) => new WebSocket(url),
     signal,
     mode = "keys",
+    transitionDeadlineMs = 10_000,
   }: {
     endpoint: string;
     targetId: string;
@@ -212,9 +246,17 @@ export class GuardedProbe {
     reply: (value: ProbeReply) => void;
     factory?: SocketFactory;
     signal?: AbortSignal;
-    mode?: "keys" | "native";
+    mode?: ProbeMode;
+    transitionDeadlineMs?: number;
   }): Promise<GuardedProbe> {
-    const probe = new GuardedProbe(endpoint, targetId, mode, reply, factory);
+    const probe = new GuardedProbe(
+      endpoint,
+      targetId,
+      mode,
+      transitionDeadlineMs,
+      reply,
+      factory,
+    );
     const abort = () => probe.close();
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -236,11 +278,23 @@ export class GuardedProbe {
         sessionId,
         async () => {
           await directory.assertMember(targetId);
-          return !probe.stopped;
+          // External admission is terminal during retirement, but its trusted
+          // new-owner completion read still needs a fresh membership receipt.
+          // Old queued work was cancelled and cannot own that new generation.
+          return (
+            !probe.stopped ||
+            (mode === "composition" &&
+              probe.retirement !== undefined &&
+              !probe.closed)
+          );
         },
         () => {},
-        () => {
-          if (probe.ready) probe.revoke();
+        (reason) => {
+          if (probe.ready || probe.transitioning) {
+            if (mode === "composition" && reason !== "failed")
+              probe.suspend(reason);
+            else probe.revoke();
+          }
         },
         () => {},
         (error) => {
@@ -276,7 +330,30 @@ export class GuardedProbe {
       this.revoke();
       return false;
     }
-    if (this.mode === "native") return this.receiveBatch(value);
+    if (this.mode !== "keys") {
+      if (this.mode === "composition") {
+        // Old-generation traffic can still be crossing the viewer link after
+        // invalidation. It has no effects or credit in the new generation.
+        if (
+          isRecord(value) &&
+          value.owner === this.owner &&
+          value.generation !== this.currentGeneration
+        )
+          return false;
+        if (isRecord(value) && value.kind === "blur") {
+          if (
+            value.owner !== this.owner ||
+            value.generation !== this.currentGeneration
+          ) {
+            this.revoke();
+            return false;
+          }
+          this.input!.blur();
+          return !this.stopped;
+        }
+      }
+      return this.receiveBatch(value);
+    }
     const action = isRecord(value) ? intent(value) : null;
     if (
       !isRecord(value) ||
@@ -308,7 +385,7 @@ export class GuardedProbe {
   private receiveBatch(value: unknown): boolean {
     const actions =
       isRecord(value) && value.kind === "batch"
-        ? nativeActions(value.actions)
+        ? nativeActions(value.actions, this.mode === "composition")
         : null;
     if (
       !isRecord(value) ||
@@ -337,26 +414,126 @@ export class GuardedProbe {
     this.batches.set(sequence, actions.length);
     this.peakOutstanding = Math.max(this.peakOutstanding, count);
     const owner = this.input!.owner!;
+    const generation = this.currentGeneration;
     for (const action of actions) {
       if (this.stopped) return false;
       if (action.kind === "key") this.input!.key(action.key);
       else if (action.kind === "text") this.input!.text(action.text, owner);
-      else this.input!.pointer(action.type, action.point, action.details);
+      else if (action.kind === "pointer")
+        this.input!.pointer(action.type, action.point, action.details);
+      else if (action.kind === "preedit")
+        this.input!.preedit(
+          action.text,
+          owner,
+          action.selectionStart,
+          action.selectionEnd,
+        );
+      else this.input!.commitComposition(action.text, owner);
     }
     void this.input!.completion(owner).then(
       () => {
-        if (this.stopped || this.writeFailed) return;
+        if (
+          this.stopped ||
+          this.writeFailed ||
+          generation !== this.currentGeneration
+        )
+          return;
         this.completed.add(sequence);
         while (this.completed.delete(this.completedThrough + 1))
           this.completedThrough++;
-        this.emit({ type: "ack", sequence, ok: true });
+        this.emit({
+          type: "ack",
+          sequence,
+          ok: true,
+          ...(this.mode === "composition" ? { generation } : {}),
+        });
       },
-      () => this.revoke(),
+      () => {
+        if (generation === this.currentGeneration) this.revoke();
+      },
     );
     return !this.stopped;
   }
 
-  holdNext(method: "Browser.getWindowForTarget" | "Input.dispatchKeyEvent") {
+  get generation(): string {
+    return this.currentGeneration;
+  }
+
+  get ownership() {
+    const owner = this.input!.owner!;
+    return {
+      generation: this.currentGeneration,
+      document: owner.document,
+      focus: owner.focus,
+    };
+  }
+
+  private nativeSettled(): Promise<boolean> {
+    return Promise.all(
+      [...this.native.values()].map((value) => value.done),
+    ).then(
+      (results) => !this.closed && !this.writeFailed && results.every(Boolean),
+    );
+  }
+
+  private suspend(reason: InputTransition): void {
+    if (this.stopped) return;
+    this.ready = false;
+    this.transitioning = true;
+    // Repeated document events do not extend one unresolved cleanup's budget.
+    this.transitionDeadline ??= setTimeout(() => {
+      this.transitionDeadline = undefined;
+      this.revoke();
+    }, this.transitionDeadlineMs);
+    const previous = this.currentGeneration;
+    const generation = (this.currentGeneration = randomUUID());
+    this.next = 1;
+    this.receivedThrough = 0;
+    this.completedThrough = 0;
+    this.completed.clear();
+    this.batches.clear();
+    const owner: InputOwner = this.input!.owner!;
+    const current = () =>
+      !this.stopped &&
+      this.currentGeneration === generation &&
+      this.input!.owner === owner;
+    this.emit({
+      type: "suspended",
+      previous,
+      generation,
+      reason,
+      document: owner.document,
+      focus: owner.focus,
+    });
+    void this.input!.completion(owner)
+      .then(async () => {
+        if (!current()) return;
+        const ok = await this.nativeSettled();
+        if (!current()) return;
+        if (!ok) this.revoke();
+        else {
+          this.transitioning = false;
+          this.clearTransitionDeadline();
+          this.ready = true;
+          this.emit({
+            type: "ready",
+            generation,
+            document: owner.document,
+            focus: owner.focus,
+          });
+        }
+      })
+      .catch(() => {
+        if (current()) this.revoke();
+      });
+  }
+
+  holdNext(
+    method:
+      | "Browser.getWindowForTarget"
+      | "Input.dispatchKeyEvent"
+      | "Input.imeSetComposition",
+  ) {
     if (this.hold) throw new Error("A fixture response is already held");
     let held!: () => void;
     const promise = new Promise<void>((resolve) => {
@@ -365,6 +542,12 @@ export class GuardedProbe {
     const hold: Hold = { method, held };
     this.hold = hold;
     return { held: promise, release: () => hold.release?.() };
+  }
+
+  private clearTransitionDeadline(): void {
+    if (this.transitionDeadline !== undefined)
+      clearTimeout(this.transitionDeadline);
+    this.transitionDeadline = undefined;
   }
 
   private emit(value: ProbeReply): void {
@@ -396,19 +579,32 @@ export class GuardedProbe {
     });
     this.stopped = true;
     this.ready = false;
-    this.removeEvents?.();
+    this.transitioning = false;
+    this.clearTransitionDeadline();
     // Publish terminal admission before disposal or reentrant reply callbacks.
-    this.input?.dispose(reason);
+    let joined = Promise.resolve();
+    if (this.mode === "composition" && this.input) {
+      // Keep the original session/document observer alive through the old job's
+      // finally continuation. Its late native cleanup must precede our snapshot.
+      this.input.blur();
+      joined = this.input.completion(this.input.owner!);
+    } else {
+      this.removeEvents?.();
+      this.input?.dispose(reason);
+    }
     this.emit({ type: "revoked" });
     const failed = new Promise<boolean>((resolve) => {
       this.retirementFailed = () => resolve(false);
     });
     const deadline = setTimeout(() => this.retirementFailed?.(), deadlineMs);
-    const writes = Promise.all([...this.native.values()].map((v) => v.done));
-    const confirmed = writes
-      .then(async (results) => {
-        if (this.closed || this.writeFailed || results.includes(false))
-          return false;
+    const confirmed = joined
+      .then(() => this.nativeSettled())
+      .then(async (ok) => {
+        if (!ok) return false;
+        if (this.mode === "composition") {
+          this.input?.dispose(reason);
+          if (!(await this.nativeSettled())) return false;
+        }
         if (this.sessionId)
           await this.client.request("Target.detachFromTarget", {
             sessionId: this.sessionId,
@@ -441,6 +637,7 @@ export class GuardedProbe {
   private shutdown(): void {
     if (this.closed) return;
     this.closed = true;
+    this.clearTransitionDeadline();
     this.stopped = true;
     this.ready = false;
     this.removeEvents?.();

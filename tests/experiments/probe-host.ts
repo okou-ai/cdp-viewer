@@ -1,7 +1,7 @@
 import type { SocketFactory } from "../../src/cdp/client";
 import type { InputStop } from "../../src/input/lifecycle";
 import { GuardedProbe } from "./guarded-probe";
-import type { ProbeReply } from "./guarded-probe";
+import type { ProbeMode, ProbeReply } from "./guarded-probe";
 
 /** Explicit test-owned browser admission, never an endpoint-keyed global pool. */
 export class ProbeHost {
@@ -18,11 +18,13 @@ export class ProbeHost {
     windowId,
     reply,
     mode,
+    transitionDeadlineMs,
   }: {
     targetId: string;
     windowId: number;
     reply: (value: ProbeReply) => void;
-    mode?: "keys" | "native";
+    mode?: ProbeMode;
+    transitionDeadlineMs?: number;
   }): Promise<GuardedProbe> {
     if (this.lifetime.signal.aborted) throw new Error("Fixture host is closed");
     if (this.targets.has(targetId))
@@ -37,6 +39,7 @@ export class ProbeHost {
       reply,
       signal: this.lifetime.signal,
       ...(mode ? { mode } : {}),
+      ...(transitionDeadlineMs !== undefined ? { transitionDeadlineMs } : {}),
       ...(this.factory ? { factory: this.factory } : {}),
     });
     if (this.lifetime.signal.aborted) {
