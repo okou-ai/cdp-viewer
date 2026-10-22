@@ -12,6 +12,7 @@ export function nativeControls(
 ) {
   const toolbar = document.createElement("div");
   toolbar.setAttribute("aria-label", "Executor controls");
+  toolbar.tabIndex = -1;
   toolbar.style.cssText = "position:relative;flex:none";
   const address = document.createElement("input");
   address.setAttribute("aria-label", "Executor address");
@@ -49,6 +50,12 @@ export function nativeControls(
   const forward = button("Executor forward", () => navigate("forward"));
   const reload = button("Executor reload", () => navigate("reload"));
   const submit = button("Executor navigate", go);
+  for (const control of [back, forward, reload, submit]) {
+    // Blur invalidates admission. Keep it through the click, then focus the
+    // stable local toolbar while navigation has disabled its action buttons.
+    control.addEventListener("mousedown", (event) => event.preventDefault());
+    control.addEventListener("click", () => toolbar.focus());
+  }
   const update = () => {
     back.disabled = !ready || !navigation?.canGoBack;
     forward.disabled = !ready || !navigation?.canGoForward;

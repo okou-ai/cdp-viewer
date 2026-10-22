@@ -223,6 +223,9 @@ an active local address draft. The same native proxy survives same-document,
 full-document, history/reload and retained-context HTTP-204 outcomes. Owned cases
 verify actual DOM/canvas feedback, local toolbar/host focus and F8 exit; direct
 context assertions avoid waiting for a commit that HTTP 204 forbids.
+Navigation buttons preserve input focus through their native press/click so an
+earlier blur cannot disable the gesture or discard its navigation. They move
+focus locally after navigation has flushed and invalidated the old admission.
 
 ## Limits
 

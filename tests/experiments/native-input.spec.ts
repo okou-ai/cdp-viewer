@@ -1293,6 +1293,85 @@ test("interaction mode retains native local-copy recovery under real clipboard p
   }
 });
 
+test("interaction mode keeps toolbar navigation admitted until a native click leaves remote focus", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, { composition: true });
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    const identity = await proxy.elementHandle();
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await a.page.keyboard.insertText("before toolbar navigation");
+    await expect(a.remote.locator("#plain")).toHaveValue(
+      "before toolbar navigation",
+    );
+    await drained(a);
+    await expect(proxy).toBeFocused();
+    const before = a.probe!.ownership;
+    const reload = a.page.getByRole("button", {
+      name: "Executor reload",
+      exact: true,
+    });
+    const button = await reload.boundingBox();
+    if (!button) throw new Error("Owned navigation control has no geometry");
+    // A fast blur round trip must not hide admission loss inside this gesture.
+    const blur = a.holdMessage("intent", "blur");
+    try {
+      await a.page.mouse.move(
+        button.x + button.width / 2,
+        button.y + button.height / 2,
+      );
+      await a.page.mouse.down();
+      expect(await reload.isEnabled()).toBe(true);
+      await expect(proxy).toBeFocused();
+      await a.page.mouse.up();
+    } finally {
+      blur.release();
+    }
+    await resumed(a);
+    await expect
+      .poll(() => a!.probe!.ownership.document)
+      .toBeGreaterThan(before.document);
+    await expect(
+      a.page.locator('[aria-label="Executor controls"]'),
+    ).toBeFocused();
+    await expect(a.remote.locator("#plain")).toHaveValue("");
+    expect(
+      await identity!.evaluate(
+        (element) =>
+          element ===
+          document.querySelector('[aria-label="Native executor input"]'),
+      ),
+    ).toBe(true);
+    const next = await position(a, "#plain");
+    await a.page.mouse.click(next.x, next.y);
+    await a.page.keyboard.insertText("after toolbar navigation");
+    await expect(a.remote.locator("#plain")).toHaveValue(
+      "after toolbar navigation",
+    );
+    await drained(a);
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.revoked),
+    ).toBe(false);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
 test("interaction mode orders toolbar navigation across same, full and retained 204 documents", async ({
   browser,
 }, info) => {
