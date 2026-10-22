@@ -219,17 +219,60 @@ commit-once, blur/resume on the same proxy, a real document replacement with sta
 trailing composition, held client intent/reply ordering and original retirement
 while another window edits/streams. Controlled-wire cases separately withhold the
 last late cancellation receipt and verify that ready/detach/readmission cannot
-precede it. Synthetic events do not establish genuine OS IME. This mode still
-has no remote clipboard-selection bridge or navigation integration; the combined
+precede it. Synthetic events do not establish genuine OS IME. The combined
 full interaction failure/reconnect/moved-target matrix and adoption assessment
 remain unproved. Existing pointer/key timing profiles do not measure composition
 latency or production capacity.
 
+## Trusted clipboard and navigation
+
+The generation mode extends the same ordered batches with bounded selection and
+allowlisted back/forward/reload/address actions. They share the existing action
+credit and queue capacity; navigation must be last in its batch. Composition-mode
+messages have a 512 Ki serialized-character ceiling, and packing accounts for
+JSON escaping so one supported 64 Ki-character text action fits while large
+bursts split into bounded messages. The legacy message limits stay unchanged.
+Selection uses
+the actual owner-bound InputSession reader, including its focused-chain snapshot,
+second validation, size/protected-control/frame limits and original object release.
+Results carry the captured generation and a monotonic request ID. The client
+retains one latest pending read with a bounded deadline and discards superseded,
+blurred or old-generation results. A delayed clipboard reset names the last
+request already processed, so an earlier edit cannot cancel a newer copy.
+
+The real NativeClipboard starts its deferred ClipboardItem write in the original
+trusted local gesture before requesting remote text. Its errors and readonly
+native-copy recovery are rendered by private fixture controls outside the input
+stage. Feedback and recovery float over the layout so clearing an error during
+pointer movement cannot move the canvas beneath that gesture. No second
+clipboard implementation or permission grant is used. Owned
+Chromium exercises native Unicode copy/paste, empty/protected/opaque selections,
+old results crossing blur and real clipboard-write policy denial. The activation
+case holds an external reply at the native socket and releases it through CDP
+with userGesture:false after observing actual activation expiry. Its public frame
+connection is native and unshaped, so Playwright response delivery cannot supply
+activation. That case supplies correctness evidence, not a shaped timing sample.
+
+Navigation calls the actual InputSession after validating the local address.
+It flushes bounded earlier local actions and immediately invalidates client
+admission. Transition completion is enqueued in the next microtask, after the
+session has synchronously appended its navigation barrier; readiness therefore
+joins navigation and original cleanup rather than preceding the command. No
+uncertain command is replayed. Generation-tagged history metadata cannot replace
+an active local address draft. The same native proxy survives same-document,
+full-document, history/reload and retained-context HTTP-204 outcomes. Owned cases
+verify actual DOM/canvas feedback, local toolbar/host focus and F8 exit; direct
+context assertions avoid waiting for a commit that HTTP 204 forbids.
+Navigation buttons preserve input focus through their native press/click so an
+earlier blur cannot disable the gesture or discard its navigation. They move
+focus locally after navigation has flushed and invalidated the old admission.
+
 ## Limits
 
 The keys/text comparator uses a deliberately smaller local adapter than
-`NativeInput`. Neither increment establishes complete local-adapter parity,
-click/pointer/wheel/navigation/clipboard ordering or genuine OS composition.
+`NativeInput`. The actual-adapter modes exercise pointer/key, composition,
+clipboard and navigation in their owned fixture cases. They do not establish
+complete local-adapter parity or genuine OS composition.
 Controlled tab-move handover covers keys/text; pointer/key and composition
 retirement cover their exercised fixture cases. A full interaction, recovery and ownership evaluation remains necessary before adopting any public
 adapter. A fresh local check and CDP send are still not atomic against arbitrary

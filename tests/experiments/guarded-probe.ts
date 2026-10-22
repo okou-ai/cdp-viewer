@@ -10,7 +10,9 @@ import type {
   InputStop,
   InputTransition,
 } from "../../src/input/lifecycle";
-import { nativeActions } from "./native-actions";
+import { compositionMessageLimit, nativeActions } from "./native-actions";
+import type { SelectionResult } from "../../src/input/selection";
+import type { ViewerNavigation } from "../../src/viewer/types";
 
 type Key = Protocol.Input.DispatchKeyEventRequest;
 type Intent = { kind: "key"; key: Key } | { kind: "text"; text: string };
@@ -18,6 +20,14 @@ export type ProbeMode = "keys" | "native" | "composition";
 export type ProbeReply =
   | { type: "ack"; sequence: number; ok: boolean; generation?: string }
   | { type: "revoked" }
+  | {
+      type: "selection";
+      generation: string;
+      request: number;
+      result: SelectionResult | null;
+    }
+  | { type: "clipboard-reset"; generation: string; through: number }
+  | { type: "navigation"; generation: string; value: ViewerNavigation | null }
   | {
       type: "suspended";
       previous: string;
@@ -105,6 +115,8 @@ export class GuardedProbe {
   private transitioning = false;
   private transitionDeadline: ReturnType<typeof setTimeout> | undefined;
   private currentGeneration = randomUUID();
+  private selectionThrough = 0;
+  private currentNavigation: ViewerNavigation | null = null;
   private readonly outstanding = new Set<number>();
   private readonly waiting: number[] = [];
   private readonly requests = new Map<number, Trace>();
@@ -288,7 +300,15 @@ export class GuardedProbe {
               !probe.closed)
           );
         },
-        () => {},
+        (value) => {
+          probe.currentNavigation = value;
+          if (mode === "composition" && !probe.stopped)
+            probe.emit({
+              type: "navigation",
+              generation: probe.currentGeneration,
+              value,
+            });
+        },
         (reason) => {
           if (probe.ready || probe.transitioning) {
             if (mode === "composition" && reason !== "failed")
@@ -299,6 +319,14 @@ export class GuardedProbe {
         () => {},
         (error) => {
           if (error) probe.revoke();
+        },
+        () => {
+          if (mode === "composition" && !probe.stopped)
+            probe.emit({
+              type: "clipboard-reset",
+              generation: probe.currentGeneration,
+              through: probe.selectionThrough,
+            });
         },
       );
       probe.input = input;
@@ -323,7 +351,9 @@ export class GuardedProbe {
     if (this.stopped || !this.ready) return false;
     let value: unknown;
     try {
-      if (typeof raw !== "string" || raw.length > 128 * 1024)
+      const limit =
+        this.mode === "composition" ? compositionMessageLimit : 128 * 1024;
+      if (typeof raw !== "string" || raw.length > limit)
         throw new Error("Invalid fixture intent");
       value = JSON.parse(raw) as unknown;
     } catch {
@@ -400,6 +430,12 @@ export class GuardedProbe {
       this.revoke();
       return false;
     }
+    let selection = this.selectionThrough;
+    for (const action of actions)
+      if (action.kind === "selection" && action.request !== ++selection) {
+        this.revoke();
+        return false;
+      }
     this.receivedThrough = Number(value.acknowledged);
     for (const sequence of this.batches.keys())
       if (sequence <= this.receivedThrough) this.batches.delete(sequence);
@@ -416,7 +452,7 @@ export class GuardedProbe {
     const owner = this.input!.owner!;
     const generation = this.currentGeneration;
     for (const action of actions) {
-      if (this.stopped) return false;
+      if (this.stopped || generation !== this.currentGeneration) return false;
       if (action.kind === "key") this.input!.key(action.key);
       else if (action.kind === "text") this.input!.text(action.text, owner);
       else if (action.kind === "pointer")
@@ -428,7 +464,12 @@ export class GuardedProbe {
           action.selectionStart,
           action.selectionEnd,
         );
-      else this.input!.commitComposition(action.text, owner);
+      else if (action.kind === "commit")
+        this.input!.commitComposition(action.text, owner);
+      else if (action.kind === "selection") {
+        this.selectionThrough = action.request;
+        void this.readSelection(action.request, generation, owner);
+      } else this.input!.navigate(action.action);
     }
     void this.input!.completion(owner).then(
       () => {
@@ -457,6 +498,30 @@ export class GuardedProbe {
 
   get generation(): string {
     return this.currentGeneration;
+  }
+
+  get navigation(): ViewerNavigation | null {
+    return this.currentNavigation;
+  }
+
+  private async readSelection(
+    request: number,
+    generation: string,
+    owner: InputOwner,
+  ): Promise<void> {
+    const current = () =>
+      !this.stopped &&
+      generation === this.currentGeneration &&
+      this.input!.owner === owner &&
+      request === this.selectionThrough;
+    try {
+      const result = await this.input!.selection(owner);
+      if (current())
+        this.emit({ type: "selection", generation, request, result });
+    } catch {
+      if (current())
+        this.emit({ type: "selection", generation, request, result: null });
+    }
   }
 
   get ownership() {
@@ -492,6 +557,7 @@ export class GuardedProbe {
     this.completedThrough = 0;
     this.completed.clear();
     this.batches.clear();
+    this.selectionThrough = 0;
     const owner: InputOwner = this.input!.owner!;
     const current = () =>
       !this.stopped &&
@@ -505,7 +571,10 @@ export class GuardedProbe {
       document: owner.document,
       focus: owner.focus,
     });
-    void this.input!.completion(owner)
+    // Navigation publishes its transition before synchronously enqueueing its
+    // barrier. Join after that enqueue, never ahead of the action it invalidates.
+    void Promise.resolve()
+      .then(() => this.input!.completion(owner))
       .then(async () => {
         if (!current()) return;
         const ok = await this.nativeSettled();
@@ -532,7 +601,8 @@ export class GuardedProbe {
     method:
       | "Browser.getWindowForTarget"
       | "Input.dispatchKeyEvent"
-      | "Input.imeSetComposition",
+      | "Input.imeSetComposition"
+      | "Page.navigate",
   ) {
     if (this.hold) throw new Error("A fixture response is already held");
     let held!: () => void;
