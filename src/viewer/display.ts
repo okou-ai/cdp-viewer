@@ -339,7 +339,12 @@ export class DisplaySync {
           "scope",
           "The page moved during display synchronization.",
         );
-      await this.client.request("Browser.setContentsSize", projected.contents);
+      // Restoring density must not feed rounded CSS sizes back into native bounds.
+      if (!restore || size.constrained)
+        await this.client.request(
+          "Browser.setContentsSize",
+          projected.contents,
+        );
       if (!this.current(target)) return;
       target.applied = projected.key;
       this.constrained = size.constrained;

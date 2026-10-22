@@ -560,6 +560,101 @@ for (const nativeDpr of [1, 2]) {
   });
 }
 
+test("initial density restoration preserves native bounds across fractional-zoom tab changes", async ({
+  page,
+}) => {
+  const backend = await launchNativeBackend(server.origin, true, 2);
+  try {
+    const created = backend.context.waitForEvent("page");
+    const target = await backend.session.send("Target.createTarget", {
+      url: "about:blank",
+      newWindow: true,
+    });
+    const first = await created;
+    await first.goto(server.origin + "/fixture/editor");
+    await first.evaluate(() => {
+      document.title = "First synthetic tab";
+    });
+    const { windowId } = await backend.session.send(
+      "Browser.getWindowForTarget",
+      { targetId: target.targetId },
+    );
+    const opened = backend.context.waitForEvent("page");
+    await first.evaluate((url) => {
+      window.open(url, "_blank");
+    }, server.origin + "/fixture/editor?second");
+    const second = await opened;
+    await second.waitForLoadState();
+    await second.evaluate(() => {
+      document.title = "Second synthetic tab";
+    });
+    const worker =
+      backend.context.serviceWorkers()[0] ??
+      (await backend.context.waitForEvent("serviceworker"));
+    await worker.evaluate(async (url) => {
+      const tabs = (globalThis as unknown as { chrome: { tabs: ZoomTabs } })
+        .chrome.tabs;
+      const [tab] = await tabs.query({ url });
+      if (!tab) throw new Error("Owned tab is unavailable.");
+      await tabs.setZoom(tab.id, 0.8);
+    }, server.origin + "/fixture/editor");
+    await expect
+      .poll(() => first.evaluate(() => devicePixelRatio))
+      .toBeCloseTo(1.6, 6);
+    await expect
+      .poll(() => second.evaluate(() => devicePixelRatio))
+      .toBeCloseTo(1.6, 6);
+    await page.goto(server.origin);
+    await page.addStyleTag({
+      content:
+        "#panels { display:block !important } #viewer-a .cdpv-root { width:620px;height:460px }",
+    });
+    await page.waitForFunction(
+      () => typeof window.configureViewers === "function",
+    );
+    await page.evaluate(
+      async (settings) => window.configureViewers!(settings),
+      {
+        cdpUrl: backend.endpoint,
+        windowA: windowId,
+        second: false,
+        interactive: true,
+        windowSizeSync: "initial" as const,
+      },
+    );
+    const view = page.locator("#viewer-a .cdpv-root");
+    const bounds = async () => {
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      const result = await backend.session.send("Browser.getWindowForTarget", {
+        targetId: target.targetId,
+      });
+      return { width: result.bounds.width, height: result.bounds.height };
+    };
+    await view
+      .getByRole("tab", { name: "First synthetic tab", exact: true })
+      .click();
+    await expect
+      .poll(() => first.evaluate(() => devicePixelRatio))
+      .toBeCloseTo(2, 6);
+    const original = await bounds();
+    await view.evaluate((element: HTMLElement) => {
+      element.style.width = "700px";
+    });
+    for (const remote of [second, first, second, first]) {
+      const name =
+        remote === first ? "First synthetic tab" : "Second synthetic tab";
+      await view.getByRole("tab", { name, exact: true }).click();
+      await expect
+        .poll(() => remote.evaluate(() => devicePixelRatio))
+        .toBeCloseTo(2, 6);
+      expect(await bounds()).toEqual(original);
+    }
+  } finally {
+    await backend.close();
+  }
+});
+
 test("adapts two windows independently and retains the sibling after unmount", async ({
   page,
 }, info) => {

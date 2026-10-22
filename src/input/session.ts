@@ -71,7 +71,7 @@ export class InputSession {
   private clipboardVersion = 0;
   private displayScale = 1;
   private wheelScale = 1;
-  // Calibrate on explicit synchronization or the first input after a viewport change.
+  // Native zoom is calibrated at startup/sync and refreshed after viewport changes.
   private frameScale: number | null = null;
 
   constructor(
@@ -108,13 +108,15 @@ export class InputSession {
   }
 
   async start(): Promise<void> {
-    const tree = await this.client.request(
-      "Page.getFrameTree",
-      undefined,
-      this.sessionId,
-    );
+    const version = this.viewportVersion;
+    const [tree, metrics] = await Promise.all([
+      this.client.request("Page.getFrameTree", undefined, this.sessionId),
+      this.client.request("Page.getLayoutMetrics", undefined, this.sessionId),
+    ]);
     if (!this.available) return;
     this.frameId = tree.frameTree.frame.id;
+    if (version === this.viewportVersion && this.frameScale === null)
+      this.calibrateZoom(metrics.cssVisualViewport.zoom ?? 1);
     await this.client.request("Runtime.enable", undefined, this.sessionId);
     if (this.available) this.updateHistory();
   }
@@ -295,13 +297,22 @@ export class InputSession {
     this.frameScale = null;
   }
 
+  private calibrateZoom(zoom: number): void {
+    if (!Number.isFinite(zoom) || zoom <= 0)
+      throw new CdpFault(
+        "input",
+        "The remote display scale is unavailable for input.",
+      );
+    this.frameScale = 1 / zoom;
+    this.wheelScale = this.displayScale * this.displayScale * zoom;
+  }
+
   private async readViewport(job: InputJob): Promise<Viewport> {
     const version = this.viewportVersion;
     const viewport = (await job.request("Page.getLayoutMetrics", undefined))
       .cssVisualViewport;
-    const zoom = viewport.zoom ?? 1;
     if (
-      ![viewport.clientWidth, viewport.clientHeight, zoom].every(
+      ![viewport.clientWidth, viewport.clientHeight].every(
         (v) => Number.isFinite(v) && v > 0,
       )
     )
@@ -310,8 +321,7 @@ export class InputSession {
         "The remote viewport is unavailable for input.",
       );
     if (version === this.viewportVersion && this.frameScale === null) {
-      this.frameScale = 1 / zoom;
-      this.wheelScale = this.displayScale * this.displayScale * zoom;
+      this.calibrateZoom(viewport.zoom ?? 1);
     }
     return {
       width: viewport.clientWidth * this.displayScale,

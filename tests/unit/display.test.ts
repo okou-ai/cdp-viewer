@@ -255,12 +255,12 @@ it("initial mode restores density across tabs without fitting a resized local st
   await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
   controller.measureDisplay({ width: 900, height: 700, dpr: 1 });
   controller.select("page-b");
-  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
-  expect(resizes(browser)[1]!.params).toEqual({
-    windowId: 0,
-    width: 1280,
-    height: 960,
-  });
+  await vi.waitFor(() => expect(emulations(browser)).toHaveLength(2));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(resizes(browser)).toHaveLength(1);
+  expect(browser.windowSizes.get(0)).toEqual({ width: 1280, height: 960 });
   expect(emulations(browser).at(-1)!.params).toMatchObject({
     width: 640,
     height: 480,
@@ -268,12 +268,47 @@ it("initial mode restores density across tabs without fitting a resized local st
   });
   expect(model.getSnapshot().selectedTargetId).toBe("page-b");
   controller.syncDisplay();
-  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(3));
-  expect(resizes(browser)[2]!.params).toEqual({
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  expect(resizes(browser)[1]!.params).toEqual({
     windowId: 0,
     width: 900,
     height: 700,
   });
+});
+
+it("retains current native bounds when restoring initial density and still enforces caps", async () => {
+  const browser = new FakeBrowser();
+  browser.nativeDpr = 2;
+  browser.browserZoom = 0.8;
+  browser.targets[1]!.windowId = 0;
+  const { controller, model } = mount(browser, "initial", 0);
+  controller.measureDisplay({ width: 641, height: 481, dpr: 2 });
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  const restore = async (target: string, count: number) => {
+    controller.select(target);
+    await vi.waitFor(() => expect(emulations(browser)).toHaveLength(count));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+  };
+  await restore("page-b", 2);
+  expect(browser.windowSizes.get(0)).toEqual({ width: 641, height: 481 });
+  expect(resizes(browser)).toHaveLength(1);
+  browser.windowSizes.set(0, { width: 900, height: 700 });
+  await restore("page-a", 3);
+  expect(browser.windowSizes.get(0)).toEqual({ width: 900, height: 700 });
+  expect(resizes(browser)).toHaveLength(1);
+  browser.windowSizes.set(0, { width: 10000, height: 5000 });
+  await restore("page-b", 4);
+  const bounded = browser.windowSizes.get(0)!;
+  expect(bounded.width * bounded.height * 4).toBeLessThanOrEqual(3840 * 2160);
+  expect(bounded.width * 2).toBeLessThanOrEqual(4096);
+  expect(bounded.height * 2).toBeLessThanOrEqual(4096);
+  expect(resizes(browser)).toHaveLength(2);
+  expect(model.read(model.display$).constrained).toBe(true);
 });
 
 it("preserves a queued manual sync when automatic synchronization is turned off", async () => {
