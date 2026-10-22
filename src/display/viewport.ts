@@ -13,11 +13,15 @@ export class DisplayViewport {
   private version = 0;
   private timestamp = -Infinity;
   private painted: Viewport | null = null;
-  private appliedScale = 1;
+  private appliedScale: number | null = 1;
   private transform: DisplayTransform | null = null;
 
   get revision(): number {
     return this.version;
+  }
+
+  get available(): boolean {
+    return this.appliedScale !== null;
   }
 
   get input(): InputGeometry | null {
@@ -48,11 +52,18 @@ export class DisplayViewport {
     this.transform = transform;
   }
 
+  /** A write may have taken effect without a confirming reply. */
+  uncertain(): void {
+    this.invalidate();
+    this.appliedScale = null;
+  }
+
   read(
     layout: Protocol.Page.GetLayoutMetricsResponse,
     revision: number,
   ): InputGeometry | null {
     if (revision !== this.version) return null;
+    if (this.appliedScale === null) return null;
     const viewport = layout.cssVisualViewport;
     if (!positive(viewport.clientWidth) || !positive(viewport.clientHeight))
       throw new CdpFault(

@@ -75,6 +75,7 @@ function createViewerSignals() {
     ready: false,
     pending: false,
     constrained: false,
+    pointerBlocked: false,
   });
   const internalSyncMode$ = state<WindowSizeSync>("off");
   const controlledSyncMode$ = state<WindowSizeSync | null>(null);
@@ -100,7 +101,8 @@ function createViewerSignals() {
     if (
       previous.ready !== value.ready ||
       previous.pending !== value.pending ||
-      previous.constrained !== value.constrained
+      previous.constrained !== value.constrained ||
+      previous.pointerBlocked !== value.pointerBlocked
     )
       set(internalDisplay$, Object.freeze({ ...value }));
   });
@@ -336,7 +338,12 @@ function createViewerSignals() {
   const bind$ = command(({ set }, actions: ViewerActions) => {
     set(pendingTab$, null);
     set(actions$, actions);
-    set(internalDisplay$, { ready: false, pending: false, constrained: false });
+    set(internalDisplay$, {
+      ready: false,
+      pending: false,
+      constrained: false,
+      pointerBlocked: false,
+    });
   });
   const unbind$ = command(({ get, set }, actions: ViewerActions) => {
     if (get(actions$) === actions) {
@@ -349,6 +356,7 @@ function createViewerSignals() {
         ready: false,
         pending: false,
         constrained: false,
+        pointerBlocked: false,
       });
     }
   });

@@ -11,6 +11,8 @@ export class FakeSocket extends EventTarget {
   readyState = 0;
   bufferedAmount = 0;
   readonly commands: WireCommand[] = [];
+  holdReplyMethod: string | null = null;
+  readonly heldReplies: { command: WireCommand; result: object }[] = [];
   constructor(
     readonly handle?: (command: WireCommand, socket: FakeSocket) => void,
   ) {
@@ -31,6 +33,10 @@ export class FakeSocket extends EventTarget {
     this.dispatchEvent(new Event("close"));
   }
   reply(command: WireCommand, result: object = {}) {
+    if (command.method === this.holdReplyMethod) {
+      this.heldReplies.push({ command, result });
+      return;
+    }
     this.dispatchEvent(
       new MessageEvent("message", {
         data: JSON.stringify({ id: command.id, result }),

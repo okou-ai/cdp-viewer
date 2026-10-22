@@ -11,6 +11,7 @@ export interface DisplayState {
   readonly ready: boolean;
   readonly pending: boolean;
   readonly constrained: boolean;
+  readonly pointerBlocked: boolean;
 }
 
 interface Target {
@@ -125,6 +126,7 @@ export class DisplaySync {
         this.phase === "applying" ||
         (this.phase === "scheduled" && this.request !== null),
       constrained: this.constrained,
+      pointerBlocked: !!this.target && !this.target.geometry.available,
     });
   }
 
@@ -198,7 +200,7 @@ export class DisplaySync {
     this.phase = "applying";
     this.started = performance.now();
     this.publish();
-    let emulated = false;
+    let override: "none" | "pending" | "applied" = "none";
     try {
       const [window, remote, metrics] = await Promise.all([
         this.client.request("Browser.getWindowForTarget", {
@@ -253,14 +255,16 @@ export class DisplaySync {
       projected = projectDisplay(window.windowId, size, metrics);
       // Consume measurements coalesced during guards; later changes stay pending.
       this.request = null;
+      override = "pending";
       await this.client.request(
         "Emulation.setDeviceMetricsOverride",
         projected.metrics,
         target.sessionId,
       );
-      emulated = true;
+      override = "applied";
       if (!this.current(target)) return;
       target.geometry.apply(projected.input);
+      this.publish();
       const confirmed = await this.client.request(
         "Browser.getWindowForTarget",
         { targetId: target.targetId },
@@ -286,7 +290,14 @@ export class DisplaySync {
     } catch (error) {
       if (this.current(target)) {
         let restored = true;
-        if (emulated) {
+        const uncertain =
+          override === "pending" &&
+          !(error instanceof CdpFault && error.code !== undefined);
+        if (override === "applied" || uncertain) {
+          target.geometry.uncertain();
+          delete target.applied;
+          this.constrained = false;
+          this.publish();
           restored = await this.client
             .request(
               "Emulation.clearDeviceMetricsOverride",
@@ -300,8 +311,6 @@ export class DisplaySync {
           if (!this.current(target)) return;
           if (restored) {
             target.geometry.apply(null);
-            delete target.applied;
-            this.constrained = false;
           }
         }
         // A later explicit policy/manual request survives this older failure.
@@ -311,7 +320,7 @@ export class DisplaySync {
           !restored
             ? new CdpFault(
                 "display",
-                "The browser display could not be synchronized or restored.",
+                "Display recovery could not be confirmed. Try synchronizing again.",
               )
             : error instanceof CdpFault &&
                 ["scope", "display"].includes(error.kind)

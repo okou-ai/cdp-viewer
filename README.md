@@ -241,7 +241,9 @@ High DPR still increases capture, transport and decode cost within those limits.
 
 Native sizing and emulation require browser support. Non-normal windows must be
 restored first; unsupported commands produce a recoverable diagnostic and leave
-viewing available. Native minimum sizes, fractional scale rounding and provider
+viewing available. If display recovery cannot be confirmed, pointer actions pause
+until synchronization succeeds; choose **Sync now** to retry. Text input remains
+available. Native minimum sizes, fractional scale rounding and provider
 restrictions may prevent exact matching. This is not browser zoom or a general
 capture-quality selector. A controlled mode without `onWindowSizeSyncChange`
 disables menu mode changes, while manual synchronization remains usable.

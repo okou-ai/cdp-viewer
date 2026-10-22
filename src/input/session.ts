@@ -260,6 +260,7 @@ export class InputSession {
   }
 
   private async readGeometry(job: InputJob): Promise<InputGeometry | null> {
+    if (!this.geometry.available) return null;
     const revision = this.geometry.revision;
     const layout = await job.request("Page.getLayoutMetrics", undefined);
     return this.geometry.read(layout, revision);
@@ -274,6 +275,7 @@ export class InputSession {
     >,
   ): void {
     if (!this.accepting) return;
+    if (!this.geometry.available && type !== "mouseReleased") return;
     if (type === "mousePressed") this.invalidateClipboard();
     let geometry: InputGeometry | null = null;
     const prepare = async (job: InputJob) => {
@@ -283,7 +285,24 @@ export class InputSession {
       if (!geometry || geometry.revision !== this.geometry.revision)
         geometry = this.geometry.input ?? (await this.readGeometry(job));
       // A second invalidation retires this unsent gesture; never dispatch stale units.
-      if (!geometry || geometry.revision !== this.geometry.revision) return;
+      if (!geometry || geometry.revision !== this.geometry.revision) {
+        // Release an owned press without inventing a new pointer position or click.
+        if (type === "mouseReleased" && details.button) {
+          const pressed = this.lifecycle.pressedButton(
+            job.owner,
+            details.button,
+          );
+          if (pressed) {
+            const button = details.button;
+            job.dispatch(
+              "Input.dispatchMouseEvent",
+              { type, ...pressed, button, buttons: details.buttons ?? 0 },
+              () => this.lifecycle.releaseButton(job.owner, button, pressed),
+            );
+          }
+        }
+        return;
+      }
       const pointInViewport = geometry.position(point);
       if (type === "mousePressed") this.invalidateCaret();
       this.lifecycle.pointer(

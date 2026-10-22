@@ -64,6 +64,9 @@ capture and input; native calibration, acknowledged transforms and painted facts
 retain distinct meanings. Input consumes an immutable mapping rather than
 deriving its own density and zoom formulas. Invalidations retire earlier geometry
 reads and paint callbacks without changing native input ownership.
+An unconfirmed display write makes its geometry unknown until a confirmed
+application or restoration. New pointer gestures require known units, while
+text input and release of already-owned buttons retain their native ownership.
 
 The controller retains target/session lifetime and frame acknowledgement. DOM
 observation and the effective host/menu mode remain in the runtime/model layers.

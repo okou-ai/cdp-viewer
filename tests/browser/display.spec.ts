@@ -20,6 +20,205 @@ interface ZoomTabs {
   getZoom(id: number): Promise<number>;
 }
 
+for (const boundary of ["override", "restore"] as const) {
+  test(`recovers from an applied ${boundary} with a lost acknowledgement`, async ({
+    page,
+  }) => {
+    const backend = await launchNativeBackend(server.origin, true, 1);
+    try {
+      const created = backend.context.waitForEvent("page");
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+      });
+      const remote = await created;
+      await remote.goto(server.origin + "/fixture/editor");
+      const { windowId } = await backend.session.send(
+        "Browser.getWindowForTarget",
+        {
+          targetId: target.targetId,
+        },
+      );
+      const native = await remote.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        dpr: devicePixelRatio,
+      }));
+      await remote.locator("#plain").focus();
+      const commands: string[] = [];
+      const replies: (() => void)[] = [];
+      let heldId: number | undefined;
+      let failContents = boundary === "restore";
+      const method =
+        boundary === "override"
+          ? "Emulation.setDeviceMetricsOverride"
+          : "Emulation.clearDeviceMetricsOverride";
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            id: number;
+            method: string;
+          };
+          commands.push(command.method);
+          if (command.method === method && heldId === undefined)
+            heldId = command.id;
+          if (failContents && command.method === "Browser.setContentsSize") {
+            socket.send(
+              JSON.stringify({
+                id: command.id,
+                error: {
+                  code: -32601,
+                  message: "Synthetic unsupported sizing",
+                },
+              }),
+            );
+          } else upstream.send(message);
+        });
+        upstream.onMessage((message) => {
+          const response = JSON.parse(String(message)) as { id?: number };
+          if (heldId !== undefined && response.id === heldId) {
+            replies.push(() => socket.send(message));
+          } else socket.send(message);
+        });
+      });
+      await page.goto(server.origin);
+      await page.addStyleTag({
+        content:
+          "#panels { display:block !important } #viewer-a .cdpv-root { width:620px;height:460px }",
+      });
+      await page.waitForFunction(
+        () => typeof window.configureViewers === "function",
+      );
+      await page.evaluate(
+        async (settings) => window.configureViewers!(settings),
+        {
+          cdpUrl: backend.endpoint,
+          windowA: windowId,
+          second: false,
+          interactive: true,
+        },
+      );
+      const view = page.locator("#viewer-a .cdpv-root");
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      const canvas = view.locator("canvas");
+      const sync = async () => {
+        await view.getByRole("button", { name: "Browser menu" }).click();
+        await view
+          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .click();
+      };
+      await sync();
+      // The library's real request deadline, rather than a test sleep, settles the held reply.
+      await page.waitForFunction(
+        (text) =>
+          document
+            .querySelector("#viewer-a .cdpv-error-current")
+            ?.textContent?.includes(text),
+        boundary === "override"
+          ? "Check window support"
+          : "recovery could not be confirmed",
+      );
+      expect(replies).toHaveLength(1);
+      expect(
+        commands.filter(
+          (value) => value === "Emulation.clearDeviceMetricsOverride",
+        ),
+      ).toHaveLength(1);
+      await expect
+        .poll(() =>
+          remote.evaluate(() => ({
+            width: innerWidth,
+            height: innerHeight,
+            dpr: devicePixelRatio,
+          })),
+        )
+        .toEqual(native);
+      replies.shift()!();
+      const clickPlain = async () => {
+        const box = await canvas.boundingBox();
+        const control = await remote.locator("#plain").boundingBox();
+        const raster = await canvas.evaluate((element: HTMLCanvasElement) => ({
+          width: element.width,
+          height: element.height,
+        }));
+        const size = await remote.evaluate(() => ({
+          width: innerWidth,
+          height: innerHeight,
+        }));
+        if (!box || !control) throw new Error("Owned input has no geometry.");
+        const scale = Math.min(
+          box.width / raster.width,
+          box.height / raster.height,
+        );
+        const width = raster.width * scale,
+          height = raster.height * scale;
+        await page.mouse.click(
+          box.x +
+            (box.width - width) / 2 +
+            ((control.x + 20) / size.width) * width,
+          box.y +
+            (box.height - height) / 2 +
+            ((control.y + control.height / 2) / size.height) * height,
+        );
+      };
+      if (boundary === "override") await clickPlain();
+      else {
+        const before = commands.filter(
+          (value) => value === "Input.dispatchMouseEvent",
+        ).length;
+        await canvas.click({ position: { x: 20, y: 20 } });
+        await page.keyboard.insertText("after timeout");
+        await expect(remote.locator("#plain")).toHaveValue("after timeout");
+        expect(
+          commands.filter((value) => value === "Input.dispatchMouseEvent"),
+        ).toHaveLength(before);
+      }
+      if (boundary === "override") {
+        await page.keyboard.insertText("after timeout");
+        await expect(remote.locator("#plain")).toHaveValue("after timeout");
+      }
+      expect(
+        commands.filter(
+          (value) => value === "Emulation.setDeviceMetricsOverride",
+        ),
+      ).toHaveLength(1);
+      failContents = false;
+      await sync();
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error("Owned stage has no geometry.");
+      await expect
+        .poll(() =>
+          remote.evaluate(() => ({
+            width: innerWidth,
+            height: innerHeight,
+            dpr: devicePixelRatio,
+          })),
+        )
+        .toEqual({
+          width: Math.floor(box.width),
+          height: Math.floor(box.height),
+          dpr: 2,
+        });
+      await clickPlain();
+      await expect(remote.locator("#plain")).toBeFocused();
+      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.insertText("recovered");
+      await expect(remote.locator("#plain")).toHaveValue("recovered");
+      expect(
+        commands.filter((value) => value === "Target.attachToTarget"),
+      ).toHaveLength(1);
+      expect(
+        commands.filter(
+          (value) => value === "Emulation.setDeviceMetricsOverride",
+        ),
+      ).toHaveLength(2);
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
 for (const nativeDpr of [1, 2]) {
   test(`synchronizes actual streamed pixels and input at native DPR ${nativeDpr}`, async ({
     page,

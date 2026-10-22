@@ -13,6 +13,7 @@ function mount(
   browser: FakeBrowser,
   mode: WindowSizeSync = "off",
   windowId?: number,
+  requestTimeout?: number,
 ) {
   const model = createViewerModel();
   const controller = new ViewerController(
@@ -27,6 +28,7 @@ function mount(
       socketFactory: browser.factory,
       interactive: true,
       ...(windowId === undefined ? {} : { windowId }),
+      ...(requestTimeout === undefined ? {} : { requestTimeout }),
     },
   );
   controllers.push(controller);
@@ -654,6 +656,140 @@ it("retires partial emulation when native content sizing is unsupported", async 
   );
 });
 
+it("restores native geometry after an applied override's reply times out and ignores its late acknowledgement", async () => {
+  const browser = new FakeBrowser();
+  browser.browserZoom = 1.25;
+  browser.windowSizes.set(0, { width: 1000, height: 750 });
+  const { controller, model } = mount(browser, "off", 0, 100);
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  const socket = browser.sockets[0]!;
+  socket.holdReplyMethod = "Emulation.setDeviceMetricsOverride";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.getSnapshot().error?.kind).toBe("display"),
+  );
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+    ),
+  ).toHaveLength(1);
+  expect(model.getSnapshot().status).toBe("streaming");
+  expect(model.read(model.display$).pending).toBe(false);
+  expect(resizes(browser)).toHaveLength(0);
+  const held = socket.heldReplies[0]!;
+  socket.holdReplyMethod = null;
+  socket.reply(held.command, held.result);
+  controller.input!.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+  await vi.waitFor(() =>
+    expect(
+      socket.commands
+        .filter((command) => command.method === "Input.dispatchMouseEvent")
+        .at(-1)?.params,
+    ).toMatchObject({ x: 200, y: 300 }),
+  );
+  expect(emulations(browser)).toHaveLength(1);
+  expect(resizes(browser)).toHaveLength(0);
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+});
+
+it.each([false, true])(
+  "suspends uncertain pointer geometry after a restoration reply times out with an owned button=%s",
+  async (heldButton) => {
+    const browser = new FakeBrowser();
+    browser.browserZoom = 1.25;
+    browser.windowSizes.set(0, { width: 1000, height: 750 });
+    browser.unsupportedContentsSize = true;
+    const { controller, model } = mount(browser, "off", 0, 100);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const socket = browser.sockets[0]!;
+    const input = controller.input!;
+    if (heldButton) {
+      input.pointer(
+        "mousePressed",
+        { x: 0.25, y: 0.5 },
+        {
+          button: "left",
+          buttons: 1,
+          clickCount: 1,
+        },
+      );
+      await vi.waitFor(() =>
+        expect(
+          socket.commands.some(
+            (command) => command.method === "Input.dispatchMouseEvent",
+          ),
+        ).toBe(true),
+      );
+    }
+    socket.holdReplyMethod = "Emulation.clearDeviceMetricsOverride";
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().error?.message).toBe(
+        "Display recovery could not be confirmed. Try synchronizing again.",
+      ),
+    );
+    expect(socket.heldReplies).toHaveLength(1);
+    expect(model.getSnapshot().status).toBe("streaming");
+    expect(model.read(model.display$).pending).toBe(false);
+    const layoutReads = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.getLayoutMetrics",
+      ).length;
+    const before = layoutReads();
+    input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+    if (heldButton)
+      input.pointer(
+        "mouseReleased",
+        { x: 0.9, y: 0.9 },
+        {
+          button: "left",
+          buttons: 0,
+        },
+      );
+    input.text("text remains usable");
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.some(
+          (command) => command.method === "Input.insertText",
+        ),
+      ).toBe(true),
+    );
+    const pointers = () =>
+      socket.commands.filter(
+        (command) => command.method === "Input.dispatchMouseEvent",
+      );
+    expect(pointers()).toHaveLength(heldButton ? 2 : 0);
+    expect(layoutReads()).toBe(before);
+    if (heldButton)
+      expect(pointers().at(-1)?.params).toEqual({
+        type: "mouseReleased",
+        x: 200,
+        y: 300,
+        button: "left",
+        buttons: 0,
+      });
+    browser.unsupportedContentsSize = false;
+    socket.holdReplyMethod = null;
+    const held = socket.heldReplies[0]!;
+    socket.reply(held.command, held.result);
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+    input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+    await vi.waitFor(() =>
+      expect(pointers().at(-1)?.params).toMatchObject({ x: 256, y: 384 }),
+    );
+    input.blur();
+    expect(
+      pointers().filter((command) => command.params?.type === "mouseReleased"),
+    ).toHaveLength(heldButton ? 1 : 0);
+  },
+);
+
 it("drops an automatic update disabled during capture preparation", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "off", 0);
@@ -670,6 +806,40 @@ it("drops an automatic update disabled during capture preparation", async () => 
   );
   expect(emulations(browser)).toHaveLength(0);
   expect(resizes(browser)).toHaveLength(0);
+});
+
+it("retires a previous request key when restoration is unconfirmed so a policy change can recover", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "initial", 0, 100);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  controller.setWindowSizeSync("off");
+  browser.unsupportedContentsSize = true;
+  const socket = browser.sockets[0]!;
+  socket.holdReplyMethod = "Emulation.clearDeviceMetricsOverride";
+  controller.syncDisplay();
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pointerBlocked: true,
+      pending: false,
+    }),
+  );
+  expect(emulations(browser)).toHaveLength(2);
+  browser.unsupportedContentsSize = false;
+  socket.holdReplyMethod = null;
+  const held = socket.heldReplies[0]!;
+  socket.reply(held.command, held.result);
+  controller.setWindowSizeSync("live");
+  await vi.waitFor(() => expect(emulations(browser)).toHaveLength(3));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: false,
+    }),
+  );
+  expect(model.getSnapshot().error).toBeNull();
 });
 
 it("constrains physical edges and area while preserving requested DPR and aspect ratio", async () => {
