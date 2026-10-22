@@ -469,7 +469,8 @@ body {
 }
 .demo-stage {
   flex: 1;
-  min-height: 408px;
+  box-sizing: content-box;
+  min-height: 360px;
   padding: 24px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -983,7 +984,6 @@ body {
     border-top: 1px solid var(--demo-border);
   }
   .demo-stage {
-    min-height: 360px;
     padding: 18px;
   }
 }

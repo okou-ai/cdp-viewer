@@ -645,6 +645,74 @@ test("resize capture ends on Escape and capture loss, with native touch on narro
   }
 });
 
+test("preview stage retains its initial height when viewers shrink", async ({
+  page,
+}) => {
+  await openDemo(page);
+  const a = panel(page, 1);
+  await a.locator("summary").filter({ hasText: "Appearance & layout" }).click();
+  const height = a.getByRole("slider", { name: "Height", exact: true });
+  const initialHeight = await height.inputValue();
+  const view = a.locator(".demo-disconnected");
+  const stage = a.locator(".demo-stage");
+  const handle = a.getByRole("button", {
+    name: "Resize viewer 1",
+    exact: true,
+  });
+
+  for (const { width, viewers } of [
+    { width: 1440, viewers: 1 },
+    { width: 800, viewers: 1 },
+    { width: 390, viewers: 1 },
+    { width: 1280, viewers: 2 },
+  ]) {
+    await page.setViewportSize({ width, height: 1000 });
+    if (viewers === 2)
+      await page.getByRole("button", { name: "Add viewer" }).click();
+    await height.fill(initialHeight);
+    await expect(view).toHaveCSS("height", `${initialHeight}px`);
+    const initial = (await stage.boundingBox())!;
+    const expectFloor = async () => {
+      await expect
+        .poll(async () =>
+          Math.abs((await stage.boundingBox())!.height - initial.height),
+        )
+        .toBeLessThan(1);
+    };
+
+    await handle.scrollIntoViewIfNeeded();
+    const corner = (await handle.boundingBox())!;
+    const x = corner.x + corner.width / 2;
+    const y = corner.y + corner.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 240 - Number(initialHeight));
+    await page.mouse.up();
+    await expect(view).toHaveCSS("height", "240px");
+    await expectFloor();
+
+    await height.fill("520");
+    await expect(view).toHaveCSS("height", "520px");
+    expect((await stage.boundingBox())!.height).toBeGreaterThan(initial.height);
+    await height.fill("240");
+    await expect(view).toHaveCSS("height", "240px");
+    await expectFloor();
+    expect(
+      Math.abs((await stage.boundingBox())!.width - initial.width),
+    ).toBeLessThan(1);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    if (viewers === 2)
+      await expect(panel(page, 2).locator(".demo-disconnected")).toHaveCSS(
+        "height",
+        `${initialHeight}px`,
+      );
+  }
+});
+
 test("settings disclosure keeps preview height stable and overflow reachable", async ({
   page,
 }) => {

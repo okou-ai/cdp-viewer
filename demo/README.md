@@ -65,7 +65,8 @@ another viewer starts with independent defaults.
 Drag the preview's lower-right corner to resize it. Height, Width, the dimension
 caption and Usage stay in sync. The preview stays anchored at the top left while
 resizing. Height ranges from 240 to 800px; width ranges from 50% to 100% of the
-available stage, including on narrow screens.
+available stage, including on narrow screens. The surrounding stage keeps its
+initial minimum height when the viewer shrinks and grows to fit a taller viewer.
 
 The corner is also a keyboard control: Left/Right adjust width by 1%, Up/Down
 adjust height by 10px, and Shift uses larger 5%/40px steps. Escape, focus loss or
