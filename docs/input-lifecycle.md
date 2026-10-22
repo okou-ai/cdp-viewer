@@ -66,6 +66,19 @@ pending work but cannot undo an external effect that may already have happened.
 Never automatically replay a non-idempotent operation with an uncertain outcome.
 Handle failures at the layer that owns the operation and retain required cleanup.
 
+An acknowledgement is an owned protocol outcome, not a successful local send.
+The CDP transport validates response envelopes once. Instrumentation observes
+payload-free command metadata and validated outcomes; it must not infer cleanup
+success by decoding another copy of the wire protocol.
+
+Keep preparation reads separate from effect writes. Input sessions retain bounded
+original-session write receipts after ownership loss, including key/button
+releases and composition cancellation. A completion fence joins earlier work
+without acquiring membership or permission to send another input. Retirement
+publishes terminal admission first, cancels unsent preparation, joins dispatched
+work and its late cleanup, and completes through the original connection. Unknown
+cleanup remains unavailable; it cannot authorize replacement or replay.
+
 Test lifecycle transitions independently from DOM and network adapters. Verify
 ownership across replacement, delayed replies and cancellation through the
 public integration boundaries. Use explicit synchronization rather than sleeps

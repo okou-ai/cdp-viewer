@@ -1,9 +1,9 @@
 import { NativeInput } from "../../src/input/native";
-import { isRecord } from "../../src/cdp/errors";
 import type { NativeInputPort } from "../../src/input/port";
-import type { InputOwner, InputTransition } from "../../src/input/lifecycle";
+import type { InputOwner } from "../../src/input/lifecycle";
 import type { NativeAction } from "./native-actions";
-import { compositionMessageLimit, selectionResult } from "./native-actions";
+import { compositionMessageLimit } from "./native-actions";
+import { decodeProbeReply } from "./probe-replies";
 import type { NavigationAction } from "./native-actions";
 import type { SelectionResult } from "../../src/input/selection";
 import type { ViewerNavigation } from "../../src/viewer/types";
@@ -280,52 +280,27 @@ window.installNativeExperiment = ({
   );
   socket.addEventListener("message", (event: MessageEvent<string>) => {
     if (stopped) return;
-    let decoded: unknown;
-    try {
-      decoded = JSON.parse(event.data);
-    } catch {
+    const decoded = decodeProbeReply(event.data, {
+      generation,
+      active: token !== null,
+    });
+    if (decoded.kind === "invalid") {
       stop();
       return;
     }
-    if (!isRecord(decoded) || typeof decoded.type !== "string") {
-      stop();
-      return;
-    }
-    const value = decoded as {
-      type: string;
-      sequence?: number;
-      ok?: boolean;
-      generation?: string;
-      previous?: string;
-      reason?: InputTransition;
-      document?: number;
-      focus?: number;
-      request?: number;
-      result?: unknown;
-      through?: number;
-      value?: ViewerNavigation | null;
-    };
     // A reply already crossing the link may arrive after local blur discarded
     // its pending batch, before the server's suspension reaches this client.
-    if (
-      composition &&
-      value.type === "ack" &&
-      (!token || value.generation !== generation)
-    ) {
-      stats.discardedReplies++;
+    if (decoded.kind === "ignored") {
+      if (decoded.acknowledgement) stats.discardedReplies++;
       return;
     }
-    if (value.type === "revoked" || value.ok === false) {
+    const value = decoded.reply;
+    if (value.type === "revoked" || (value.type === "ack" && !value.ok)) {
       stop();
       return;
     }
     if (composition) {
       if (value.type === "suspended") {
-        if (value.previous !== generation) return;
-        if (typeof value.generation !== "string") {
-          stop();
-          return;
-        }
         generation = value.generation;
         stats.generation = generation;
         stats.resets++;
@@ -340,7 +315,7 @@ window.installNativeExperiment = ({
         if (!pending || value.request !== pending.request) return;
         selection = null;
         clearTimeout(pending.deadline);
-        const result = selectionResult(value.result);
+        const result = value.result;
         if (
           pending.owner === token &&
           value.request === selectionVersion &&
@@ -351,10 +326,7 @@ window.installNativeExperiment = ({
         return;
       }
       if (value.type === "clipboard-reset") {
-        if (
-          Number.isSafeInteger(value.through) &&
-          Number(value.through) >= selectionVersion
-        ) {
+        if (value.through >= selectionVersion) {
           cancelSelection();
           native?.clearClipboard();
         }
@@ -362,33 +334,11 @@ window.installNativeExperiment = ({
       }
       if (value.type === "navigation") {
         const navigation = value.value;
-        if (
-          navigation !== null &&
-          (!navigation ||
-            typeof navigation.url !== "string" ||
-            navigation.url.length > 64 * 1024 ||
-            typeof navigation.canGoBack !== "boolean" ||
-            typeof navigation.canGoForward !== "boolean")
-        ) {
-          stop();
-          return;
-        }
         stats.navigation = navigation;
         controls?.navigation(navigation);
         return;
       }
       if (value.type === "ready") {
-        if (
-          typeof value.document !== "number" ||
-          !Number.isSafeInteger(value.document) ||
-          value.document < 0 ||
-          typeof value.focus !== "number" ||
-          !Number.isSafeInteger(value.focus) ||
-          value.focus < 0
-        ) {
-          stop();
-          return;
-        }
         token = Object.freeze({
           sessionId: owner,
           document: value.document,
@@ -402,7 +352,6 @@ window.installNativeExperiment = ({
     if (
       value.type !== "ack" ||
       value.ok !== true ||
-      value.sequence === undefined ||
       !pending.has(value.sequence)
     ) {
       stop();

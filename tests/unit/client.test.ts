@@ -22,6 +22,64 @@ async function connected(timeout = 1000) {
 }
 
 describe("CDP transport ownership", () => {
+  it.each([
+    {},
+    { result: null },
+    { result: [] },
+    { error: null },
+    { result: {}, error: { code: -32000 } },
+    { result: {}, error: null },
+  ])("rejects ambiguous or absent response envelopes: %j", async (envelope) => {
+    const a = await connected();
+    const b = await connected();
+    const request = a.client.request("Browser.getVersion", undefined);
+    const rejected = expect(request).rejects.toThrow("Invalid CDP response.");
+    a.socket.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({ id: a.socket.commands[0]!.id, ...envelope }),
+      }),
+    );
+    await rejected;
+    expect(a.socket.readyState).toBe(3);
+    const sibling = b.client.request("Browser.getVersion", undefined);
+    b.socket.reply(b.socket.commands[0]!, { product: "independent" });
+    await expect(sibling).resolves.toEqual({ product: "independent" });
+    expect(a.socket.commands).toHaveLength(1);
+  });
+
+  it("observes only payload-free canonical traffic and isolates observer failure", async () => {
+    const { client, socket } = await connected();
+    client.onTraffic(() => {
+      throw new Error("fixture observer failure");
+    });
+    const observed = vi.fn();
+    const remove = client.onTraffic(observed);
+    const result = client.request(
+      "Input.insertText",
+      { text: "private fixture payload" },
+      "private session",
+    );
+    socket.reply(socket.commands[0]!);
+    await expect(result).resolves.toEqual({});
+    expect(observed.mock.calls.map(([value]) => value)).toEqual([
+      { type: "command", id: 1, method: "Input.insertText" },
+      { type: "response", id: 1, ok: true },
+    ]);
+    const failure = client.request("Input.insertText", {
+      text: "other fixture",
+    });
+    socket.reject(socket.commands[1]!, -32000);
+    await expect(failure).rejects.toThrow("CDP request failed.");
+    expect(observed).toHaveBeenLastCalledWith({
+      type: "response",
+      id: 2,
+      ok: false,
+    });
+    remove();
+    client.notify("Runtime.releaseObject", { objectId: "private object" });
+    expect(observed).toHaveBeenCalledTimes(4);
+  });
+
   it("correlates out-of-order replies and routes outer session IDs", async () => {
     const { client, socket } = await connected();
     const first = client.request("Browser.getVersion", undefined);

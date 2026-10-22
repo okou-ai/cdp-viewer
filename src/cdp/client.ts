@@ -22,6 +22,10 @@ interface Pending {
 
 export type SocketFactory = (url: string) => WebSocket;
 
+export type CdpTraffic =
+  | { readonly type: "command"; readonly id: number; readonly method: Method }
+  | { readonly type: "response"; readonly id: number; readonly ok: boolean };
+
 /** One socket owns its request IDs, timeouts, listeners and attached sessions. */
 export class CdpClient {
   readonly opened: Promise<void>;
@@ -31,6 +35,7 @@ export class CdpClient {
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Set<(event: CdpEvent) => void>();
   private readonly closeListeners = new Set<(error: CdpFault) => void>();
+  private readonly trafficListeners = new Set<(event: CdpTraffic) => void>();
   private resolveOpen!: () => void;
   private rejectOpen!: (error: CdpFault) => void;
   private nextId = 1;
@@ -74,6 +79,22 @@ export class CdpClient {
   onDisconnected(listener: (error: CdpFault) => void): () => void {
     this.closeListeners.add(listener);
     return () => this.closeListeners.delete(listener);
+  }
+
+  /** Payload-free instrumentation observes canonical outcomes, never grants them. */
+  onTraffic(listener: (event: CdpTraffic) => void): () => void {
+    this.trafficListeners.add(listener);
+    return () => this.trafficListeners.delete(listener);
+  }
+
+  private observe(event: CdpTraffic): void {
+    for (const listener of this.trafficListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Instrumentation cannot change request completion or prevent cleanup.
+      }
+    }
   }
 
   request<M extends Method>(
@@ -161,6 +182,7 @@ export class CdpClient {
     for (const listener of this.closeListeners) listener(error);
     this.closeListeners.clear();
     this.listeners.clear();
+    this.trafficListeners.clear();
   }
 
   private readonly onOpen = () => {
@@ -181,7 +203,12 @@ export class CdpClient {
     this.close(new CdpFault("connection", "The browser disconnected."));
   };
 
-  private send(message: object): boolean {
+  private send(message: {
+    id: number;
+    method: Method;
+    params?: unknown;
+    sessionId?: string | undefined;
+  }): boolean {
     if (this.ended || this.socket.readyState !== 1) return false;
     if (this.socket.bufferedAmount > 4 * 1024 * 1024) {
       this.close(
@@ -190,6 +217,7 @@ export class CdpClient {
       return false;
     }
     try {
+      this.observe({ type: "command", id: message.id, method: message.method });
       this.socket.send(JSON.stringify(message));
       return true;
     } catch {
@@ -220,8 +248,15 @@ export class CdpClient {
     if (typeof value.id === "number") {
       const entry = this.pending.get(value.id);
       if (!entry) return;
+      const success = value.error === undefined && isRecord(value.result);
+      const failure = value.result === undefined && isRecord(value.error);
+      if (!success && !failure) {
+        this.close(new CdpFault("protocol", "Invalid CDP response."));
+        return;
+      }
       this.pending.delete(value.id);
       entry.deadline.abort();
+      this.observe({ type: "response", id: value.id, ok: success });
       if (isRecord(value.error)) {
         if (!entry.settled) {
           entry.reject(

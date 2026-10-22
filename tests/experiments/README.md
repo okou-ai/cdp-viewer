@@ -122,8 +122,15 @@ then waits for acknowledged detach. Repeated retirement shares the same result.
 Only confirmed retirement releases the host reservation. A missing/rejected
 reply, bounded cleanup deadline or CDP loss leaves the target unavailable; local
 teardown never becomes proof of remote cleanup. No uncertain input is replayed
-and no second connection attempts cleanup. The observer also bounds unconfirmed
-native receipts during retirement. Emergency fixture close is not a handover
+and no second connection attempts cleanup. The original input session owns the
+bounded native/cleanup receipts. Its pure completion fence joins earlier effects
+without a new membership check; new input still requires verified membership.
+Retirement keeps document observation alive through late composition cleanup.
+The probe consumes that owned result and the canonical validated detach reply;
+payload-free transport instrumentation records timing, while socket interception
+only injects held responses. One discriminated decoder validates private viewer
+replies before dispatch and discards stale generations without granting credit.
+Emergency fixture close is not a handover
 receipt.
 
 The opt-in lifecycle cases in `handover.spec.ts` hold actual native replies while
