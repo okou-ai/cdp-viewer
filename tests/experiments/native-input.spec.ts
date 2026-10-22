@@ -1031,8 +1031,12 @@ for (const oneWayMs of [0, 50])
                         (workload === "scroll" ? value.marker.scroll : 0),
                     };
                     const at = await position(value, "#plain");
-                    if (workload === "scroll")
+                    if (workload === "scroll") {
                       await value.page.mouse.move(at.x, at.y);
+                      // Pointer positioning is preparation. Join its actual
+                      // batch before cutting the timed wheel command sample.
+                      await drained(value);
+                    }
                     await value.page.evaluate(
                       ({ marker, point }) => {
                         Object.assign(window, {
@@ -1169,6 +1173,14 @@ for (const oneWayMs of [0, 50])
                         commands.filter(
                           (c) => c.method === "Browser.getWindowForTarget",
                         ).length,
+                        JSON.stringify({
+                          adjacent,
+                          concurrent,
+                          index,
+                          workload,
+                          trial,
+                          commands,
+                        }),
                       ).toBeGreaterThanOrEqual(
                         commands.filter((c) => c.method.startsWith("Input."))
                           .length,

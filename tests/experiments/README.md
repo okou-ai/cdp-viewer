@@ -180,6 +180,9 @@ and an actual streamed document marker use the common host clock. Click/type
 changes its color; scrolling moves an already painted marker by 300 CSS pixels
 and verifies both its new position and the cleared old position. Each trial has
 a distinct expected color and position, preventing stale-frame acceptance.
+Before cutting the candidate wheel sample, join the preparatory pointer batch's
+actual acknowledgement so its earlier guard and later write cannot straddle the
+measurement boundary. Keep the per-write membership assertion inside the sample.
 Compositor scrolling and main-thread scroll events are measured independently;
 post-scroll application repaint latency is outside this marker's proof. Direct
 command counts include any discovery/metadata work inside the sampled interval.
