@@ -1268,6 +1268,16 @@ test("interaction mode retains native local-copy recovery under real clipboard p
     await resumed(a);
     await a.remote.locator("#plain").fill("");
     const at = await position(a, "#plain");
+    const canvas = a.page.locator("#viewer-a canvas");
+    const geometry = await canvas.boundingBox();
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.error),
+    ).not.toBeNull();
+    await a.page.mouse.move(at.x, at.y);
+    await expect
+      .poll(() => a!.page.evaluate(() => window.nativeExperiment.stats.error))
+      .toBeNull();
+    expect(await canvas.boundingBox()).toEqual(geometry);
     await a.page.mouse.click(at.x, at.y);
     await a.page.keyboard.type("still usable");
     await expect(a.remote.locator("#plain")).toHaveValue("still usable");

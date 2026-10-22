@@ -203,7 +203,9 @@ request already processed, so an earlier edit cannot cancel a newer copy.
 The real NativeClipboard starts its deferred ClipboardItem write in the original
 trusted local gesture before requesting remote text. Its errors and readonly
 native-copy recovery are rendered by private fixture controls outside the input
-stage; no second clipboard implementation or permission grant is used. Owned
+stage. Feedback and recovery float over the layout so clearing an error during
+pointer movement cannot move the canvas beneath that gesture. No second
+clipboard implementation or permission grant is used. Owned
 Chromium exercises native Unicode copy/paste, empty/protected/opaque selections,
 old results crossing blur and real clipboard-write policy denial. The activation
 case holds an external reply at the native socket and releases it through CDP

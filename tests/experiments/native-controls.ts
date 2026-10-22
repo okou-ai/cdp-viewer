@@ -12,11 +12,17 @@ export function nativeControls(
 ) {
   const toolbar = document.createElement("div");
   toolbar.setAttribute("aria-label", "Executor controls");
+  toolbar.style.cssText = "position:relative;flex:none";
   const address = document.createElement("input");
   address.setAttribute("aria-label", "Executor address");
   const status = document.createElement("output");
   status.setAttribute("aria-label", "Executor status");
+  // Clearing feedback during pointer movement must not move its input surface.
+  status.style.cssText =
+    "position:absolute;top:100%;left:0;z-index:1;pointer-events:none;background:Canvas";
   const recovery = document.createElement("div");
+  recovery.style.cssText =
+    "position:absolute;top:100%;left:0;z-index:2;max-width:100%;background:Canvas;padding:8px;border:1px solid";
   const text = document.createElement("textarea");
   text.readOnly = true;
   text.setAttribute("aria-label", "Text to copy");
