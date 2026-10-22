@@ -292,6 +292,10 @@ replacement must independently verify its destination before attaching.
 Original native writes, composition cancellations, key/button releases and detach
 must all receive positive replies. Navigation writes participate in the same
 receipt accounting, so losing ownership cannot hide a rejected navigation reply.
+A Page.navigate result acknowledges command completion even when errorText
+reports a navigation failure and the old document remains. Retirement confirms
+original input cleanup and detach; it does not claim that a page loaded. A missing
+or rejected protocol reply still cannot confirm retirement or authorize replay.
 Late old results/releases cannot acquire or clean up a replacement owner.
 
 Controlled-wire mixed-interaction cases complement these real-effect cases with

@@ -304,9 +304,9 @@ export class GuardedProbe {
         sessionId,
         async () => {
           // Terminal admission and blur have discarded every old queued job.
-          // Only the trusted new-owner no-op completion fence can run now.
-          // Original-session cleanup must remain joinable after an external
-          // move; replacement admission performs its own destination check.
+          // Let trusted new-owner completion join its original lane after a
+          // move; this check does not admit external intent. A replacement
+          // performs its own destination membership check.
           if (
             mode === "composition" &&
             probe.retirement !== undefined &&

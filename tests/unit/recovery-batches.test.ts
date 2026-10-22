@@ -384,6 +384,48 @@ it.each(
   },
 );
 
+it("joins original cleanup and detach after a completed navigation error without replay", async () => {
+  const f = await fixture();
+  await acquired(f.a);
+  f.methods.add("Page.navigate");
+  expect(
+    f.a.send([
+      { kind: "navigate", action: { url: "https://fixture.invalid/next" } },
+    ]),
+  ).toBe(true);
+  await vi.waitFor(() => expect(f.held).toHaveLength(1));
+  const navigation = f.held[0]!;
+  f.methods.add("Target.detachFromTarget");
+  let finished = false;
+  const retirement = f.host.retire(f.a.probe, "target-replaced").then((ok) => {
+    finished = true;
+    return ok;
+  });
+  navigation.socket.reply(navigation.command, {
+    frameId: "main",
+    errorText: "synthetic navigation failure",
+  });
+  await vi.waitFor(() => expect(f.held).toHaveLength(2));
+  const detach = f.held[1]!;
+  expect(detach.command.method).toBe("Target.detachFromTarget");
+  expect(finished).toBe(false);
+  await denied(f.host);
+  detach.socket.reply(detach.command);
+  expect(await retirement).toBe(true);
+  expect(
+    f.a.socket.commands.filter((command) => command.method === "Page.navigate"),
+  ).toHaveLength(1);
+  expect(f.a.replies.filter((reply) => reply.type === "ready")).toHaveLength(0);
+  expect(f.browser.sockets).toHaveLength(1);
+  const replacement = await f.channel();
+  expect(replacement.probe.owner).not.toBe(f.a.probe.owner);
+  expect(
+    replacement.socket.commands.some(
+      (command) => command.method === "Page.navigate",
+    ),
+  ).toBe(false);
+});
+
 it("bounds mixed unconfirmed work when native completions arrive but client acknowledgements are lost", async () => {
   const f = await fixture();
   f.a.drop();
