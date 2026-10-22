@@ -215,8 +215,27 @@ for (const boundary of ["override", "restore"] as const) {
           height: Math.floor(box.height),
           dpr: 2,
         });
+      // Page metrics can settle before the replacement image paints. Coordinate
+      // sampling must use that image, rather than the previous native capture.
+      await expect
+        .poll(() =>
+          canvas.evaluate((element: HTMLCanvasElement) => ({
+            width: element.width,
+            height: element.height,
+          })),
+        )
+        .toEqual({
+          width: Math.floor(box.width) * 2,
+          height: Math.floor(box.height) * 2,
+        });
+      // A focus assertion must observe this click's remote effect, not the
+      // input that was already focused before opening the local browser menu.
+      await remote.locator("#multiline").focus();
       await clickPlain();
       await expect(remote.locator("#plain")).toBeFocused();
+      await expect(
+        view.getByRole("textbox", { name: "Remote browser input" }),
+      ).toBeFocused();
       await page.keyboard.press("ControlOrMeta+A");
       await page.keyboard.insertText("recovered");
       await expect(remote.locator("#plain")).toHaveValue("recovered");

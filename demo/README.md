@@ -72,7 +72,8 @@ The corner is also a keyboard control: Left/Right adjust width by 1%, Up/Down
 adjust height by 10px, and Shift uses larger 5%/40px steps. Escape, focus loss or
 pointer cancellation stops the drag at its current size. The sliders remain
 available for precise changes. Resizing a preview keeps its live viewer and input
-nodes and only changes local presentation.
+nodes. It changes local presentation; **Sync continuously** also adapts the remote
+display to the new page surface.
 
 | Public prop              | Playground surface                             | When it changes                                                         |
 | ------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
@@ -82,7 +83,7 @@ nodes and only changes local presentation.
 | `paused`                 | Pause stream / Resume stream                   | Immediately, without replacing the connection                           |
 | `interactive`            | Control mode                                   | Immediately; restarts this viewer using its applied connection settings |
 | `colorScheme`            | Appearance & layout → Viewer theme             | Immediately; Inherit page omits the prop, while System follows the OS   |
-| `style`                  | Height, width, corner radius and custom accent | Immediately; adjusts the local component, not the remote viewport       |
+| `style`                  | Height, width, corner radius and custom accent | Immediately; remote display adaptation follows the browser-menu mode    |
 | `className`              | Framed presentation preset                     | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
 | `onStatusChange`         | State & events                                 | Always observed while connected                                         |
 | `onError`                | State & events                                 | Always observed while connected                                         |
