@@ -57,9 +57,23 @@ or isolate website state. See [concurrent-viewer validation](validation.md#concu
 
 ## Commands and runtime resources
 
-Display adaptation owns its rules in the private display module. A connection's
-synchronizer distinguishes automatic policy, explicit requests and execution
-phases. Each selected session shares one geometry owner across adaptation,
+Display adaptation owns its rules in the private display module. A pure policy
+transition owns the connection's mode, observations, explicit intent, execution
+stage and window history. Target, configuration, measurement and transaction
+outcomes enter that same contract; policy acquires no native or DOM resources.
+Selected-session success and connection-window history have distinct lifetimes.
+Native applied-key receipts belong to the selected transaction, not policy.
+
+The synchronizer bridges that policy to one selected-session native executor and
+owns bounded scheduling. Preparation, dispatch, presentation and recovery report
+explicit stages and outcomes. Preparation consumes observations before returning
+its outcome; observations arriving afterward remain pending. Dispatch captures
+immutable native payloads while later measurements coalesce independently, so
+progress does not require a quiet interval. Successful reuse and newly painted
+writes enter one policy completion transition; retired or failed results cannot
+commit window history or acquire a replacement's authority.
+
+Each selected session shares one geometry owner across adaptation,
 capture and input; native calibration, acknowledged transforms and painted facts
 retain distinct meanings. Input consumes an immutable mapping rather than
 deriving its own density and zoom formulas. Invalidations retire earlier geometry
@@ -80,7 +94,7 @@ transaction or enable fresh-layout fallback over its old visible pixels.
 
 Presentation waits share the bounded request/stream budget and retire with their
 selected session. A same-geometry density change or rollback also needs causal
-capture evidence: the synchronizer reads a clock in a private isolated world
+capture evidence: the native executor reads a clock in a private isolated world
 after acknowledged writes while the controller stops/starts the same bounded
 stream. The geometry owner rejects pre-fence timestamps and decodes. This adds
 no per-frame reads, React updates or refreshes during ordinary distinct-size

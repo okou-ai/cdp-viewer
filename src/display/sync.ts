@@ -1,16 +1,18 @@
 import { timeout } from "signal-timers";
 import type { CdpClient } from "../cdp/client";
-import { CdpFault, isRecord } from "../cdp/errors";
-import { releaseRuntimeObjects } from "../cdp/runtime-objects";
+import { CdpFault } from "../cdp/errors";
 import type { WindowSizeSync } from "../viewer/types";
-import {
-  constrainDisplay,
-  nativePresentation,
-  positive,
-  projectDisplay,
-} from "./geometry";
 import type { DisplaySize } from "./geometry";
-import type { DisplayViewport } from "./viewport";
+import {
+  activeDisplayIntent,
+  canBeginDisplay,
+  createDisplayPolicy,
+  decideDisplay,
+  transitionDisplay,
+} from "./policy";
+import type { DisplayEvent } from "./policy";
+import { DisplayTransaction } from "./transaction";
+import type { DisplayEffects, DisplayTarget } from "./transaction";
 
 export interface DisplayState {
   readonly ready: boolean;
@@ -19,45 +21,18 @@ export interface DisplayState {
   readonly pointerBlocked: boolean;
 }
 
-interface Target {
-  readonly targetId: string;
-  readonly sessionId: string;
-  readonly current: () => boolean;
-  readonly geometry: DisplayViewport;
-  applied?: string;
-}
-
-interface DisplayHost {
-  readonly signal: AbortSignal;
-  readonly presentationTimeout?: number | undefined;
-  readonly windowId: number | undefined;
+interface DisplayHost extends DisplayEffects {
   readonly changed: (state: DisplayState) => void;
   readonly failed: (error: CdpFault) => void;
   readonly synchronized: () => void;
-  readonly capture: () => Promise<void>;
-  readonly refresh: (prepare: () => Promise<void>) => Promise<void>;
 }
 
-type Request = { readonly source: "manual" | "automatic" };
-interface PreparationRevision {
-  readonly intent: number;
-  readonly geometry: number;
-}
-type Operation =
-  | { readonly kind: "fit" }
-  | { readonly kind: "restore-density"; readonly size: DisplaySize };
-type Phase = "idle" | "scheduled" | "applying" | "failed";
-
-/** One connection's policy, explicit pending request and bounded execution phase. */
+/** Connection-owned bridge: pure policy, one selected executor and bounded scheduling. */
 export class DisplaySync {
-  private target: Target | null = null;
-  private local: DisplaySize | null = null;
-  private mode: WindowSizeSync = "off";
-  private readonly initial = new Map<number, number>();
-  private request: Request | null = null;
-  private phase: Phase = "idle";
-  private constrained = false;
-  private revision = 0;
+  private policy = createDisplayPolicy();
+  private target: DisplayTarget | null = null;
+  private transaction: DisplayTransaction | null = null;
+  private scheduled = false;
   private started = -Infinity;
 
   constructor(
@@ -65,101 +40,86 @@ export class DisplaySync {
     private readonly host: DisplayHost,
   ) {}
 
-  setTarget(target: Target | null): void {
+  setTarget(target: DisplayTarget | null): void {
     this.target?.geometry.cancelPresentation();
     this.target = target;
-    this.revision++;
-    if (this.phase === "failed") this.phase = "idle";
-    this.constrained = false;
-    this.request =
-      target && this.mode !== "off" ? { source: "automatic" } : null;
-    this.schedule();
-    this.publish();
+    this.transaction = target
+      ? new DisplayTransaction(
+          this.client,
+          target,
+          this.host,
+          () => this.target === target,
+        )
+      : null;
+    this.dispatch({ type: "select", owner: target });
   }
 
   setMode(mode: WindowSizeSync): void {
-    if (this.mode === mode) return;
-    this.mode = mode;
-    this.revision++;
-    if (this.phase === "failed") this.phase = "idle";
-    if (this.request?.source !== "manual")
-      this.request = mode !== "off" ? { source: "automatic" } : null;
-    this.schedule();
-    this.publish();
+    this.dispatch({ type: "mode", mode });
   }
 
   measure(size: DisplaySize | null): void {
-    if (size && ![size.width, size.height, size.dpr].every(positive))
-      size = null;
-    const previous = this.local;
-    if (
-      previous?.width === size?.width &&
-      previous?.height === size?.height &&
-      previous?.dpr === size?.dpr
-    )
-      return;
-    this.local = size;
-    if (
-      this.mode === "live" ||
-      (this.mode === "initial" && (!previous || !this.target?.applied))
-    )
-      this.request ??= { source: "automatic" };
-    this.schedule();
-    this.publish();
+    this.dispatch({ type: "measure", size });
   }
 
   sync(): void {
-    if (!this.local || !this.target || this.host.signal.aborted) return;
-    if (this.phase === "failed") this.phase = "idle";
-    this.request = { source: "manual" };
-    this.revision++;
-    this.schedule();
-    this.publish();
+    if (!this.host.signal.aborted) this.dispatch({ type: "manual" });
   }
 
   close(): void {
     this.target?.geometry.cancelPresentation();
     this.target = null;
-    this.local = null;
-    this.request = null;
-    this.initial.clear();
-    this.publish();
+    this.transaction = null;
+    this.dispatch({ type: "close" });
   }
 
-  private current(target: Target): boolean {
-    return (
-      !this.host.signal.aborted && this.target === target && target.current()
-    );
+  private dispatch(event: DisplayEvent): boolean {
+    const next = transitionDisplay(this.policy, event);
+    if (next === this.policy) return false;
+    this.policy = next;
+    this.schedule();
+    this.publish();
+    return true;
   }
 
   private publish(): void {
     this.host.changed({
-      ready: !!this.local && !!this.target,
+      ready: !!this.policy.local && !!this.target,
       pending:
-        this.phase === "applying" ||
-        (this.phase === "scheduled" && this.request !== null),
-      constrained: this.constrained,
+        !!activeDisplayIntent(this.policy) ||
+        (this.scheduled && !!this.policy.pending),
+      constrained: this.policy.selection?.constrained ?? false,
       pointerBlocked: !!this.target && !this.target.geometry.available,
     });
   }
 
   private schedule(): void {
     if (
-      this.phase !== "idle" ||
-      !this.request ||
-      !this.local ||
-      !this.target ||
+      this.scheduled ||
+      !canBeginDisplay(this.policy) ||
+      !this.target?.current() ||
       this.host.signal.aborted
     )
       return;
-    this.phase = "scheduled";
+    this.scheduled = true;
     timeout(
       () => {
-        this.phase = "idle";
+        this.scheduled = false;
         this.drain().catch(() => {
-          // run() reports only fixed, owner-bound diagnostics.
-          this.phase = "failed";
-          this.publish();
+          const intent = activeDisplayIntent(this.policy);
+          if (!intent) return;
+          this.dispatch({
+            type: "finished",
+            intent,
+            outcome: { kind: "failed" },
+          });
+          if (this.target === intent.owner && !this.host.signal.aborted)
+            this.host.failed(
+              new CdpFault(
+                "display",
+                "The browser display could not be synchronized. Try again.",
+              ),
+            );
         });
       },
       Math.max(0, 150 - (performance.now() - this.started)),
@@ -167,298 +127,48 @@ export class DisplaySync {
     );
   }
 
-  private async evaluate(
-    sessionId: string,
-    expression: string,
-    contextId?: number,
-  ) {
-    const release = (result: unknown) =>
-      releaseRuntimeObjects(this.client, sessionId, result);
-    const result = await this.client.request(
-      "Runtime.evaluate",
-      {
-        expression,
-        returnByValue: true,
-        ...(contextId === undefined ? {} : { contextId }),
-      },
-      sessionId,
-      release,
-    );
-    // Exceptional by-value reads can still allocate result/exception handles.
-    release(result);
-    return result;
-  }
-
-  private async fenceCapture(target: Target): Promise<void> {
-    await this.host.refresh(async () => {
-      const tree = await this.client.request(
-        "Page.getFrameTree",
-        undefined,
-        target.sessionId,
-      );
-      if (!this.current(target)) return;
-      const world = await this.client.request(
-        "Page.createIsolatedWorld",
-        {
-          frameId: tree.frameTree.frame.id,
-          worldName: "cdp-viewer-display",
-        },
-        target.sessionId,
-      );
-      if (!this.current(target)) return;
-      const clock = await this.evaluate(
-        target.sessionId,
-        "Date.now()",
-        world.executionContextId,
-      );
-      if (!this.current(target)) return;
-      const value: unknown = clock.result.value;
-      if (clock.exceptionDetails || !positive(value))
-        throw new CdpFault(
-          "display",
-          "A fresh browser image could not be confirmed. Try synchronizing again.",
-        );
-      // Date.now has millisecond precision. Pre-write captures cannot cross this
-      // native-clock boundary, even when old/new images have identical dimensions.
-      target.geometry.fence((value + 1) / 1000);
-    });
-  }
-
-  /** Revalidate intent and native units without consuming a retired preparation's request. */
-  private currentSize(
-    target: Target,
-    revision: PreparationRevision,
-    request: Request,
-  ): DisplaySize | null {
-    if (!this.current(target)) return null;
-    const intentCurrent = revision.intent === this.revision;
-    if (
-      !intentCurrent ||
-      revision.geometry !== target.geometry.revision ||
-      !this.local
-    ) {
-      if (request.source === "manual") this.request = request;
-      else if (intentCurrent) this.request ??= request;
-      return null;
-    }
-    return this.local;
-  }
-
   private async drain(): Promise<void> {
     const target = this.target;
-    const request = this.request;
-    if (!target || !this.local || !request || !this.current(target)) {
+    const transaction = this.transaction;
+    if (
+      !canBeginDisplay(this.policy) ||
+      !target ||
+      !transaction ||
+      !target.current() ||
+      this.host.signal.aborted
+    ) {
       this.publish();
       return;
     }
-    const revision: PreparationRevision = {
-      intent: this.revision,
-      geometry: target.geometry.revision,
-    };
-    const mode = this.mode;
-    this.request = null;
-    this.phase = "applying";
+    this.policy = transitionDisplay(this.policy, { type: "begin" });
+    const intent = activeDisplayIntent(this.policy);
+    if (!intent) {
+      this.publish();
+      return;
+    }
     this.started = performance.now();
     this.publish();
-    let override: "none" | "pending" | "applied" = "none";
-    let rejectWrite: (() => void) | undefined;
     try {
-      const [window, remote, metrics] = await Promise.all([
-        this.client.request("Browser.getWindowForTarget", {
-          targetId: target.targetId,
-        }),
-        this.evaluate(
-          target.sessionId,
-          "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
-        ),
-        this.client.request(
-          "Page.getLayoutMetrics",
-          undefined,
-          target.sessionId,
-        ),
-      ]);
-      let local = this.currentSize(target, revision, request);
-      if (!local) return;
-      this.assertWindow(window);
-      const value: unknown = remote.result.value;
-      if (
-        remote.exceptionDetails ||
-        !isRecord(value) ||
-        !positive(value.width) ||
-        !positive(value.height) ||
-        !positive(value.dpr)
-      )
-        throw new CdpFault(
-          "display",
-          "The page display metrics are unavailable.",
-        );
-      const remembered = this.initial.get(window.windowId);
-      const operation: Operation =
-        mode === "initial" &&
-        request.source !== "manual" &&
-        remembered !== undefined
-          ? {
-              kind: "restore-density",
-              size: {
-                width: (value.width * value.dpr) / remembered,
-                height: (value.height * value.dpr) / remembered,
-                dpr: remembered,
-              },
-            }
-          : { kind: "fit" };
-      let size = constrainDisplay(
-        operation.kind === "fit" ? local : operation.size,
-      );
-      let projected = projectDisplay(window.windowId, size, metrics);
-      if (
-        target.applied !== projected.key ||
-        !target.geometry.matches(projected.presentation, projected.input)
-      ) {
-        await this.host.capture();
-        local = this.currentSize(target, revision, request);
-        if (!local) return;
-        if (operation.kind === "fit") size = constrainDisplay(local);
-        projected = projectDisplay(window.windowId, size, metrics);
-        // Consume measurements coalesced during guards; later changes stay pending.
-        this.request = null;
-        const freshCapture = target.geometry.needsCaptureFence(
-          metrics,
-          projected.presentation,
-        );
-        rejectWrite = target.geometry.beginWrite();
-        this.publish();
-        override = "pending";
-        await this.client.request(
-          "Emulation.setDeviceMetricsOverride",
-          projected.metrics,
-          target.sessionId,
-        );
-        override = "applied";
-        if (!this.current(target)) return;
-        const confirmed = await this.client.request(
-          "Browser.getWindowForTarget",
-          { targetId: target.targetId },
-        );
-        if (!this.current(target)) return;
-        this.assertWindow(confirmed);
-        if (confirmed.windowId !== window.windowId)
-          throw new CdpFault(
-            "scope",
-            "The page moved during display synchronization.",
-          );
-        if (operation.kind === "fit" || size.constrained)
-          await this.client.request(
-            "Browser.setContentsSize",
-            projected.contents,
-          );
-        if (!this.current(target)) return;
-        target.geometry.apply(
-          projected.input,
-          projected.presentation,
-          freshCapture,
-        );
-        this.publish();
-        if (freshCapture) await this.fenceCapture(target);
-        if (!this.current(target)) return;
-        await target.geometry.waitForPresentation(
-          this.host.signal,
-          this.host.presentationTimeout,
-        );
-        if (!this.current(target)) return;
-      }
-      // A compatible existing presentation completes the same policy bookkeeping
-      // as a newly painted write, without repeating its native effects.
-      target.applied = projected.key;
-      this.constrained = size.constrained;
-      this.host.synchronized();
-      if (mode === "initial" || this.initial.has(window.windowId))
-        this.initial.set(window.windowId, size.dpr);
-    } catch (error) {
-      if (this.current(target)) {
-        let restored = true;
-        const uncertain =
-          override === "pending" &&
-          !(error instanceof CdpFault && error.code !== undefined);
-        if (override === "pending" && !uncertain) rejectWrite?.();
-        if (override === "applied" || uncertain) {
-          target.geometry.uncertain();
-          delete target.applied;
-          this.constrained = false;
-          this.publish();
-          restored = await this.client
-            .request(
-              "Emulation.clearDeviceMetricsOverride",
-              undefined,
-              target.sessionId,
-            )
-            .then(
-              () => true,
-              () => false,
-            );
-          if (!this.current(target)) return;
-          if (restored) {
-            try {
-              const layout = await this.client.request(
-                "Page.getLayoutMetrics",
-                undefined,
-                target.sessionId,
-              );
-              if (!this.current(target)) return;
-              target.geometry.apply(null, nativePresentation(layout), true);
-              await this.fenceCapture(target);
-              if (!this.current(target)) return;
-              await target.geometry.waitForPresentation(
-                this.host.signal,
-                this.host.presentationTimeout,
-              );
-            } catch {
-              if (!this.current(target)) return;
-              restored = false;
-              target.geometry.uncertain();
-            }
-          }
-        }
-        // A later explicit policy/manual request survives this older failure.
-        // Measurements alone do not reopen a failed transaction.
-        this.phase = revision.intent === this.revision ? "failed" : "idle";
-        this.host.failed(
-          !restored
-            ? new CdpFault(
-                "display",
-                "Display recovery could not be confirmed. Try synchronizing again.",
-              )
-            : error instanceof CdpFault &&
-                ["scope", "display"].includes(error.kind)
-              ? error
-              : new CdpFault(
-                  error instanceof CdpFault && error.code === -32601
-                    ? "unsupported-capability"
-                    : "display",
-                  "The browser display could not be synchronized. Check window support and try again.",
-                ),
-        );
+      const result = await transaction.execute({
+        decide: (windowId) => decideDisplay(this.policy, intent, windowId),
+        prepared: () => this.dispatch({ type: "prepared", intent }),
+        stage: (stage) => this.dispatch({ type: "stage", intent, stage }),
+      });
+      const current =
+        this.target === target && target.current() && !this.host.signal.aborted;
+      const previous = this.policy;
+      this.policy = transitionDisplay(previous, {
+        type: "finished",
+        intent,
+        outcome: result,
+      });
+      if (current && previous !== this.policy) {
+        if (result.kind === "completed") this.host.synchronized();
+        else if (result.kind === "failed") this.host.failed(result.error);
       }
     } finally {
-      if (this.phase === "applying") this.phase = "idle";
       this.schedule();
       this.publish();
     }
-  }
-
-  private assertWindow(window: {
-    windowId: number;
-    bounds: { windowState?: string };
-  }): void {
-    if (
-      !Number.isSafeInteger(window.windowId) ||
-      (this.host.windowId !== undefined &&
-        window.windowId !== this.host.windowId)
-    )
-      throw new CdpFault("scope", "The page is outside this viewer's window.");
-    if (window.bounds.windowState && window.bounds.windowState !== "normal")
-      throw new CdpFault(
-        "display",
-        "Restore the browser window before synchronizing its display.",
-      );
   }
 }

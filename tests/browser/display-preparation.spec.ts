@@ -197,3 +197,157 @@ for (const boundary of [
     }
   });
 }
+
+test("retains a held manual fit through mode-off and a zero-area surface", async ({
+  page,
+}) => {
+  const backend = await launchNativeBackend(server.origin, true, 1);
+  try {
+    const opened = backend.context.waitForEvent("page");
+    const target = await backend.session.send("Target.createTarget", {
+      url: "about:blank",
+      newWindow: true,
+    });
+    const remote = await opened;
+    await remote.goto(server.origin + "/fixture/editor");
+    await remote.setContent(
+      '<style>html,body{margin:0;background:white}button{position:fixed;left:160px;top:100px;width:80px;height:40px}</style><button id="control">Control</button><script>window.hits=0;window.ups=0;document.querySelector("button").onclick=()=>window.hits++;document.onpointerup=()=>window.ups++;</script>',
+    );
+    const { windowId } = await backend.session.send(
+      "Browser.getWindowForTarget",
+      { targetId: target.targetId },
+    );
+    let hold = false;
+    let heldId: number | undefined;
+    let deliver: (() => void) | undefined;
+    let writes = 0;
+    let attachments = 0;
+    let starts = 0;
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+        };
+        if (command.method === "Browser.setContentsSize") writes++;
+        if (command.method === "Target.attachToTarget") attachments++;
+        if (command.method === "Page.startScreencast") starts++;
+        if (
+          hold &&
+          command.method === "Page.getLayoutMetrics" &&
+          heldId === undefined
+        )
+          heldId = command.id;
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        if (heldId !== undefined && response.id === heldId)
+          deliver = () => socket.send(message);
+        else socket.send(message);
+      });
+    });
+    await page.goto(server.origin);
+    await page.addStyleTag({
+      content:
+        "#panels{display:block!important}#viewer-a .cdpv-root{width:620px;height:460px}",
+    });
+    await page.waitForFunction(
+      () => typeof window.configureViewers === "function",
+    );
+    const configure = (windowSizeSync: "live" | "off") =>
+      page.evaluate(async (settings) => window.configureViewers!(settings), {
+        cdpUrl: backend.endpoint,
+        windowA: windowId,
+        second: false,
+        interactive: true,
+        windowSizeSync,
+      });
+    await configure("live");
+    const view = page.locator("#viewer-a .cdpv-root");
+    const canvas = view.locator("canvas");
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect
+      .poll(() =>
+        remote.evaluate(() => ({
+          width: innerWidth,
+          height: innerHeight,
+          dpr: devicePixelRatio,
+        })),
+      )
+      .toEqual({ width: 618, height: 370, dpr: 2 });
+    await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+    const proxy = await view
+      .getByRole("textbox", { name: "Remote browser input" })
+      .elementHandle();
+    if (!proxy) throw new Error("Owned viewer input is unavailable.");
+    hold = true;
+    await view.getByRole("button", { name: "Browser menu" }).click();
+    await view.getByRole("menuitem", { name: "Sync now", exact: true }).click();
+    await expect.poll(() => !!deliver).toBe(true);
+    await canvas.evaluate((element: HTMLCanvasElement) => {
+      element.style.width = "0px";
+      element.style.height = "0px";
+    });
+    // An intersecting zero-area surface loses local geometry without retiring
+    // the selected session through the separate offscreen pause contract.
+    expect(
+      await canvas.evaluate(
+        (element) =>
+          new Promise<boolean>((resolve) => {
+            const observer = new IntersectionObserver((entries) => {
+              const entry = entries.at(-1);
+              if (!entry) return;
+              observer.disconnect();
+              resolve(entry.isIntersecting);
+            });
+            observer.observe(element);
+          }),
+      ),
+    ).toBe(true);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await configure("off");
+    deliver!();
+    await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+    expect(writes).toBe(1);
+    await view.evaluate((element: HTMLElement) => {
+      element.style.width = "700px";
+      element.style.height = "500px";
+    });
+    await canvas.evaluate((element: HTMLCanvasElement) => {
+      element.style.width = "";
+      element.style.height = "";
+    });
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("Owned viewer surface is unavailable.");
+    await expect
+      .poll(() =>
+        remote.evaluate(() => ({
+          width: innerWidth,
+          height: innerHeight,
+          dpr: devicePixelRatio,
+        })),
+      )
+      .toEqual({
+        width: Math.floor(box.width),
+        height: Math.floor(box.height),
+        dpr: 2,
+      });
+    await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+    await page.mouse.click(box.x + 200, box.y + 120);
+    await expect.poll(() => remote.evaluate("window.ups")).toBe(1);
+    expect(await remote.evaluate("window.hits")).toBe(1);
+    expect(
+      await view
+        .getByRole("textbox", { name: "Remote browser input" })
+        .evaluate((element, original) => element === original, proxy),
+    ).toBe(true);
+    expect(writes).toBe(2);
+    expect(attachments).toBe(1);
+    expect(starts).toBe(1);
+    await proxy.dispose();
+  } finally {
+    await backend.close();
+  }
+});

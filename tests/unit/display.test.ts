@@ -164,6 +164,62 @@ it("retains manual priority over measurements when invalidated preparation waits
   expect(controller.input).toBe(input);
 });
 
+it.each(
+  (["off", "initial", "live"] as const).flatMap((mode) =>
+    (["Page.getLayoutMetrics", "Page.stopScreencast"] as const).flatMap(
+      (boundary) =>
+        [false, true].map((offFirst) => [mode, boundary, offFirst] as const),
+    ),
+  ),
+)(
+  "retains manual intent from %s at %s with off-before-hidden=%s",
+  async (mode, boundary, offFirst) => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser, "off", 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const input = controller.input!;
+    const socket = browser.sockets[0]!;
+    socket.holdReplyMethod = boundary;
+    controller.setWindowSizeSync(mode);
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+    if (offFirst) controller.setWindowSizeSync("off");
+    controller.measureDisplay(null);
+    if (!offFirst) controller.setWindowSizeSync("off");
+    controller.measureDisplay({ width: 900, height: 700, dpr: 1.5 });
+    socket.holdReplyMethod = null;
+    const held = socket.heldReplies.shift()!;
+    socket.reply(held.command, held.result);
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(resizes(browser)[0]!.params).toEqual({
+      windowId: 0,
+      width: 1350,
+      height: 1050,
+    });
+    expect(emulations(browser)).toHaveLength(1);
+    expect(emulations(browser)[0]!.params).toMatchObject({
+      width: 900,
+      height: 700,
+      deviceScaleFactor: 1.5,
+    });
+    controller.measureDisplay({ width: 1000, height: 800, dpr: 2 });
+    expect(model.read(model.display$).pending).toBe(false);
+    expect(resizes(browser)).toHaveLength(1);
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().error).toBeNull();
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+  },
+);
+
 it("requires compatible painted pixels after native acknowledgements while retaining text and owned release", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "off", 0);
