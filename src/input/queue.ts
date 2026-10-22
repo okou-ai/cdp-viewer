@@ -2,6 +2,7 @@ import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import type { CdpClient } from "../cdp/client";
 import { isRecord } from "../cdp/errors";
 import { releaseRuntimeObjects } from "../cdp/runtime-objects";
+import type { InputEffects } from "./effects";
 import type { Preedit } from "./composition";
 import type { InputLifecycle, InputOwner } from "./lifecycle";
 import type { Point } from "./geometry";
@@ -15,13 +16,29 @@ interface Wheel {
 
 type InputMethod =
   "Input.dispatchKeyEvent" | "Input.dispatchMouseEvent" | "Input.insertText";
+type PreparationMethod =
+  | "Page.getLayoutMetrics"
+  | "Page.getNavigationHistory"
+  | "Page.createIsolatedWorld"
+  | "Runtime.evaluate"
+  | "Runtime.callFunctionOn";
+type WriteMethod =
+  | InputMethod
+  | "Input.imeSetComposition"
+  | "Page.navigate"
+  | "Page.reload"
+  | "Page.navigateToHistoryEntry";
 
 export interface InputJob {
   readonly owner: InputOwner;
   readonly text?: string;
   preedit?: Preedit;
   wheel?: Wheel;
-  request<M extends keyof ProtocolMapping.Commands>(
+  request<M extends PreparationMethod>(
+    method: M,
+    params: ProtocolMapping.Commands[M]["paramsType"][0],
+  ): Promise<ProtocolMapping.Commands[M]["returnType"]>;
+  write<M extends WriteMethod>(
     method: M,
     params: ProtocolMapping.Commands[M]["paramsType"][0],
   ): Promise<ProtocolMapping.Commands[M]["returnType"]>;
@@ -39,6 +56,7 @@ interface QueuedJob extends InputJob {
   cancelled?: boolean;
   prepare?: (job: InputJob) => Promise<void>;
   barrier?: boolean;
+  completion?: boolean;
   cancel?: () => void;
   valid?: () => boolean;
 }
@@ -48,19 +66,32 @@ export class InputQueue {
   private readonly jobs: QueuedJob[] = [];
   private readonly pending = new Set<Promise<void>>();
   private running = false;
+  private cancelPreparation: (() => void) | undefined;
   private active: QueuedJob | null = null;
 
   constructor(
     private readonly client: CdpClient,
     private readonly lifecycle: InputLifecycle,
+    private readonly effects: InputEffects,
     private readonly member: () => Promise<boolean>,
     private readonly failed: (error?: unknown) => void,
   ) {}
 
   clear(): void {
+    this.cancelPreparation?.();
     this.active?.cancel?.();
     for (const job of this.jobs) job.cancel?.();
     this.jobs.length = 0;
+  }
+
+  /** A completion fence observes prior work; it cannot acquire write authority. */
+  completion(owner: InputOwner, settle: () => Promise<void>): Promise<void> {
+    return this.enqueueRead(
+      owner,
+      settle,
+      () => this.lifecycle.owns(owner),
+      true,
+    );
   }
 
   /** Read failures/cancellation settle their caller without disabling input. */
@@ -68,6 +99,15 @@ export class InputQueue {
     owner: InputOwner,
     run: (job: InputJob) => Promise<T>,
     valid: () => boolean,
+  ): Promise<T> {
+    return this.enqueueRead(owner, run, valid, false);
+  }
+
+  private enqueueRead<T>(
+    owner: InputOwner,
+    run: (job: InputJob) => Promise<T>,
+    valid: () => boolean,
+    completion: boolean,
   ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const cancel = () => reject(new Error("Selection cancelled"));
@@ -90,7 +130,7 @@ export class InputQueue {
               reject(error);
             }
           },
-          { barrier: true, cancel, valid },
+          { barrier: true, cancel, valid, completion },
         );
       }
     });
@@ -101,13 +141,14 @@ export class InputQueue {
     return {
       owner,
       request: (method, params) => this.request(owner, method, params),
+      write: (method, params) => this.write(owner, method, params),
       dispatch: (method, params, acknowledged) => {
         if (!this.lifecycle.owns(owner)) return;
         if (this.pending.size >= 64) {
           this.failed();
           return;
         }
-        const pending = this.request(owner, method, params)
+        const pending = this.write(owner, method, params)
           .then(() => acknowledged?.())
           .catch((error: unknown) => {
             if (this.lifecycle.owns(owner)) this.failed(error);
@@ -208,6 +249,7 @@ export class InputQueue {
       wheel?: Wheel;
       prepare?: NonNullable<QueuedJob["prepare"]>;
       barrier?: boolean;
+      completion?: boolean;
       cancel?: () => void;
       valid?: () => boolean;
     },
@@ -237,7 +279,18 @@ export class InputQueue {
       });
   }
 
-  private async request<M extends keyof ProtocolMapping.Commands>(
+  private async write<M extends WriteMethod>(
+    owner: InputOwner,
+    method: M,
+    params: ProtocolMapping.Commands[M]["paramsType"][0],
+  ): Promise<ProtocolMapping.Commands[M]["returnType"]> {
+    if (!this.lifecycle.owns(owner)) throw new Error("Input cancelled");
+    const result = await this.effects.request(method, params);
+    if (!this.lifecycle.owns(owner)) throw new Error("Input cancelled");
+    return result;
+  }
+
+  private async request<M extends PreparationMethod>(
     owner: InputOwner,
     method: M,
     params: ProtocolMapping.Commands[M]["paramsType"][0],
@@ -283,14 +336,23 @@ export class InputQueue {
             job.cancel?.();
             continue;
           }
+          if (job.completion) {
+            job.started = true;
+            await job.run(job);
+            continue;
+          }
           // Read-only preparation may overlap scope validation. Only this
           // joined boundary permits the ordered job's state changes/writes.
-          const [member] = await Promise.all([
-            this.member(),
-            job.prepare?.(job),
+          const cancelled = new Promise<null>((resolve) => {
+            this.cancelPreparation = () => resolve(null);
+          });
+          const prepared = await Promise.race([
+            cancelled,
+            Promise.all([this.member(), job.prepare?.(job)]),
           ]);
+          this.cancelPreparation = undefined;
           if (
-            member &&
+            prepared?.[0] &&
             this.lifecycle.owns(job.owner) &&
             job.valid?.() !== false &&
             !job.cancelled
@@ -302,6 +364,7 @@ export class InputQueue {
           if (job.cancel) job.cancel();
           else if (this.lifecycle.owns(job.owner)) this.failed(error);
         } finally {
+          this.cancelPreparation = undefined;
           this.active = null;
         }
       }

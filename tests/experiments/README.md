@@ -122,8 +122,15 @@ then waits for acknowledged detach. Repeated retirement shares the same result.
 Only confirmed retirement releases the host reservation. A missing/rejected
 reply, bounded cleanup deadline or CDP loss leaves the target unavailable; local
 teardown never becomes proof of remote cleanup. No uncertain input is replayed
-and no second connection attempts cleanup. The observer also bounds unconfirmed
-native receipts during retirement. Emergency fixture close is not a handover
+and no second connection attempts cleanup. The original input session owns the
+bounded native/cleanup receipts. Its pure completion fence joins earlier effects
+without a new membership check; new input still requires verified membership.
+Retirement keeps document observation alive through late composition cleanup.
+The probe consumes that owned result and the canonical validated detach reply;
+payload-free transport instrumentation records timing, while socket interception
+only injects held responses. One discriminated decoder validates private viewer
+replies before dispatch and discards stale generations without granting credit.
+Emergency fixture close is not a handover
 receipt.
 
 The opt-in lifecycle cases in `handover.spec.ts` hold actual native replies while
@@ -173,6 +180,11 @@ and an actual streamed document marker use the common host clock. Click/type
 changes its color; scrolling moves an already painted marker by 300 CSS pixels
 and verifies both its new position and the cleared old position. Each trial has
 a distinct expected color and position, preventing stale-frame acceptance.
+Before cutting either wheel sample, observe the preparatory mousemove in the
+remote DOM; this also joins the adapter's deferred animation-frame dispatch.
+The candidate then joins that batch's actual acknowledgement. Preparation cannot
+straddle the command sample or add queueing to only one comparison path. Keep
+the per-write membership assertion inside the sample.
 Compositor scrolling and main-thread scroll events are measured independently;
 post-scroll application repaint latency is outside this marker's proof. Direct
 command counts include any discovery/metadata work inside the sampled interval.
@@ -219,10 +231,9 @@ commit-once, blur/resume on the same proxy, a real document replacement with sta
 trailing composition, held client intent/reply ordering and original retirement
 while another window edits/streams. Controlled-wire cases separately withhold the
 last late cancellation receipt and verify that ready/detach/readmission cannot
-precede it. Synthetic events do not establish genuine OS IME. The combined
-full interaction failure/reconnect/moved-target matrix and adoption assessment
-remain unproved. Existing pointer/key timing profiles do not measure composition
-latency or production capacity.
+precede it. Synthetic events do not establish genuine OS IME. The full-adapter
+recovery scenarios below combine these boundaries. Existing pointer/key timing
+profiles do not measure composition latency or production capacity.
 
 ## Trusted clipboard and navigation
 
@@ -267,16 +278,64 @@ Navigation buttons preserve input focus through their native press/click so an
 earlier blur cannot disable the gesture or discard its navigation. They move
 focus locally after navigation has flushed and invalidated the old admission.
 
+## Full-adapter recovery and moved-target handover
+
+`native-fixture.ts` shares the actual NativeInput/NativeComposition/NativeClipboard
+bundle, independently installed consumer, owned targets and pixel assertions
+between `native-input.spec.ts` and `recovery.spec.ts`. Select either spec with the
+same explicit source/configuration command. The recovery cases write synthetic
+`recovery.json` receipts with checkout/source/consumer/browser/capture identity.
+They are correctness evidence, separate from the matched timing profiles.
+
+The recovery cases combine pointer, committed text, transient composition,
+trusted local clipboard and navigation with Shift/Control acquisitions in two
+real windows on one browser URL. Blur resumes the same proxy only after original
+cleanup; explicit fixture pause/unmount and private viewer-channel loss retire
+the original executor before a fresh client can be admitted. Sibling input and
+actual newly painted canvas effects must continue while an original native reply
+is held. Host lifecycle reports are fixture commands, not a shipping adapter.
+
+Real selected tabs move through the owned extension while composition or
+navigation receipts and a client selection result are held. Terminal admission
+discards old work before cleanup. The trusted new-owner completion fence is a
+no-op that joins the original lane; it does not require the target to remain in
+its former window. External intent stays denied throughout retirement, and the
+replacement must independently verify its destination before attaching.
+Original native writes, composition cancellations, key/button releases and detach
+must all receive positive replies. Navigation writes participate in the same
+receipt accounting, so losing ownership cannot hide a rejected navigation reply.
+A Page.navigate result acknowledges command completion even when errorText
+reports a navigation failure and the old document remains. Retirement confirms
+original input cleanup and detach; it does not claim that a page loaded. A missing
+or rejected protocol reply still cannot confirm retirement or authorize replay.
+Late old results/releases cannot acquire or clean up a replacement owner.
+
+Controlled-wire mixed-interaction cases complement these real-effect cases with
+partial/rejected/lost replies, discarded queued barriers and the shared 64-action
+unconfirmed ceiling. CDP loss or emergency executor teardown preserves the
+same-host target reservation: opening a fresh connection/host is not a recovery
+receipt. A live independent sibling remains usable. Reconnection of the original
+target is evaluated only after positive original retirement. Missing cleanup
+remains denied; no uncertain input or navigation is replayed.
+
+Client batch credit requires a matching pending sequence and an explicit
+successful acknowledgement. A partial reply without its success field revokes
+the client instead of confirming work or replenishing that credit.
+Original native cleanup and detach likewise require an explicit CDP result
+object; an ID-only or non-object detach reply cannot confirm retirement or
+release the target reservation.
+
 ## Limits
 
 The keys/text comparator uses a deliberately smaller local adapter than
 `NativeInput`. The actual-adapter modes exercise pointer/key, composition,
 clipboard and navigation in their owned fixture cases. They do not establish
 complete local-adapter parity or genuine OS composition.
-Controlled tab-move handover covers keys/text; pointer/key and composition
-retirement cover their exercised fixture cases. A full interaction, recovery and ownership evaluation remains necessary before adopting any public
-adapter. A fresh local check and CDP send are still not atomic against arbitrary
-external tab movement.
+Controlled-wire and owned-browser recovery cover only the exercised interactions,
+failure boundaries and real-tab handovers. A combined performance, authentication,
+isolation, wire-version, provider and operational-cost assessment remains necessary
+before adopting any public adapter. A fresh local check and CDP send are still not
+atomic against arbitrary external tab movement.
 
 Opaque fixture admission is not production authentication or endpoint access
 control. Public wire versioning, authorization, browser provisioning, recovery,

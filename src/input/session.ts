@@ -3,6 +3,7 @@ import type { CdpClient, CdpEvent } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
 import { navigationAddress } from "./address";
+import { InputEffects } from "./effects";
 import { frameViewport } from "./geometry";
 import type { Point, Viewport } from "./geometry";
 import { InputLifecycle } from "./lifecycle";
@@ -55,6 +56,8 @@ export class InputSession {
   private viewportVersion = 0;
   private readonly lifecycle: InputLifecycle;
   private readonly queue: InputQueue;
+  private readonly effects: InputEffects;
+  private retirement: Promise<void> | undefined;
   private historyJob: InputJob | null = null;
   private historyReading = false;
   private historyVersion = 0;
@@ -78,8 +81,13 @@ export class InputSession {
     private readonly resetClipboard: () => void = () => {},
   ) {
     this.lifecycle = new InputLifecycle(sessionId);
-    this.queue = new InputQueue(client, this.lifecycle, member, (error) =>
-      this.reportFailure(error),
+    this.effects = new InputEffects(client, sessionId);
+    this.queue = new InputQueue(
+      client,
+      this.lifecycle,
+      this.effects,
+      member,
+      (error) => this.reportFailure(error),
     );
   }
 
@@ -88,7 +96,11 @@ export class InputSession {
   }
 
   get owner(): InputOwner | null {
-    return this.available ? this.lifecycle.owner : null;
+    return this.accepting ? this.lifecycle.owner : null;
+  }
+
+  private get accepting(): boolean {
+    return this.available && this.retirement === undefined;
   }
 
   async start(): Promise<void> {
@@ -104,20 +116,42 @@ export class InputSession {
   }
 
   focus(): void {
+    if (!this.accepting) return;
     this.refreshCaret(this.queue.capture());
   }
 
   blur(): void {
+    if (!this.accepting) return;
     this.transition("blur");
   }
 
   /** Complete preceding ordered work and native replies for the captured owner. */
-  completion(owner: InputOwner): Promise<void> {
-    return this.queue.read(
-      owner,
-      async () => undefined,
-      () => this.lifecycle.owns(owner),
-    );
+  async completion(owner: InputOwner): Promise<void> {
+    if (!this.accepting) throw new Error("Input cancelled");
+    await this.queue.completion(owner, () => this.effects.completion());
+    if (!this.lifecycle.owns(owner)) throw new Error("Input cancelled");
+  }
+
+  /** Stop admission, join original effects/late cleanup, then finish disposal. */
+  retire(
+    reason: Exclude<InputStop, "disconnected"> = "disposed",
+  ): Promise<void> {
+    if (this.retirement) return this.retirement;
+    let owner = this.lifecycle.owner;
+    const document = owner.document;
+    this.retirement = Promise.resolve().then(async () => {
+      try {
+        if (owner.document !== document) throw new Error("Input cancelled");
+        await this.queue.completion(owner, () => this.effects.completion());
+      } finally {
+        this.dispose(reason);
+      }
+      await this.effects.completion();
+    });
+    // Publish retirement before reset callbacks can reenter input admission.
+    this.transition("blur");
+    owner = this.lifecycle.owner;
+    return this.retirement;
   }
 
   private transition(reason: InputTransition): void {
@@ -131,19 +165,20 @@ export class InputSession {
     if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
     this.invalidateCaret();
     this.queue.clear();
-    if (cleanup.composition) this.cancelComposition(cleanup.owner);
+    if (cleanup.composition) this.cancelComposition();
     for (const key of cleanup.keys)
-      this.client.notify(
-        "Input.dispatchKeyEvent",
-        { ...key, type: "keyUp", modifiers: 0 },
-        cleanup.owner.sessionId,
-      );
+      this.effects.notify("Input.dispatchKeyEvent", {
+        ...key,
+        type: "keyUp",
+        modifiers: 0,
+      });
     for (const button of cleanup.buttons)
-      this.client.notify(
-        "Input.dispatchMouseEvent",
-        { type: "mouseReleased", ...cleanup.point, button, buttons: 0 },
-        cleanup.owner.sessionId,
-      );
+      this.effects.notify("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        ...cleanup.point,
+        button,
+        buttons: 0,
+      });
     this.resetLocal(reason);
     if ((reason === "blur" || reason === "failed") && refreshHistory)
       this.updateHistory();
@@ -271,6 +306,7 @@ export class InputSession {
       "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
     >,
   ): void {
+    if (!this.accepting) return;
     if (type === "mousePressed") this.invalidateClipboard();
     let viewport: Viewport | null = null;
     let version = this.viewportVersion;
@@ -332,7 +368,7 @@ export class InputSession {
   }
 
   text(text: string, owner: InputOwner = this.lifecycle.owner): void {
-    if (!this.lifecycle.owns(owner)) return;
+    if (!this.accepting || !this.lifecycle.owns(owner)) return;
     this.invalidateClipboard();
     this.queue.text(text, (job) => {
       this.setError(null);
@@ -350,7 +386,12 @@ export class InputSession {
     selectionStart = text.length,
     selectionEnd = selectionStart,
   ): void {
-    if (!this.preeditSupported || !this.lifecycle.owns(owner)) return;
+    if (
+      !this.accepting ||
+      !this.preeditSupported ||
+      !this.lifecycle.owns(owner)
+    )
+      return;
     this.invalidateClipboard();
     this.queue.preedit({ text, selectionStart, selectionEnd }, async (job) => {
       if (!this.preeditSupported) return;
@@ -359,7 +400,7 @@ export class InputSession {
         ? this.lifecycle.compose(job.owner)
         : this.lifecycle.composition(job.owner);
       try {
-        await job.request("Input.imeSetComposition", value);
+        await job.write("Input.imeSetComposition", value);
         if (!value.text) this.lifecycle.finishComposition(job.owner, token);
         this.refreshCaret(job);
       } catch (error) {
@@ -373,13 +414,13 @@ export class InputSession {
           !this.lifecycle.owns(job.owner) &&
           this.lifecycle.retainsDocument(job.owner)
         )
-          this.cancelComposition(job.owner);
+          this.cancelComposition();
       }
     });
   }
 
   commitComposition(text: string, owner: InputOwner): void {
-    if (!this.lifecycle.owns(owner)) return;
+    if (!this.accepting || !this.lifecycle.owns(owner)) return;
     // The final result replaces the composing range; an unsent preview is obsolete.
     this.queue.discardPreedit();
     if (text) {
@@ -389,7 +430,7 @@ export class InputSession {
     this.queue.enqueue(async (job) => {
       const token = this.lifecycle.composition(job.owner);
       if (!token) return;
-      await job.request("Input.imeSetComposition", {
+      await job.write("Input.imeSetComposition", {
         text: "",
         selectionStart: 0,
         selectionEnd: 0,
@@ -398,19 +439,16 @@ export class InputSession {
     });
   }
 
-  private cancelComposition(owner: InputOwner): void {
-    this.client.notify(
-      "Input.imeSetComposition",
-      {
-        text: "",
-        selectionStart: 0,
-        selectionEnd: 0,
-      },
-      owner.sessionId,
-    );
+  private cancelComposition(): void {
+    this.effects.notify("Input.imeSetComposition", {
+      text: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    });
   }
 
   key(key: Key): void {
+    if (!this.accepting) return;
     if (
       key.type !== "keyUp" &&
       !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
@@ -435,7 +473,7 @@ export class InputSession {
   }
 
   selection(owner: InputOwner): Promise<SelectionResult> {
-    if (!this.lifecycle.owns(owner))
+    if (!this.accepting || !this.lifecycle.owns(owner))
       return Promise.reject(new Error("Selection cancelled"));
     const version = ++this.clipboardVersion;
     const frameId = this.frameId;
@@ -467,6 +505,7 @@ export class InputSession {
   }
 
   navigate(action: "back" | "forward" | "reload" | { url: string }): void {
+    if (!this.accepting) return;
     let url = "";
     if (typeof action !== "string") {
       url = navigationAddress(action.url) ?? "";
@@ -482,7 +521,7 @@ export class InputSession {
     }
     this.transition("navigation-started");
     this.queue.barrier(async (job) => {
-      if (action === "reload") await job.request("Page.reload", undefined);
+      if (action === "reload") await job.write("Page.reload", undefined);
       else if (action === "back" || action === "forward") {
         const history = await job.request(
           "Page.getNavigationHistory",
@@ -491,11 +530,11 @@ export class InputSession {
         const entry =
           history.entries[history.currentIndex + (action === "back" ? -1 : 1)];
         if (entry)
-          await job.request("Page.navigateToHistoryEntry", {
+          await job.write("Page.navigateToHistoryEntry", {
             entryId: entry.id,
           });
       } else {
-        const result = await job.request("Page.navigate", { url });
+        const result = await job.write("Page.navigate", { url });
         if (result.errorText)
           throw new CdpFault(
             "input",

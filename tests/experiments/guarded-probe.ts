@@ -11,32 +11,13 @@ import type {
   InputTransition,
 } from "../../src/input/lifecycle";
 import { compositionMessageLimit, nativeActions } from "./native-actions";
-import type { SelectionResult } from "../../src/input/selection";
 import type { ViewerNavigation } from "../../src/viewer/types";
+import type { ProbeReply } from "./probe-replies";
+export type { ProbeReply } from "./probe-replies";
 
 type Key = Protocol.Input.DispatchKeyEventRequest;
 type Intent = { kind: "key"; key: Key } | { kind: "text"; text: string };
 export type ProbeMode = "keys" | "native" | "composition";
-export type ProbeReply =
-  | { type: "ack"; sequence: number; ok: boolean; generation?: string }
-  | { type: "revoked" }
-  | {
-      type: "selection";
-      generation: string;
-      request: number;
-      result: SelectionResult | null;
-    }
-  | { type: "clipboard-reset"; generation: string; through: number }
-  | { type: "navigation"; generation: string; value: ViewerNavigation | null }
-  | {
-      type: "suspended";
-      previous: string;
-      generation: string;
-      reason: InputTransition;
-      document: number;
-      focus: number;
-    }
-  | { type: "ready"; generation: string; document: number; focus: number };
 
 interface Trace {
   method: string;
@@ -50,11 +31,6 @@ interface Hold {
   id?: number;
   held: () => void;
   release?: () => void;
-}
-
-interface NativeReply {
-  done: Promise<boolean>;
-  settle: (ok: boolean) => void;
 }
 
 function intent(value: Record<string, unknown>): Intent | null {
@@ -105,11 +81,8 @@ export class GuardedProbe {
   private readonly completed = new Set<number>();
   private stopped = false;
   private closed = false;
-  private writeFailed = false;
-  private imeSupported = false;
   private retirement: Promise<boolean> | undefined;
   private retirementFailed: (() => void) | undefined;
-  private readonly native = new Map<number, NativeReply>();
   private readonly batches = new Map<number, number>();
   private ready = false;
   private transitioning = false;
@@ -136,54 +109,18 @@ export class GuardedProbe {
   ) {
     this.client = new CdpClient(endpoint, (url) => {
       const socket = factory(url);
-      const send = socket.send.bind(socket);
-      socket.send = (data) => {
-        if (typeof data === "string") {
-          const command: unknown = JSON.parse(data);
-          if (
-            isRecord(command) &&
-            typeof command.id === "number" &&
-            typeof command.method === "string"
-          ) {
-            const row: Trace = { method: command.method, sent: Date.now() };
-            if (
-              !this.stopped &&
-              ["Input.dispatchKeyEvent", "Input.insertText"].includes(
-                command.method,
-              )
-            ) {
-              const sequence = this.waiting.shift();
-              if (sequence !== undefined) row.sequence = sequence;
-            }
-            this.trace.push(row);
-            this.requests.set(command.id, row);
-            if (command.method.startsWith("Input.")) {
-              // Normal in-flight intent is capped at 64; cleanup gets one more
-              // bounded window, never an unlimited receipt collection.
-              if (this.native.size >= 128) {
-                this.writeFailed = true;
-                this.shutdown();
-                return;
-              }
-              let settle!: (ok: boolean) => void;
-              const done = new Promise<boolean>((resolve) => {
-                settle = resolve;
-              });
-              this.native.set(command.id, { done, settle });
-            }
-            if (
-              this.hold?.method === command.method &&
-              this.hold.id === undefined
-            )
-              this.hold.id = command.id;
-          }
-        }
-        send(data);
-      };
       // Installed before CdpClient's listener: a hold blocks its real await.
       socket.addEventListener("message", (event: MessageEvent<unknown>) => {
-        if (typeof event.data !== "string") return;
-        const response: unknown = JSON.parse(event.data);
+        if (this.hold?.id === undefined || typeof event.data !== "string")
+          return;
+        let response: unknown;
+        try {
+          response = JSON.parse(event.data);
+        } catch {
+          // The following CdpClient listener owns malformed-protocol failure
+          // and original-connection cleanup. This observer must not throw first.
+          return;
+        }
         if (!isRecord(response) || typeof response.id !== "number") return;
         const hold = this.hold;
         if (hold?.id === response.id) {
@@ -198,47 +135,39 @@ export class GuardedProbe {
           hold.held();
           return;
         }
-        const row = this.requests.get(response.id);
-        this.requests.delete(response.id);
-        if (!row) return;
-        row.response = Date.now();
-        const native = this.native.get(response.id);
-        if (native) {
-          // Definite unsupported IME is the real session's final-text fallback,
-          // not an uncertain native effect or permission/transport failure.
-          const unsupported =
-            this.mode === "composition" &&
-            row.method === "Input.imeSetComposition" &&
-            !this.imeSupported &&
-            isRecord(response.error) &&
-            response.error.code === -32601;
-          if (
-            row.method === "Input.imeSetComposition" &&
-            !isRecord(response.error)
-          )
-            this.imeSupported = true;
-          const ok = !isRecord(response.error) || unsupported;
-          if (!ok) this.writeFailed = true;
-          this.native.delete(response.id);
-          native.settle(ok);
-          if (!ok && !this.stopped) {
-            this.revoke();
-            return;
-          }
-        }
-        if (row.sequence !== undefined && !this.stopped) {
-          this.outstanding.delete(row.sequence);
-          this.completed.add(row.sequence);
-          while (this.completed.delete(this.completedThrough + 1))
-            this.completedThrough++;
-          this.emit({
-            type: "ack",
-            sequence: row.sequence,
-            ok: !isRecord(response.error),
-          });
-        }
       });
       return socket;
+    });
+    this.client.onTraffic((event) => {
+      if (event.type === "command") {
+        const row: Trace = { method: event.method, sent: Date.now() };
+        if (
+          !this.stopped &&
+          (event.method === "Input.dispatchKeyEvent" ||
+            event.method === "Input.insertText")
+        ) {
+          const sequence = this.waiting.shift();
+          if (sequence !== undefined) row.sequence = sequence;
+        }
+        this.trace.push(row);
+        this.requests.set(event.id, row);
+        if (this.hold?.method === event.method && this.hold.id === undefined)
+          this.hold.id = event.id;
+        return;
+      }
+      const row = this.requests.get(event.id);
+      this.requests.delete(event.id);
+      if (!row) return;
+      row.response = Date.now();
+      if (row.sequence === undefined || this.stopped) return;
+      this.outstanding.delete(row.sequence);
+      if (event.ok) {
+        this.completed.add(row.sequence);
+        while (this.completed.delete(this.completedThrough + 1))
+          this.completedThrough++;
+      }
+      this.emit({ type: "ack", sequence: row.sequence, ok: event.ok });
+      if (!event.ok) this.revoke();
     });
   }
 
@@ -290,15 +219,7 @@ export class GuardedProbe {
         sessionId,
         async () => {
           await directory.assertMember(targetId);
-          // External admission is terminal during retirement, but its trusted
-          // new-owner completion read still needs a fresh membership receipt.
-          // Old queued work was cancelled and cannot own that new generation.
-          return (
-            !probe.stopped ||
-            (mode === "composition" &&
-              probe.retirement !== undefined &&
-              !probe.closed)
-          );
+          return !probe.stopped;
         },
         (value) => {
           probe.currentNavigation = value;
@@ -473,12 +394,7 @@ export class GuardedProbe {
     }
     void this.input!.completion(owner).then(
       () => {
-        if (
-          this.stopped ||
-          this.writeFailed ||
-          generation !== this.currentGeneration
-        )
-          return;
+        if (this.stopped || generation !== this.currentGeneration) return;
         this.completed.add(sequence);
         while (this.completed.delete(this.completedThrough + 1))
           this.completedThrough++;
@@ -533,14 +449,6 @@ export class GuardedProbe {
     };
   }
 
-  private nativeSettled(): Promise<boolean> {
-    return Promise.all(
-      [...this.native.values()].map((value) => value.done),
-    ).then(
-      (results) => !this.closed && !this.writeFailed && results.every(Boolean),
-    );
-  }
-
   private suspend(reason: InputTransition): void {
     if (this.stopped) return;
     this.ready = false;
@@ -575,22 +483,17 @@ export class GuardedProbe {
     // barrier. Join after that enqueue, never ahead of the action it invalidates.
     void Promise.resolve()
       .then(() => this.input!.completion(owner))
-      .then(async () => {
+      .then(() => {
         if (!current()) return;
-        const ok = await this.nativeSettled();
-        if (!current()) return;
-        if (!ok) this.revoke();
-        else {
-          this.transitioning = false;
-          this.clearTransitionDeadline();
-          this.ready = true;
-          this.emit({
-            type: "ready",
-            generation,
-            document: owner.document,
-            focus: owner.focus,
-          });
-        }
+        this.transitioning = false;
+        this.clearTransitionDeadline();
+        this.ready = true;
+        this.emit({
+          type: "ready",
+          generation,
+          document: owner.document,
+          focus: owner.focus,
+        });
       })
       .catch(() => {
         if (current()) this.revoke();
@@ -652,34 +555,19 @@ export class GuardedProbe {
     this.transitioning = false;
     this.clearTransitionDeadline();
     // Publish terminal admission before disposal or reentrant reply callbacks.
-    let joined = Promise.resolve();
-    if (this.mode === "composition" && this.input) {
-      // Keep the original session/document observer alive through the old job's
-      // finally continuation. Its late native cleanup must precede our snapshot.
-      this.input.blur();
-      joined = this.input.completion(this.input.owner!);
-    } else {
-      this.removeEvents?.();
-      this.input?.dispose(reason);
-    }
+    const joined = this.input?.retire(reason) ?? Promise.resolve();
     this.emit({ type: "revoked" });
     const failed = new Promise<boolean>((resolve) => {
       this.retirementFailed = () => resolve(false);
     });
     const deadline = setTimeout(() => this.retirementFailed?.(), deadlineMs);
     const confirmed = joined
-      .then(() => this.nativeSettled())
-      .then(async (ok) => {
-        if (!ok) return false;
-        if (this.mode === "composition") {
-          this.input?.dispose(reason);
-          if (!(await this.nativeSettled())) return false;
-        }
+      .then(async () => {
         if (this.sessionId)
           await this.client.request("Target.detachFromTarget", {
             sessionId: this.sessionId,
           });
-        return !this.closed && !this.writeFailed;
+        return !this.closed;
       })
       .catch(() => false);
     void Promise.race([confirmed, failed]).then((ok) => {
@@ -713,8 +601,6 @@ export class GuardedProbe {
     this.removeEvents?.();
     this.retirementFailed?.();
     this.client.close();
-    for (const reply of this.native.values()) reply.settle(false);
-    this.native.clear();
     this.waiting.length = 0;
     this.outstanding.clear();
     this.requests.clear();
