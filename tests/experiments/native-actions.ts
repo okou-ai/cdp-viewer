@@ -33,7 +33,8 @@ function action(value: unknown): NativeAction | null {
   if (value.kind === "key" && isRecord(value.key)) {
     const key = value.key;
     if (
-      !["rawKeyDown", "keyDown", "keyUp"].includes(String(key.type)) ||
+      typeof key.type !== "string" ||
+      !["rawKeyDown", "keyDown", "keyUp"].includes(key.type) ||
       typeof key.key !== "string" ||
       key.key.length > 64 ||
       typeof key.code !== "string" ||
@@ -51,8 +52,10 @@ function action(value: unknown): NativeAction | null {
       (key.commands !== undefined &&
         (!Array.isArray(key.commands) ||
           key.commands.length > 1 ||
-          !key.commands.every((c) =>
-            ["selectAll", "undo", "redo"].includes(String(c)),
+          !key.commands.every(
+            (c) =>
+              typeof c === "string" &&
+              ["selectAll", "undo", "redo"].includes(c),
           )))
     )
       return null;
@@ -86,8 +89,9 @@ function action(value: unknown): NativeAction | null {
     return null;
   const { point, details } = value;
   if (
+    typeof value.type !== "string" ||
     !["mousePressed", "mouseReleased", "mouseMoved", "mouseWheel"].includes(
-      String(value.type),
+      value.type,
     ) ||
     !finite(point.x, 0, 1) ||
     !finite(point.y, 0, 1) ||
@@ -98,7 +102,7 @@ function action(value: unknown): NativeAction | null {
         !["none", "left", "middle", "right", "back", "forward"].includes(
           details.button,
         ))) ||
-    (["mousePressed", "mouseReleased"].includes(String(value.type)) &&
+    (["mousePressed", "mouseReleased"].includes(value.type) &&
       (!details.button || details.button === "none")) ||
     (details.buttons !== undefined &&
       (!Number.isInteger(details.buttons) ||

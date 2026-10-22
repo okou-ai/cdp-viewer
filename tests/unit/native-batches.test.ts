@@ -298,6 +298,16 @@ it.each(
       },
     ],
     [{ kind: "key", key: { ...shift.key, commands: ["deleteBackward"] } }],
+    [{ kind: "key", key: { ...shift.key, type: ["rawKeyDown"] } }],
+    [{ kind: "key", key: { ...shift.key, commands: [["selectAll"]] } }],
+    [
+      {
+        kind: "pointer",
+        type: ["mouseMoved"],
+        point: { x: 0.5, y: 0.5 },
+        details: { modifiers: 0 },
+      },
+    ],
     [{ kind: "preedit", text: "outside scope" }],
   ].map((actions) => ({ actions })),
 )("rejects invalid or unsupported native batches: %j", async ({ actions }) => {
