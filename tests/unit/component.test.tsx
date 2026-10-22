@@ -39,6 +39,62 @@ function browser() {
   return fake;
 }
 
+it("owns the browser menu mode and combined manual sync without replacing native input", async () => {
+  const fake = browser();
+  vi.spyOn(
+    HTMLCanvasElement.prototype,
+    "getBoundingClientRect",
+  ).mockReturnValue(new DOMRect(0, 0, 640, 480));
+  const changed = vi.fn();
+  const view = render(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      windowSizeSync="off"
+      onWindowSizeSyncChange={changed}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  const proxy = screen.getByRole("textbox", { name: "Remote browser input" });
+  const menu = screen.getByRole("button", { name: "Browser menu" });
+  await userEvent.click(menu);
+  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeEnabled();
+  await userEvent.click(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  );
+  expect(changed).toHaveBeenCalledWith("live");
+  await userEvent.click(menu);
+  expect(
+    screen.getByRole("menuitemradio", { name: "Do not sync automatically" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await waitFor(() =>
+    expect(fake.windowSizes.get(0)).toEqual({ width: 640, height: 480 }),
+  );
+  view.rerender(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      windowSizeSync="live"
+    />,
+  );
+  await userEvent.click(menu);
+  expect(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-checked", "true");
+  expect(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    proxy,
+  );
+  expect(fake.sockets).toHaveLength(1);
+});
+
 it("reconciles inline adapter configuration while preserving the connection and input", async () => {
   const fake = browser();
   const setup = vi.fn<ViewerExtension["setup"]>();
@@ -860,6 +916,8 @@ it.each(["connecting", "paused", "error", "disconnected"] as const)(
     await userEvent.click(
       screen.getByRole("textbox", { name: "Remote page address" }),
     );
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: "Browser menu" })).toHaveFocus();
     await userEvent.tab();
     if (status === "error" || status === "disconnected") {
       expect(

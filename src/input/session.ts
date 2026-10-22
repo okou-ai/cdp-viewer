@@ -69,6 +69,8 @@ export class InputSession {
   private caretVersion = 0;
   private preeditSupported = true;
   private clipboardVersion = 0;
+  private displayScale = 1;
+  private wheelScale = 1;
 
   constructor(
     private readonly client: CdpClient,
@@ -118,6 +120,13 @@ export class InputSession {
   focus(): void {
     if (!this.accepting) return;
     this.refreshCaret(this.queue.capture());
+  }
+
+  setDisplayScale(scale: number): void {
+    this.displayScale = scale;
+    // CDP applies both the emulated view scale and its density/native-density ratio.
+    this.wheelScale = scale * scale;
+    this.invalidateViewport();
   }
 
   blur(): void {
@@ -291,7 +300,10 @@ export class InputSession {
         "input",
         "The remote viewport is unavailable for input.",
       );
-    return { width: viewport.clientWidth, height: viewport.clientHeight };
+    return {
+      width: viewport.clientWidth * this.displayScale,
+      height: viewport.clientHeight * this.displayScale,
+    };
   }
 
   pointer(
@@ -314,8 +326,8 @@ export class InputSession {
       if (!viewport || version !== this.viewportVersion)
         viewport = await this.readViewport(job);
       const pointInViewport = {
-        // Input coordinates are relative to the visible CSS viewport. Adding
-        // its layout offset would apply pinch-pan translation a second time.
+        // Owned metadata and fallback both describe the visible native view.
+        // Emulation scale maps that view to page CSS coordinates in Chromium.
         x: point.x * viewport.width,
         y: point.y * viewport.height,
       };
@@ -337,7 +349,10 @@ export class InputSession {
           ...pointInViewport,
           ...details,
           ...(job.wheel
-            ? { deltaX: job.wheel.deltaX, deltaY: job.wheel.deltaY }
+            ? {
+                deltaX: job.wheel.deltaX * this.wheelScale,
+                deltaY: job.wheel.deltaY * this.wheelScale,
+              }
             : {}),
         },
         () => {

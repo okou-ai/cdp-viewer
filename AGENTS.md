@@ -124,8 +124,10 @@ through implementation, behavioral tests and review.
   Acknowledge owned frames even when they are not painted. Keep one active decode
   and at most one newest queued frame; discard stale results and close bitmaps.
 - Pause, visibility changes and unmount must release owned work. Never close the
-  remote browser or its tabs during viewer cleanup. Local contain fitting must not
-  resize or emulate the remote viewport.
+  remote browser or its tabs during viewer cleanup. Local contain fitting alone
+  must not resize or emulate the remote viewport. Display adaptation is explicit
+  opt-in or a manual command; scope its native sizing and emulation to the owning
+  connection/window/session and retain bounded, coalesced resize work.
 - Input is explicit opt-in and instance/session/document/focus owned. Keep the
   native textarea stable and focusable; never replace it during composition or
   send preedit/control keys through the committed-text path. Discard unsent work

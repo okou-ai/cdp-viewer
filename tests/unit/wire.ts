@@ -74,6 +74,16 @@ export class FakeBrowser {
   ];
   unsupportedWindows = false;
   unsupportedStream = false;
+  unsupportedDisplay = false;
+  unsupportedContentsSize = false;
+  nativeDpr = 1;
+  windowState = "normal";
+  readonly windowSizes = new Map<number, { width: number; height: number }>();
+  private readonly emulation = new Map<
+    string,
+    { width: number; height: number; dpr: number }
+  >();
+  private readonly streams = new Set<string>();
   holdAttach = false;
   holdMethod: string | null = null;
   blockOpen = false;
@@ -97,9 +107,25 @@ export class FakeBrowser {
   };
 
   frame(socket: FakeSocket, sessionId: string, frameId = 73): void {
+    const target = this.targets.find(
+      (value) => value.id === this.sessions.get(sessionId),
+    );
+    const size = target ? this.windowSizes.get(target.windowId) : undefined;
     socket.emit(
       "Page.screencastFrame",
-      { data: "aW1hZ2U=", sessionId: frameId },
+      {
+        data: "aW1hZ2U=",
+        sessionId: frameId,
+        ...(size
+          ? {
+              metadata: {
+                deviceWidth: size.width,
+                deviceHeight: size.height,
+                pageScaleFactor: 1,
+              },
+            }
+          : {}),
+      },
       sessionId,
     );
   }
@@ -118,6 +144,32 @@ export class FakeBrowser {
           socket.reply(command, { frameTree: { frame: { id: "main" } } });
           break;
         case "Runtime.evaluate":
+          if (
+            command.params?.expression ===
+            "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})"
+          ) {
+            const target = this.targets.find(
+              (value) => value.id === this.sessions.get(command.sessionId!),
+            );
+            const size = this.emulation.get(command.sessionId!) ??
+              (target ? this.windowSizes.get(target.windowId) : undefined) ?? {
+                width: 800,
+                height: 600,
+              };
+            socket.reply(command, {
+              result: {
+                type: "object",
+                value: {
+                  width: size.width,
+                  height: size.height,
+                  dpr:
+                    this.emulation.get(command.sessionId!)?.dpr ??
+                    this.nativeDpr,
+                },
+              },
+            });
+            break;
+          }
           if (
             String(command.params?.expression).includes(
               "const tab = window.open(",
@@ -177,6 +229,10 @@ export class FakeBrowser {
           break;
         case "Page.getLayoutMetrics":
           socket.reply(command, {
+            visualViewport: {
+              clientWidth: 800 * this.nativeDpr,
+              clientHeight: 600 * this.nativeDpr,
+            },
             cssVisualViewport: {
               offsetX: 0,
               offsetY: 0,
@@ -224,9 +280,60 @@ export class FakeBrowser {
             (t) => t.id === command.params?.targetId,
           );
           if (this.unsupportedWindows || !target) socket.reject(command);
-          else socket.reply(command, { windowId: target.windowId, bounds: {} });
+          else
+            socket.reply(command, {
+              windowId: target.windowId,
+              bounds: { windowState: this.windowState },
+            });
           break;
         }
+        case "Emulation.setDeviceMetricsOverride":
+          if (this.unsupportedDisplay) socket.reject(command);
+          else {
+            this.emulation.set(command.sessionId!, {
+              width: Number(command.params?.width),
+              height: Number(command.params?.height),
+              dpr: Number(command.params?.deviceScaleFactor),
+            });
+            socket.reply(command);
+            socket.emit("Page.frameResized", {}, command.sessionId);
+          }
+          break;
+        case "Emulation.clearDeviceMetricsOverride":
+          this.emulation.delete(command.sessionId!);
+          socket.reply(command);
+          socket.emit("Page.frameResized", {}, command.sessionId);
+          this.frame(socket, command.sessionId!);
+          break;
+        case "Browser.setContentsSize":
+          if (this.unsupportedContentsSize) {
+            socket.reject(command);
+            break;
+          }
+          this.windowSizes.set(Number(command.params?.windowId), {
+            width: Number(command.params?.width),
+            height: Number(command.params?.height),
+          });
+          socket.reply(command);
+          for (const session of this.streams) {
+            const target = this.targets.find(
+              (value) => value.id === this.sessions.get(session),
+            );
+            if (target?.windowId === command.params?.windowId) {
+              socket.emit("Page.frameResized", {}, session);
+              this.frame(socket, session);
+            }
+          }
+          break;
+        case "Target.detachFromTarget":
+          this.emulation.delete(String(command.params?.sessionId));
+          this.streams.delete(String(command.params?.sessionId));
+          socket.reply(command);
+          break;
+        case "Page.stopScreencast":
+          this.streams.delete(command.sessionId!);
+          socket.reply(command);
+          break;
         case "Target.attachToTarget": {
           const sessionId = "session-" + ++this.nextSession;
           this.sessions.set(sessionId, String(command.params?.targetId));
@@ -262,6 +369,7 @@ export class FakeBrowser {
             socket.reject(command);
             break;
           }
+          this.streams.add(command.sessionId!);
           socket.reply(command);
           // Deliver before the awaiting startup continuation: frames may race
           // the start response, and must not become a cancelled-timer error.

@@ -565,6 +565,66 @@
 .cdpv-root .cdpv-address::placeholder {
   color: var(--cdpv-muted);
 }
+.cdpv-root .cdpv-browser-menu-container {
+  display: contents;
+}
+.cdpv-root .cdpv-browser-menu-trigger {
+  flex: none;
+  width: 30px;
+  height: 32px;
+}
+.cdpv-root .cdpv-browser-menu-positioner {
+  z-index: 4;
+  max-width: calc(100% - 16px);
+}
+.cdpv-root .cdpv-browser-menu {
+  min-width: 210px;
+  max-width: var(--available-width);
+  max-height: var(--available-height);
+  border: 1px solid var(--cdpv-border);
+  background: var(--cdpv-background);
+  color: var(--cdpv-foreground);
+  font: inherit;
+  border-radius: 8px;
+  padding: 5px;
+  font-size: 13px;
+  overflow: auto;
+  box-shadow: 0 6px 24px #00000029;
+}
+.cdpv-root .cdpv-browser-menu-heading {
+  color: var(--cdpv-muted);
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.cdpv-root .cdpv-browser-menu-item {
+  cursor: default;
+  border-radius: 4px;
+  outline: none;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  display: flex;
+}
+.cdpv-root .cdpv-browser-menu-item[data-highlighted] {
+  background: var(--cdpv-foreground);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root .cdpv-browser-menu-item[data-highlighted] {
+    background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  }
+}
+.cdpv-root .cdpv-browser-menu-item[data-disabled] {
+  opacity: 0.4;
+}
+.cdpv-root .cdpv-browser-menu-check {
+  width: 16px;
+  height: 16px;
+}
+.cdpv-root .cdpv-browser-menu-separator {
+  background: var(--cdpv-border);
+  height: 1px;
+  margin: 4px;
+}
 .cdpv-root .cdpv-sr-only {
   clip-path: inset(50%);
   white-space: nowrap;

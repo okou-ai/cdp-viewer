@@ -1,3 +1,5 @@
+import type { WindowSizeSync } from "cdp-viewer";
+
 export interface FixtureSettings {
   cdpUrl: string;
   windowA?: number;
@@ -6,6 +8,7 @@ export interface FixtureSettings {
   interactive?: boolean;
   paused?: boolean;
   hostForm?: boolean;
+  defaultWindowSizeSync?: WindowSizeSync;
   colorSchemeA?: "light" | "dark" | "system";
   colorSchemeB?: "light" | "dark" | "system";
 }
