@@ -88,12 +88,13 @@ async function viewer(
   try {
     await remote.goto(server.origin + "/fixture/editor?native=" + targetId);
     await remote.evaluate(() => {
-      const marker = document.createElement("div");
-      marker.id = "native-marker";
-      marker.style.cssText =
-        "position:fixed;inset:0 auto auto 0;width:28px;height:28px;background:rgb(232,32,48);z-index:1000";
-      document.body.append(marker);
-      const observed = { effect: 0, events: [] as string[] };
+      document.documentElement.style.background =
+        document.body.style.background = "rgb(232,32,48)";
+      const observed = {
+        effect: 0,
+        color: "rgb(24,224,80)",
+        events: [] as string[],
+      };
       Object.assign(window, { nativeObserved: observed });
       for (const type of [
         "mousedown",
@@ -112,7 +113,8 @@ async function viewer(
             );
             if (type === "input" || (type === "scroll" && scrollY >= 300)) {
               observed.effect ||= Date.now();
-              marker.style.background = "rgb(24,224,80)";
+              document.documentElement.style.background =
+                document.body.style.background = observed.color;
             }
           },
           true,
@@ -245,26 +247,29 @@ async function position(value: Viewer, selector: string) {
   );
 }
 
-async function painted(value: Viewer, green: boolean) {
+async function painted(value: Viewer, expected: boolean | number[]) {
+  const color = Array.isArray(expected)
+    ? expected
+    : expected
+      ? [24, 224, 80]
+      : [232, 32, 48];
   try {
     await expect
       .poll(() =>
-        value.page.locator("#viewer-a canvas").evaluate(
-          (canvas: HTMLCanvasElement, color) => {
+        value.page
+          .locator("#viewer-a canvas")
+          .evaluate((canvas: HTMLCanvasElement, color) => {
             const pixel = canvas
               .getContext("2d")!
               .getImageData(4, 4, 1, 1).data;
             return color.every((n, i) => Math.abs(n - pixel[i]!) <= 4);
-          },
-          green ? [24, 224, 80] : [232, 32, 48],
-        ),
+          }, color),
       )
       .toBe(true);
   } catch (error) {
     // Fixed synthetic diagnostics distinguish a stale stream from a marker error.
     const remote = await value.remote.evaluate(() => ({
-      color: getComputedStyle(document.querySelector("#native-marker")!)
-        .backgroundColor,
+      color: getComputedStyle(document.documentElement).backgroundColor,
       scroll: scrollY,
       observed: (
         window as unknown as {
@@ -280,7 +285,9 @@ async function painted(value: Viewer, green: boolean) {
         pixel: [...canvas.getContext("2d")!.getImageData(4, 4, 1, 1).data],
         status: canvas.closest(".cdpv-root")?.getAttribute("data-status"),
       }));
-    console.log(JSON.stringify({ markerFailure: true, green, remote, client }));
+    console.log(
+      JSON.stringify({ markerFailure: true, expected: color, remote, client }),
+    );
     throw error;
   }
 }
@@ -404,9 +411,16 @@ for (const oneWayMs of [0, 50])
               );
             for (const workload of ["click-type", "scroll"] as const)
               for (let trial = 0; trial < 3; trial++) {
+                // A distinct marker per trial cannot accept an earlier green frame.
+                const markerIndex = trial + (workload === "scroll" ? 3 : 0);
+                const color = [
+                  24 + markerIndex * 12,
+                  224 - markerIndex * 8,
+                  80 + markerIndex * 16,
+                ];
                 await Promise.all(
                   viewers.map(async (value) => {
-                    await value.remote.evaluate(async () => {
+                    await value.remote.evaluate(async (marker) => {
                       if (scrollY !== 0)
                         await new Promise<void>((resolve) => {
                           window.addEventListener("scroll", () => resolve(), {
@@ -417,21 +431,26 @@ for (const oneWayMs of [0, 50])
                       document.querySelector<HTMLInputElement>(
                         "#plain",
                       )!.value = "";
-                      document.querySelector<HTMLElement>(
-                        "#native-marker",
-                      )!.style.background = "rgb(232,32,48)";
-                      (
+                      document.documentElement.style.background =
+                        document.body.style.background = "rgb(232,32,48)";
+                      const observed = (
                         window as unknown as {
-                          nativeObserved: { effect: number };
+                          nativeObserved: { effect: number; color: string };
                         }
-                      ).nativeObserved.effect = 0;
-                    });
+                      ).nativeObserved;
+                      observed.effect = 0;
+                      observed.color = `rgb(${marker.join(",")})`;
+                    }, color);
                     await expect
                       .poll(() => value.remote.evaluate(() => scrollY))
                       .toBe(0);
                     // Observe the reset before installing the final-feedback watch.
                     await painted(value, false);
                     await drained(value);
+                    if (value.probe)
+                      await value.page.evaluate(() => {
+                        window.nativeExperiment.stats.peakOutstanding = 0;
+                      });
                   }),
                 );
                 const observations = await Promise.all(
@@ -439,7 +458,7 @@ for (const oneWayMs of [0, 50])
                     const at = await position(value, "#plain");
                     if (workload === "scroll")
                       await value.page.mouse.move(at.x, at.y);
-                    await value.page.evaluate(() => {
+                    await value.page.evaluate((marker) => {
                       Object.assign(window, {
                         nativeTiming: { start: 0, paint: 0 },
                       });
@@ -470,15 +489,13 @@ for (const oneWayMs of [0, 50])
                           .getContext("2d")!
                           .getImageData(4, 4, 1, 1).data;
                         if (
-                          [24, 224, 80].every(
-                            (n, i) => Math.abs(n - pixel[i]!) <= 4,
-                          )
+                          marker.every((n, i) => Math.abs(n - pixel[i]!) <= 4)
                         )
                           timing.paint = Date.now();
                         else requestAnimationFrame(watch);
                       };
                       requestAnimationFrame(watch);
-                    });
+                    }, color);
                     const startCommands = value.probe?.trace.length ?? 0;
                     if (workload === "click-type") {
                       await value.page.mouse.click(at.x, at.y);
@@ -492,7 +509,7 @@ for (const oneWayMs of [0, 50])
                         .poll(() => value.remote.evaluate(() => scrollY))
                         .toBeGreaterThanOrEqual(300);
                     }
-                    await painted(value, true);
+                    await painted(value, color);
                     await drained(value);
                     await value.page.waitForFunction(
                       () =>
@@ -554,6 +571,12 @@ for (const oneWayMs of [0, 50])
                       freshLookups: commands.filter(
                         (c) => c.method === "Browser.getWindowForTarget",
                       ).length,
+                      peakUnconfirmedActions: value.probe
+                        ? await value.page.evaluate(
+                            () => window.nativeExperiment.stats.peakOutstanding,
+                          )
+                        : null,
+                      markerColor: color,
                     };
                     rows.push(row);
                     return row;

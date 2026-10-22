@@ -129,7 +129,9 @@ Matched measurements use three trials of immediate click/type and a 300 CSS-pixe
 scroll for one viewer and two concurrent viewers, on one browser URL and distinct
 windows. Both 0/50ms one-way profiles preserve capture defaults; candidate CDP is
 local and all viewer/client intent/reply traffic is shaped. Synthetic DOM effects
-and an actual streamed fixed color marker use the common host clock. Logical
+and an actual streamed viewport color marker use the common host clock. Each
+trial has a distinct expected color so an older frame cannot satisfy its final
+feedback assertion. Logical
 batch acknowledgements, coalescing and extra guard/fence work are not hidden as
 one-intent/one-write results. Keep raw observations and any regressions or
 variation in the PR. These checks establish this pointer/keyboard increment,
