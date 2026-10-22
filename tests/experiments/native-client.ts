@@ -2,7 +2,7 @@ import { NativeInput } from "../../src/input/native";
 import type { NativeInputPort } from "../../src/input/port";
 import type { InputOwner, InputTransition } from "../../src/input/lifecycle";
 import type { NativeAction } from "./native-actions";
-import { selectionResult } from "./native-actions";
+import { compositionMessageLimit, selectionResult } from "./native-actions";
 import type { NavigationAction } from "./native-actions";
 import type { SelectionResult } from "../../src/input/selection";
 import type { ViewerNavigation } from "../../src/viewer/types";
@@ -132,19 +132,32 @@ window.installNativeExperiment = ({
       stop();
       return;
     }
-    const actions = queued.splice(0, 16);
+    const envelope = {
+      kind: "batch",
+      owner,
+      sequence: sequence + 1,
+      acknowledged,
+      ...(composition ? { generation } : {}),
+    };
+    let count = Math.min(16, queued.length);
+    if (composition) {
+      let length = JSON.stringify({ ...envelope, actions: [] }).length;
+      count = 0;
+      for (const action of queued.slice(0, 16)) {
+        const addition = JSON.stringify(action).length + (count ? 1 : 0);
+        if (length + addition > compositionMessageLimit) break;
+        length += addition;
+        count++;
+      }
+      if (!count) {
+        stop();
+        return;
+      }
+    }
+    const actions = queued.splice(0, count);
     pending.set(++sequence, actions.length);
     stats.batches++;
-    socket.send(
-      JSON.stringify({
-        kind: "batch",
-        owner,
-        sequence,
-        acknowledged,
-        actions,
-        ...(composition ? { generation } : {}),
-      }),
-    );
+    socket.send(JSON.stringify({ ...envelope, actions }));
     if (queued.length) {
       scheduled = true;
       queueMicrotask(flush);

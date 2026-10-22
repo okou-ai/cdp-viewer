@@ -11,6 +11,8 @@ type Details = Pick<
   "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
 >;
 export type NavigationAction = "back" | "forward" | "reload" | { url: string };
+// A single supported 64 Ki-character action may expand sixfold in JSON.
+export const compositionMessageLimit = 512 * 1024;
 export type NativeAction =
   | { kind: "text"; text: string }
   | { kind: "key"; key: Protocol.Input.DispatchKeyEventRequest }

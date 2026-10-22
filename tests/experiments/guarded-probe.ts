@@ -10,7 +10,7 @@ import type {
   InputStop,
   InputTransition,
 } from "../../src/input/lifecycle";
-import { nativeActions } from "./native-actions";
+import { compositionMessageLimit, nativeActions } from "./native-actions";
 import type { SelectionResult } from "../../src/input/selection";
 import type { ViewerNavigation } from "../../src/viewer/types";
 
@@ -351,7 +351,9 @@ export class GuardedProbe {
     if (this.stopped || !this.ready) return false;
     let value: unknown;
     try {
-      if (typeof raw !== "string" || raw.length > 128 * 1024)
+      const limit =
+        this.mode === "composition" ? compositionMessageLimit : 128 * 1024;
+      if (typeof raw !== "string" || raw.length > limit)
         throw new Error("Invalid fixture intent");
       value = JSON.parse(raw) as unknown;
     } catch {

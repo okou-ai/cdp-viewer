@@ -248,6 +248,18 @@ it("waits for earlier native effects before navigation and never retries a rejec
   expect(await a.host.retire(a.probe)).toBe(false);
 });
 
+it("accepts a maximum-size plain-text action even when JSON escaping expands it", async () => {
+  const a = await fixture();
+  const text = "\u0000".repeat(64 * 1024);
+  expect(a.send([{ kind: "text", text }])).toBe(true);
+  await vi.waitFor(() => expect(a.acks()).toHaveLength(1));
+  expect(
+    a.socket.commands
+      .filter((c) => c.method === "Input.insertText")
+      .map((c) => c.params?.text),
+  ).toEqual([text]);
+});
+
 it("includes selection in the shared logical credit ceiling", async () => {
   const a = await fixture();
   const move: NativeAction = {

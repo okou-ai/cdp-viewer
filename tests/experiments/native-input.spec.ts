@@ -8,6 +8,7 @@ import { prepareConsumer } from "../../scripts/consumer.mjs";
 import { launchBackend, serveConsumer } from "../browser/backend";
 import { ProbeHost } from "./probe-host";
 import { assertExperimentSource } from "./assert-source";
+import { compositionMessageLimit } from "./native-actions";
 import type { GuardedProbe } from "./guarded-probe";
 import type {} from "./native-client";
 import type {} from "../consumer/api";
@@ -1117,6 +1118,106 @@ test("interaction mode transfers Unicode once and discards protected, empty and 
     expect(
       await a.page.evaluate(() => window.nativeExperiment.stats.revoked),
     ).toBe(false);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
+test("interaction mode accepts maximum escaped clipboard text and bounds a large ordered burst", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+      nativeFrames: true,
+      beforeInput: async (page) => {
+        await observeClipboard(page);
+        await page.evaluate(() => {
+          const sizes: number[] = [];
+          Object.assign(window, { nativeBatchSizes: sizes });
+          const NativeSocket = WebSocket;
+          window.WebSocket = class extends NativeSocket {
+            override send(data: Parameters<WebSocket["send"]>[0]) {
+              if (typeof data === "string") sizes.push(data.length);
+              super.send(data);
+            }
+          };
+        });
+      },
+    });
+    const text = "\\".repeat(64 * 1024);
+    await seedClipboard(a, text);
+    await resumed(a);
+    await a.remote.locator("#multiline").focus();
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    await proxy.focus();
+    await proxy.press("ControlOrMeta+v");
+    await expect
+      .poll(() =>
+        a!.remote.evaluate(
+          () =>
+            document.querySelector<HTMLTextAreaElement>("#multiline")!.value
+              .length,
+        ),
+      )
+      .toBe(text.length);
+    expect(
+      await a.remote.evaluate(
+        (text) =>
+          document.querySelector<HTMLTextAreaElement>("#multiline")!.value ===
+          text,
+        text,
+      ),
+    ).toBe(true);
+    await drained(a);
+    await a.remote.evaluate(() => {
+      document.querySelector<HTMLTextAreaElement>("#multiline")!.value = "";
+    });
+    // Actual native adapter events in one task force multi-action JSON packing.
+    await proxy.evaluate((element: HTMLTextAreaElement, text) => {
+      for (let i = 0; i < 4; i++) {
+        element.value = text;
+        element.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: text,
+          }),
+        );
+      }
+    }, text);
+    await expect
+      .poll(() =>
+        a!.remote.evaluate(
+          () =>
+            document.querySelector<HTMLTextAreaElement>("#multiline")!.value
+              .length,
+        ),
+      )
+      .toBe(text.length * 4);
+    await drained(a);
+    const sizes = await a.page.evaluate(
+      () =>
+        (window as unknown as { nativeBatchSizes: number[] }).nativeBatchSizes,
+    );
+    expect(sizes.every((n) => n <= compositionMessageLimit)).toBe(true);
+    expect(sizes.some((n) => n > 128 * 1024)).toBe(true);
+    expect(
+      a.probe!.trace.filter((c) => c.method === "Input.insertText"),
+    ).toHaveLength(5);
   } finally {
     try {
       await a?.close();

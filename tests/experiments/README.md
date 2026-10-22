@@ -188,7 +188,11 @@ latency or production capacity.
 
 The generation mode extends the same ordered batches with bounded selection and
 allowlisted back/forward/reload/address actions. They share the existing action
-credit and queue capacity; navigation must be last in its batch. Selection uses
+credit and queue capacity; navigation must be last in its batch. Composition-mode
+messages have a 512 Ki serialized-character ceiling, and packing accounts for
+JSON escaping so one supported 64 Ki-character text action fits while large
+bursts split into bounded messages. The legacy message limits stay unchanged.
+Selection uses
 the actual owner-bound InputSession reader, including its focused-chain snapshot,
 second validation, size/protected-control/frame limits and original object release.
 Results carry the captured generation and a monotonic request ID. The client
