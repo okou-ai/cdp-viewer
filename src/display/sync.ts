@@ -201,6 +201,7 @@ export class DisplaySync {
     this.started = performance.now();
     this.publish();
     let override: "none" | "pending" | "applied" = "none";
+    let rejectWrite: (() => void) | undefined;
     try {
       const [window, remote, metrics] = await Promise.all([
         this.client.request("Browser.getWindowForTarget", {
@@ -255,6 +256,8 @@ export class DisplaySync {
       projected = projectDisplay(window.windowId, size, metrics);
       // Consume measurements coalesced during guards; later changes stay pending.
       this.request = null;
+      rejectWrite = target.geometry.beginWrite();
+      this.publish();
       override = "pending";
       await this.client.request(
         "Emulation.setDeviceMetricsOverride",
@@ -293,6 +296,7 @@ export class DisplaySync {
         const uncertain =
           override === "pending" &&
           !(error instanceof CdpFault && error.code !== undefined);
+        if (override === "pending" && !uncertain) rejectWrite?.();
         if (override === "applied" || uncertain) {
           target.geometry.uncertain();
           delete target.applied;

@@ -18,7 +18,7 @@ export function BrowserMenu() {
         className="cdpv-button cdpv-browser-menu-trigger"
         aria-label="Browser menu"
         title={
-          display.pointerBlocked
+          display.pointerBlocked && !display.pending
             ? "Browser menu — display recovery required"
             : display.constrained
               ? "Browser menu — size limit reached"
@@ -95,7 +95,7 @@ export function BrowserMenu() {
                 Size limit reached
               </div>
             )}
-            {display.pointerBlocked && (
+            {display.pointerBlocked && !display.pending && (
               <div className="cdpv-browser-menu-heading" role="status">
                 Use Sync now to resume pointer input
               </div>

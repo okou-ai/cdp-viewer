@@ -109,6 +109,21 @@ for (const boundary of ["override", "restore"] as const) {
           .click();
       };
       await sync();
+      if (boundary === "override") {
+        await expect.poll(() => replies.length).toBe(1);
+        const before = commands.filter(
+          (value) => value === "Input.dispatchMouseEvent",
+        ).length;
+        await canvas.click({ position: { x: 20, y: 20 } });
+        await page.keyboard.insertText("pending ");
+        await expect(remote.locator("#plain")).toHaveValue("pending ");
+        expect(
+          commands.filter((value) => value === "Input.dispatchMouseEvent"),
+        ).toHaveLength(before);
+        await page.keyboard.press("ControlOrMeta+A");
+        await page.keyboard.press("Backspace");
+        await expect(remote.locator("#plain")).toHaveValue("");
+      }
       // The library's real request deadline, rather than a test sleep, settles the held reply.
       await page.waitForFunction(
         (text) =>

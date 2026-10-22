@@ -58,6 +58,16 @@ export class DisplayViewport {
     this.appliedScale = null;
   }
 
+  /** Only a definite rejection can restore calibration from before a write. */
+  beginWrite(): () => void {
+    const previous = this.appliedScale;
+    this.uncertain();
+    return () => {
+      this.invalidate();
+      this.appliedScale = previous;
+    };
+  }
+
   read(
     layout: Protocol.Page.GetLayoutMetricsResponse,
     revision: number,

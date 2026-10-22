@@ -241,7 +241,8 @@ High DPR still increases capture, transport and decode cost within those limits.
 
 Native sizing and emulation require browser support. Non-normal windows must be
 restored first; unsupported commands produce a recoverable diagnostic and leave
-viewing available. If display recovery cannot be confirmed, pointer actions pause
+viewing available. Pointer actions pause while a display write awaits its reply.
+If display recovery cannot be confirmed, they remain paused
 until synchronization succeeds; choose **Sync now** to retry. Text input remains
 available. Native minimum sizes, fractional scale rounding and provider
 restrictions may prevent exact matching. This is not browser zoom or a general

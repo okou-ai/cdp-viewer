@@ -656,6 +656,92 @@ it("retires partial emulation when native content sizing is unsupported", async 
   );
 });
 
+it("suspends new pointer gestures while an applied override awaits acknowledgement", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0);
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  const socket = browser.sockets[0]!;
+  const input = controller.input!;
+  socket.holdReplyMethod = "Emulation.setDeviceMetricsOverride";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+  input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+  input.text("pending text");
+  await input.completion(input.owner!);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Input.dispatchMouseEvent",
+    ),
+  ).toHaveLength(0);
+  expect(model.read(model.display$)).toMatchObject({
+    pointerBlocked: true,
+    pending: true,
+  });
+  const held = socket.heldReplies[0]!;
+  socket.holdReplyMethod = null;
+  socket.reply(held.command, held.result);
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pointerBlocked: false,
+      pending: false,
+    }),
+  );
+  input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+  await input.completion(input.owner!);
+  expect(
+    socket.commands
+      .filter((command) => command.method === "Input.dispatchMouseEvent")
+      .at(-1)?.params,
+  ).toMatchObject({ x: 320, y: 480 });
+});
+
+it.each([false, true])(
+  "preserves previously adapted=%s calibration after a definite override rejection",
+  async (adapted) => {
+    const browser = new FakeBrowser();
+    browser.browserZoom = 1.25;
+    browser.windowSizes.set(0, { width: 1000, height: 750 });
+    const { controller, model } = mount(browser, "off", 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    if (adapted) {
+      controller.syncDisplay();
+      await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(model.read(model.display$).pending).toBe(false),
+      );
+    }
+    const socket = browser.sockets[0]!;
+    browser.holdMethod = "Emulation.setDeviceMetricsOverride";
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    expect(model.read(model.display$).pointerBlocked).toBe(true);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    socket.reject(held.command);
+    await vi.waitFor(() => expect(model.getSnapshot().error).not.toBeNull());
+    expect(model.read(model.display$)).toMatchObject({
+      pointerBlocked: false,
+      pending: false,
+    });
+    const input = controller.input!;
+    browser.frame(socket, input.sessionId);
+    input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+    await input.completion(input.owner!);
+    expect(
+      socket.commands
+        .filter((command) => command.method === "Input.dispatchMouseEvent")
+        .at(-1)?.params,
+    ).toMatchObject(adapted ? { x: 256, y: 384 } : { x: 200, y: 300 });
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+      ),
+    ).toHaveLength(0);
+  },
+);
+
 it("restores native geometry after an applied override's reply times out and ignores its late acknowledgement", async () => {
   const browser = new FakeBrowser();
   browser.browserZoom = 1.25;
