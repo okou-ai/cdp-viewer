@@ -115,7 +115,14 @@ export class NativeInput {
       ) {
         this.canvas.parentElement.releasePointerCapture(pointer);
       }
-      this.proxy.blur();
+      // Same-tab cleanup invalidates old input without ending local focus.
+      if (
+        reason !== "navigation-started" &&
+        reason !== "same-document" &&
+        reason !== "document-lost" &&
+        reason !== "failed"
+      )
+        this.proxy.blur();
     } finally {
       this.resetting = false;
     }
