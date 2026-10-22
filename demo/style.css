@@ -15,7 +15,7 @@ body {
 }
 .demo-page {
   --demo-text: #242722;
-  --demo-muted: #71766d;
+  --demo-muted: #687060;
   --demo-background: #f7f8f5;
   --demo-panel: #ffffff;
   --demo-control: #fafbf8;
@@ -38,7 +38,7 @@ body {
 @supports (color: light-dark(white, black)) {
   .demo-page {
     --demo-text: light-dark(#242722, #e9ece4);
-    --demo-muted: light-dark(#71766d, #a0a69a);
+    --demo-muted: light-dark(#687060, #a0a69a);
     --demo-background: light-dark(#f7f8f5, #141712);
     --demo-panel: light-dark(#ffffff, #1c2019);
     --demo-control: light-dark(#fafbf8, #252a22);
@@ -221,7 +221,6 @@ body {
 .demo-guide summary > span {
   margin-left: 8px;
   font-size: 11px;
-  opacity: 0.7;
 }
 .demo-guide details > div {
   max-width: 920px;
@@ -707,7 +706,7 @@ body {
 .demo-endpoint-field input::placeholder,
 .demo-settings input::placeholder {
   color: var(--demo-muted);
-  opacity: 0.65;
+  opacity: 1;
 }
 .demo-field input[aria-invalid="true"] {
   border-color: var(--demo-danger);
