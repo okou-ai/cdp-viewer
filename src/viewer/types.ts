@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { ViewerExtension } from "../extensions/types";
 
 export type ViewerStatus =
   | "connecting"
@@ -17,6 +18,7 @@ export interface ViewerError {
     | "unsupported-capability"
     | "target-unavailable"
     | "input"
+    | "extension"
     | "tab"
     | "frame";
   /** A fixed diagnostic, excluding endpoint credentials and provider payloads. */
@@ -50,6 +52,8 @@ export interface CdpViewerProps {
   readonly paused?: boolean;
   /** Enable remote input, navigation and tab creation/closure. Default: false. */
   readonly interactive?: boolean;
+  /** Optional adapters, reconciled by ID and key independently of transport. */
+  readonly extensions?: readonly ViewerExtension[];
   /** Omit to inherit the host's CSS color-scheme. System follows OS preference. */
   readonly colorScheme?: "light" | "dark" | "system";
   readonly className?: string;

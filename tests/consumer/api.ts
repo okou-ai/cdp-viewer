@@ -5,6 +5,7 @@ export interface FixtureSettings {
   second?: boolean;
   interactive?: boolean;
   paused?: boolean;
+  extensions?: boolean;
   hostForm?: boolean;
   colorSchemeA?: "light" | "dark" | "system";
   colorSchemeB?: "light" | "dark" | "system";

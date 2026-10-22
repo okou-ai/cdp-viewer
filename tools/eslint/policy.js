@@ -22,7 +22,12 @@ const primitiveCapabilities = Object.freeze([
     },
   },
   {
-    files: ["src/viewer/controller.ts", "src/input/native.ts"],
+    // Each named owner defines an independently abortable resource lifetime.
+    files: [
+      "src/viewer/controller.ts",
+      "src/input/native.ts",
+      "src/extensions/runtime.ts",
+    ],
     rules: { "ccstate/no-new-abort-controller": "off" },
   },
   {

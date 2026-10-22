@@ -9,6 +9,8 @@ import {
 } from "../cdp/errors";
 import { TargetDirectory } from "../cdp/targets";
 import { openTab } from "../cdp/tabs";
+import { ExtensionRuntime } from "../extensions/runtime";
+import type { ViewerExtension } from "../extensions/types";
 import { InputSession } from "../input/session";
 import type { InputTransition } from "../input/lifecycle";
 import type { InputStop } from "../input/lifecycle";
@@ -54,6 +56,9 @@ export class ViewerController {
   private refreshWanted = false;
   private targetRevision = 0;
   private selectionRevision = 0;
+  private extensionRequest = 0;
+  private extensionDescriptors: readonly ViewerExtension[] = [];
+  private extensions: ExtensionRuntime | null = null;
   private paused: boolean;
 
   constructor(
@@ -92,6 +97,7 @@ export class ViewerController {
     )
       return;
     this.chosenOnce = true;
+    this.extensionRequest++;
     this.selectionRevision++;
     this.stopSelection();
     this.model.transition({
@@ -125,6 +131,69 @@ export class ViewerController {
       const id = this.model.getSnapshot().selectedTargetId;
       if (id) this.select(id);
       else this.refresh();
+    }
+  }
+
+  setExtensions(extensions: readonly ViewerExtension[]): void {
+    if (this.disposed) return;
+    this.extensionDescriptors = extensions;
+    this.extensions?.reconcile(extensions);
+  }
+
+  private async requestExtensionSelection(
+    targetId: string,
+    ownerCurrent: () => boolean,
+  ): Promise<boolean> {
+    const snapshot = this.model.getSnapshot();
+    if (
+      this.disposed ||
+      !this.connected ||
+      !ownerCurrent() ||
+      typeof targetId !== "string" ||
+      !targetId.trim() ||
+      snapshot.selectedTargetId === targetId ||
+      !snapshot.targets.some((target) => target.id === targetId)
+    )
+      return false;
+    const request = ++this.extensionRequest;
+    const selectionRevision = this.selectionRevision;
+    const targetRevision = this.targetRevision;
+    const current = () =>
+      !this.disposed &&
+      this.connected &&
+      ownerCurrent() &&
+      request === this.extensionRequest &&
+      selectionRevision === this.selectionRevision &&
+      targetRevision === this.targetRevision;
+    try {
+      const result: unknown = await this.client!.request(
+        "Target.getTargetInfo",
+        {
+          targetId,
+        },
+      );
+      if (
+        !current() ||
+        !isRecord(result) ||
+        !isRecord(result.targetInfo) ||
+        result.targetInfo.targetId !== targetId ||
+        result.targetInfo.type !== "page" ||
+        result.targetInfo.subtype === "prerender"
+      )
+        return false;
+      await this.directory!.assertMember(targetId);
+      if (
+        !current() ||
+        !this.model
+          .getSnapshot()
+          .targets.some((target) => target.id === targetId)
+      )
+        return false;
+      this.select(targetId);
+      return true;
+    } catch {
+      // Invalid/stale suggestions must not tear down the established stream.
+      return false;
     }
   }
 
@@ -311,6 +380,30 @@ export class ViewerController {
     if (this.disposed) return;
     this.connected = true;
     this.model.run(this.model.setConnected$, true);
+    this.extensions = new ExtensionRuntime({
+      signal: this.lifetime.signal,
+      subscribe: (listener) => client.onEvent(listener),
+      getState: () => {
+        const snapshot = this.model.getSnapshot();
+        return Object.freeze({
+          status: snapshot.status,
+          selectedTargetId: snapshot.selectedTargetId,
+          capabilities: Object.freeze({
+            windowScoped: this.options.windowId !== undefined,
+            interactive: this.options.interactive ?? false,
+          }),
+        });
+      },
+      requestTargetSelection: (targetId, current) =>
+        this.requestExtensionSelection(targetId, current),
+      reportError: (message) => {
+        if (!this.disposed && this.connected)
+          this.model.update({
+            error: Object.freeze({ kind: "extension", message }),
+          });
+      },
+    });
+    this.extensions.reconcile(this.extensionDescriptors);
     if (this.options.windowId !== undefined) {
       interval(() => this.refresh(), 2_000, { signal: this.lifetime.signal });
     }

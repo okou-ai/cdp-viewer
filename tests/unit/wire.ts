@@ -193,6 +193,22 @@ export class FakeBrowser {
             ],
           });
           break;
+        case "Target.getTargetInfo": {
+          const target = this.targets.find(
+            (t) => t.id === command.params?.targetId,
+          );
+          if (!target) socket.reject(command, -32000);
+          else
+            socket.reply(command, {
+              targetInfo: {
+                targetId: target.id,
+                type: "page",
+                title: target.title,
+                url: target.url ?? "about:blank",
+              },
+            });
+          break;
+        }
         case "Target.getTargets":
           socket.reply(command, {
             targetInfos: this.targets.map((t) => ({

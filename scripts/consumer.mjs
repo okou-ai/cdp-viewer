@@ -141,6 +141,20 @@ export async function prepareConsumer() {
         throw new Error("An installed public source/CSS entry is empty.");
       }
     }
+    for (const subpath of ["./extensions", "./extensions/browser-use"]) {
+      const extension = manifest.exports?.[subpath];
+      if (
+        !extension?.import?.startsWith("./src/") ||
+        !extension?.types?.startsWith("./src/")
+      ) {
+        throw new Error("Installed extension source/type exports are invalid.");
+      }
+      for (const file of [extension.import, extension.types]) {
+        if (!(await readFile(join(installed, file), "utf8")).trim()) {
+          throw new Error("An installed extension entry is empty.");
+        }
+      }
+    }
     run(["exec", "tsc", "--noEmit"]);
     run(["exec", "vite", "build"]);
     // Bundle source for SSR; plain Node is not a TSX compiler.
@@ -164,6 +178,7 @@ export async function prepareConsumer() {
         frozenReinstall: true,
         lockfileSha256: createHash("sha256").update(lockfile).digest("hex"),
         publicTypes: true,
+        extensionExports: true,
         build: true,
         ssr: true,
       },

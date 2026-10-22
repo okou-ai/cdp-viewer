@@ -465,6 +465,11 @@ const accepted = [
     "src/cdp/client.ts",
   ],
   [
+    "extension registration lifetime primitive",
+    "export function lifetime() { return new AbortController(); }",
+    "src/extensions/runtime.ts",
+  ],
+  [
     "queued read settlement primitive",
     "export function deferred() { return new Promise(resolve => resolve(1)); }",
     "src/input/queue.ts",

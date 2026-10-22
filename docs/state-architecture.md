@@ -72,6 +72,14 @@ binding during cleanup, so an old owner cannot detach a replacement. Callback
 identity changes must not recreate unrelated resources. Keep required DOM node
 identities stable across ordinary state updates.
 
+Optional extensions use the same ownership boundary. Descriptors define semantic
+configuration; a connection-owned registration creates each setup's mutable state,
+signal, subscriptions and cleanup. Reconcile committed configuration independently
+from transport creation. Retire authority before asynchronous teardown and retain
+late setup results until their resources can be released. The core validates
+extension suggestions against current connection/selection/discovery ownership and
+external scope; a vendor callback cannot directly acquire a target session.
+
 Keep local focus policy in its DOM runtime owner. Native adapters report semantic
 intent through supplied callbacks rather than depending on surrounding control
 markup. Shared cleanup helpers take the originating resource explicitly, while
