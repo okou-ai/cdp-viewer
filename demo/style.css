@@ -453,7 +453,7 @@ body {
 }
 .demo-stage {
   flex: 1;
-  min-height: 488px;
+  min-height: 408px;
   padding: 24px;
   display: flex;
   align-items: center;
@@ -490,7 +490,7 @@ body {
   --demo-empty-background: #ffffff;
   --demo-empty-text: #293025;
   --demo-empty-border: #e2e7dc;
-  --demo-empty-muted: #7b8474;
+  --demo-empty-muted: #697461;
   --demo-empty-surface: #f8faf5;
   --demo-empty-accent: #6c8059;
   min-width: 0;
@@ -508,7 +508,7 @@ body {
     --demo-empty-background: light-dark(#ffffff, #252822);
     --demo-empty-text: light-dark(#293025, #e7ece1);
     --demo-empty-border: light-dark(#e2e7dc, #414a38);
-    --demo-empty-muted: light-dark(#7b8474, #aab69f);
+    --demo-empty-muted: light-dark(#697461, #aab69f);
     --demo-empty-surface: light-dark(#f8faf5, #30382a);
     --demo-empty-accent: light-dark(#6c8059, #b3c39f);
   }
@@ -724,13 +724,13 @@ body {
 }
 .demo-hint {
   color: var(--demo-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.7;
   margin: 0;
   overflow-wrap: anywhere;
 }
 .demo-hint code {
-  font-size: 9px;
+  font-size: 10px;
 }
 .demo-range output {
   color: var(--demo-muted);

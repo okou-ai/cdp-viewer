@@ -36,7 +36,7 @@ export const defaultOptions = Object.freeze<PlaygroundOptions>({
   paused: false,
   interactive: true,
   theme: "inherit",
-  height: 440,
+  height: 360,
   width: 100,
   radius: 12,
   customAccent: false,
