@@ -1,5 +1,5 @@
 import { Menu } from "@base-ui/react/menu";
-import { Check, Ellipsis, LoaderCircle, Maximize } from "lucide-react";
+import { Check, EllipsisVertical, LoaderCircle, Maximize } from "lucide-react";
 import { viewerScope } from "./context";
 import { useViewerElements } from "./runtime";
 
@@ -30,7 +30,7 @@ export function BrowserMenu() {
             aria-hidden="true"
           />
         ) : (
-          <Ellipsis size={16} aria-hidden="true" />
+          <EllipsisVertical size={16} aria-hidden="true" />
         )}
       </Menu.Trigger>
       <div ref={container} className="cdpv-browser-menu-container" />
