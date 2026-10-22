@@ -146,11 +146,24 @@ never automatically replayed. A site can move its native focus before an
 already-sent event executes.
 Already accepted remote input cannot be cancelled or rolled back.
 
+With `windowId`, selection and attachment verify window membership. Stable input
+uses that selected session without querying the window before every event.
+Target events and the two-second discovery poll detect scope changes; lookup and
+refresh latency add to detection time. An external tab move can precede detection.
+Detected mismatch or lookup failure clears the image and stops old-session input,
+including unsent work. Window filtering is presentation scope, not endpoint access
+control or an atomic cross-client handover mechanism.
+
 Pressed keys/buttons remain owned until their matching release response confirms
 release. An old response cannot clear a later press of the same key/button. A failed
 or interrupted release still permits best-effort release cleanup on the original
 session, which can send an additional `keyUp` when its outcome is unknown.
 Committed text and navigation are not replayed by this cleanup.
+During connected selection replacement, the original session remains attached
+until its input and cleanup replies settle. This viewer waits for positive
+retirement before reusing the same target. Unconfirmed cleanup keeps that target
+unavailable on the connection; other targets and viewers retain their own lanes.
+Connection teardown remains best effort.
 Hash and history changes that retain the document release owned keys/buttons
 before clearing input ownership. Navigation start also releases held input:
 cancellation or HTTP 204 can retain the original document. A loading-start event

@@ -68,6 +68,14 @@ the public viewer streams read-only. Its actual input coordinator uses its own
 short local CDP connection. Each participating window has an independently
 admitted owner, input session, connection, queue and renderer.
 
+Record each path's scope policy. Public scoped input verifies selection and
+attachment, then uses the selected session until background discovery invalidates
+it. The private adjacent coordinator still checks membership before each action.
+These policies differ during external movement; topology comparisons must not
+claim equivalent fresh-per-action scope. For a public-path optimization, compare
+immutable before/after direct rows under the same workload and transit profile,
+and explicitly document any approved policy change.
+
 Playwright intercepts the fixture channel in the test process; this is a shaped
 topology experiment, not a network service. All client CDP messages, frames and
 intent/reply traffic receive the configured one-way transit. Adjacent CDP remains

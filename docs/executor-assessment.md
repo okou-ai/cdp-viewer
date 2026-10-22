@@ -14,6 +14,12 @@ extensions, build and SSR. Keep browser, default capture, workloads and transit
 profiles matched. Retain an unshaped control as well as added transit in both
 directions. Do not credit earlier source optimizations to a later experiment.
 
+Record scope policy as an input to every comparison. Public scoped input uses
+selection/attachment checks and background invalidation; private adjacent fixtures
+may still perform fresh per-action checks. Do not describe their movement behavior
+as equivalent. A before/after public-path comparison must identify an intentional
+policy change separately from execution-location effects.
+
 Use one and two scoped viewers on one browser URL, distinct real windows and
 independent client pages. Each viewer retains its own connection, request IDs,
 session, ordered queue, transient pressed/composition state and renderer. Pair
@@ -53,15 +59,16 @@ repaints. State these boundaries instead of merging unlike metrics.
 
 ## Compare credible alternatives
 
-| Approach                                                     | What it can improve                                               | Required boundary or remaining cost                                                                                               |
-| ------------------------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Current direct input with pipelined sends                    | Avoids waiting for earlier dispatch replies and optional metadata | Fresh scoped membership preparation still precedes each write across the long link                                                |
-| Reduce optional metadata or separate frame/control transport | Can reduce redundant reads or contention                          | Measure it independently; it does not remove a dependent membership round trip                                                    |
-| Cached membership                                            | Can remove repeated lookups                                       | Cached presentation membership cannot silently become current input authorization                                                 |
-| Parallel preflight or a versioned membership lease           | May overlap preparation under an explicit ownership protocol      | A result prepared before other work is not an atomic check at dispatch; invalidation and external moves need an enforced contract |
-| Original-owner release exception                             | Can finish owned cleanup after focus/membership loss              | Cannot authorize new input, erase unknown results or release a replacement's acquisition                                          |
-| Raw WebSocket relay                                          | Can change connection topology                                    | Relaying dependent client requests does not relocate guard/dispatch decisions                                                     |
-| Explicit adjacent intent executor                            | Moves dependent guard/dispatch work to short CDP                  | Adds host admission, an optional wire contract, extra resources and operational failure modes                                     |
+| Approach                                                     | What it can improve                                                              | Required boundary or remaining cost                                                                                               |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Direct input bound to the selected session                   | Avoids per-event membership RTTs, earlier dispatch replies and optional metadata | External movement can precede background discovery; selection/attachment and local owner checks remain required                   |
+| Fresh per-action membership                                  | Checks observed scope before each queued write                                   | Each scoped check crosses the CDP link; check and send are still not atomic against external movement                             |
+| Reduce optional metadata or separate frame/control transport | Can reduce redundant reads or contention                                         | Measure it independently; it does not remove a dependent membership round trip                                                    |
+| Cached membership                                            | Can remove repeated lookups                                                      | Cached presentation membership cannot silently become current input authorization                                                 |
+| Parallel preflight or a versioned membership lease           | May overlap preparation under an explicit ownership protocol                     | A result prepared before other work is not an atomic check at dispatch; invalidation and external moves need an enforced contract |
+| Original-owner release exception                             | Can finish owned cleanup after focus/membership loss                             | Cannot authorize new input, erase unknown results or release a replacement's acquisition                                          |
+| Raw WebSocket relay                                          | Can change connection topology                                                   | Relaying dependent client requests does not relocate guard/dispatch decisions                                                     |
+| Explicit adjacent intent executor                            | Moves dependent guard/dispatch work to short CDP                                 | Adds host admission, an optional wire contract, extra resources and operational failure modes                                     |
 
 Select by demonstrated benefit and preserved contracts, not by smallest diff or
 fixture speed alone. Unmeasured alternatives remain unmeasured; do not label them

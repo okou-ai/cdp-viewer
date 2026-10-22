@@ -28,6 +28,11 @@ interface Selection {
   inputReady: boolean;
 }
 
+interface Retirement {
+  input: InputSession;
+  complete: Promise<void>;
+}
+
 interface ControllerOptions {
   url: string;
   windowId?: number;
@@ -46,6 +51,7 @@ interface ControllerOptions {
 export class ViewerController {
   private readonly lifetime = new AbortController();
   private readonly ownedSessions = new Set<string>();
+  private readonly retirements = new Map<string, Retirement>();
   private client: CdpClient | null = null;
   private directory: TargetDirectory | null = null;
   private selection: Selection | null = null;
@@ -351,6 +357,7 @@ export class ViewerController {
     this.sink.dispose();
     this.client?.close();
     this.ownedSessions.clear();
+    this.retirements.clear();
   }
 
   private async connect(): Promise<void> {
@@ -488,6 +495,8 @@ export class ViewerController {
 
   private async attach(selection: Selection): Promise<void> {
     const client = this.client!;
+    await this.retirements.get(selection.targetId)?.complete;
+    if (!this.isCurrent(selection)) return;
     await this.directory!.assertMember(selection.targetId);
     if (!this.isCurrent(selection)) return;
     // A background tab may have no compositor surface until it is activated.
@@ -521,6 +530,8 @@ export class ViewerController {
       this.release(selection);
       return;
     }
+    await this.directory!.assertMember(selection.targetId);
+    if (!this.isCurrent(selection)) return;
     await client.request("Page.enable", undefined, attached.sessionId);
     if (!this.isCurrent(selection)) return;
     let inputReady: Promise<void> = Promise.resolve();
@@ -528,11 +539,8 @@ export class ViewerController {
       const input = new InputSession(
         client,
         attached.sessionId,
-        async () => {
-          if (!this.isCurrent(selection)) return false;
-          await this.directory!.assertMember(selection.targetId);
-          return this.isCurrent(selection);
-        },
+        // Discovery invalidates moved targets; stable input uses the selected session.
+        async () => this.isCurrent(selection),
         (navigation) => {
           if (this.isCurrent(selection)) this.model.update({ navigation });
         },
@@ -608,9 +616,28 @@ export class ViewerController {
     this.sink.reset();
     this.model.transition({ type: "stopped" });
     if (old) {
-      old.input?.dispose(reason);
       old.deadline.abort();
-      this.release(old);
+      const input = old.input;
+      if (input && reason !== "disconnected" && !this.disposed) {
+        // Publish the fence before retirement can reenter through reset callbacks.
+        const complete = Promise.resolve().then(() => input.retire(reason));
+        const retirement = { input, complete };
+        this.retirements.set(old.targetId, retirement);
+        complete.then(
+          () => {
+            if (this.retirements.get(old.targetId) === retirement)
+              this.retirements.delete(old.targetId);
+            this.release(old);
+          },
+          () => {
+            // Unknown cleanup cannot grant this connection a new owner of the target.
+            this.release(old);
+          },
+        );
+      } else {
+        input?.dispose(reason);
+        this.release(old);
+      }
     }
   }
 
@@ -629,6 +656,8 @@ export class ViewerController {
   private readonly onEvent = (event: CdpEvent): void => {
     if (this.disposed) return;
     this.selection?.input?.event(event);
+    for (const retirement of this.retirements.values())
+      retirement.input.event(event);
     const params = event.params;
     if (event.method === "Page.screencastFrame") {
       const id = event.sessionId;
@@ -695,6 +724,11 @@ export class ViewerController {
           ),
         );
       }
+      if (
+        event.method === "Target.targetDestroyed" &&
+        typeof params.targetId === "string"
+      )
+        this.retirements.delete(params.targetId);
       this.refresh();
     }
   };

@@ -505,6 +505,11 @@ for (const oneWayMs of [0, 50]) {
                   expect(outstanding).toBe(0);
                   const row = {
                     mode,
+                    scopePolicy: adjacent
+                      ? "fresh-per-action"
+                      : mode === "direct-unscoped"
+                        ? "unscoped"
+                        : "selection-lifecycle",
                     oneWayMs,
                     workload,
                     trial,
@@ -553,7 +558,7 @@ for (const oneWayMs of [0, 50]) {
             oneWayMs,
             heldBoundaryIsolationChecks: heldIsolation,
             scope:
-              "Owned Chromium, three trials per mode/workload, shared host clock, default capture. Public direct NativeInput versus minimal fixture keys/text adapter and actual adjacent InputSession. Concurrent cases use separate client pages, one browser URL, different windows. No full interaction, handover, production/provider/OS or tail-latency claim. Direct membership counts include independent discovery lookups.",
+              "Owned Chromium, three trials per mode/workload, shared host clock, default capture. Public direct NativeInput uses selection-lifecycle scope; the minimal adjacent fixture adapter and actual adjacent InputSession retain fresh-per-action scope. Concurrent cases use separate client pages, one browser URL, different windows. No equivalent movement policy, full interaction, handover, production/provider/OS or tail-latency claim. Direct membership counts include independent discovery lookups.",
             rows,
           },
           null,

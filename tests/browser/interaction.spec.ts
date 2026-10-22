@@ -582,7 +582,7 @@ test("native keyboard input follows automatic focus handoff and replaced control
   }
 });
 
-test("native text commits retain focus handoff across a delayed window check", async ({
+test("native text commits retain focus handoff while earlier input replies are held", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -604,24 +604,24 @@ test("native text commits retain focus handoff across a delayed window check", a
     const writes: string[] = [];
     await page.routeWebSocket(backend.endpoint, (socket) => {
       const upstream = socket.connectToServer();
-      const windows = new Set<number>();
+      const inputs = new Set<number>();
       socket.onMessage((message) => {
         const command = JSON.parse(String(message)) as {
           id: number;
           method: string;
           params?: { text?: string };
         };
-        if (armed && command.method === "Browser.getWindowForTarget")
-          windows.add(command.id);
+        if (armed && command.method === "Input.insertText")
+          inputs.add(command.id);
         if (command.method === "Input.insertText")
           writes.push(command.params?.text ?? "");
         upstream.send(message);
       });
       upstream.onMessage((message) => {
         const response = JSON.parse(String(message)) as { id?: number };
-        const windowReply =
-          response.id !== undefined && windows.delete(response.id);
-        if (armed && windowReply) releases.push(() => socket.send(message));
+        const inputReply =
+          response.id !== undefined && inputs.delete(response.id);
+        if (armed && inputReply) releases.push(() => socket.send(message));
         else socket.send(message);
       });
     });
@@ -631,15 +631,231 @@ test("native text commits retain focus handoff across a delayed window check", a
     await page.keyboard.insertText("1");
     await expect.poll(() => releases.length).toBeGreaterThan(0);
     await page.keyboard.insertText("2");
-    expect(writes).toEqual([]);
-    armed = false;
-    for (const release of releases.splice(0)) release();
     await expect(remote.locator("#plain")).toHaveValue("1");
     await expect(remote.locator("#next-code")).toHaveValue("2");
+    await expect.poll(() => releases.length).toBe(2);
     expect(writes).toEqual(["1", "2"]);
+    armed = false;
+    for (const release of releases.splice(0)) release();
   } finally {
     armed = false;
     for (const release of releases) release();
+    await backend.close();
+  }
+});
+
+test("scoped input isolates pending discovery and cancels queued commits after a real move", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  let sibling: Page | undefined;
+  const scopeReplies: (() => void)[] = [];
+  let holdDiscovery = false;
+  let releasePreedit: (() => void) | undefined;
+  const commits: string[] = [];
+  let cleanupConfirmed = false;
+  let detachConfirmed = false;
+  const retirementReplies: { method: string; ok: boolean }[] = [];
+  try {
+    sibling = await page.context().newPage();
+    const first = await editor(backend, "?move-a");
+    const second = await editor(backend, "?move-b");
+    await second.remote.evaluate(() => {
+      const marker = document.createElement("div");
+      marker.style.cssText =
+        "position:fixed;left:0;top:0;width:32px;height:32px;background:blue";
+      document.body.append(marker);
+      document.querySelector("#plain")!.addEventListener("input", () => {
+        marker.style.background = "rgb(24,224,80)";
+      });
+    });
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      const windows = new Set<number>();
+      const cleanup = new Set<number>();
+      const detaches = new Set<number>();
+      let preeditId: number | undefined;
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+          params?: { text?: string; type?: string; code?: string };
+        };
+        if (holdDiscovery && command.method === "Browser.getWindowForTarget")
+          windows.add(command.id);
+        if (command.method === "Input.imeSetComposition") {
+          if (command.params?.text === "n") preeditId = command.id;
+        }
+        if (
+          command.method === "Input.dispatchKeyEvent" &&
+          command.params?.type === "keyUp" &&
+          command.params.code === "ShiftLeft"
+        )
+          cleanup.add(command.id);
+        if (command.method === "Target.detachFromTarget")
+          detaches.add(command.id);
+        if (command.method === "Input.insertText")
+          commits.push(command.params?.text ?? "");
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as {
+          id?: number;
+          result?: object;
+          error?: object;
+        };
+        if (response.id !== undefined && windows.delete(response.id)) {
+          scopeReplies.push(() => socket.send(message));
+        } else if (response.id !== undefined && response.id === preeditId) {
+          releasePreedit = () => socket.send(message);
+        } else {
+          if (response.id !== undefined) {
+            const ok = !!response.result && !response.error;
+            if (cleanup.delete(response.id)) {
+              retirementReplies.push({ method: "Input.dispatchKeyEvent", ok });
+              cleanupConfirmed = ok;
+            }
+            if (detaches.delete(response.id)) {
+              retirementReplies.push({ method: "Target.detachFromTarget", ok });
+              detachConfirmed = ok;
+            }
+          }
+          socket.send(message);
+        }
+      });
+    });
+    // Allow initial admission, then hold a real background discovery result.
+    const a = await host(page, backend, first.windowId);
+    const b = await host(sibling, backend, second.windowId);
+    await clickRemote(sibling, b, second.remote, "#plain");
+    holdDiscovery = true;
+    await expect.poll(() => scopeReplies.length).toBeGreaterThan(0);
+    await sibling.keyboard.insertText("sibling");
+    await expect(second.remote.locator("#plain")).toHaveValue("sibling");
+    await expect
+      .poll(() =>
+        b.locator("canvas").evaluate((canvas: HTMLCanvasElement) => {
+          const pixel = canvas.getContext("2d")!.getImageData(0, 0, 1, 1).data;
+          return Math.max(
+            ...[24, 224, 80].map((value, i) => Math.abs(pixel[i]! - value)),
+          );
+        }),
+      )
+      .toBeLessThanOrEqual(4);
+    await expect(a).toHaveAttribute("data-status", "streaming");
+
+    await clickRemote(page, a, first.remote, "#plain");
+    await page.keyboard.down("Shift");
+    const proxy = a.getByRole("textbox", { name: "Remote browser input" });
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.value = "n";
+      element.setSelectionRange(1, 1);
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          isComposing: true,
+          inputType: "insertCompositionText",
+          data: "n",
+        }),
+      );
+    });
+    await expect.poll(() => typeof releasePreedit).toBe("function");
+    await expect(first.remote.locator("#plain")).toHaveValue("n");
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      element.value = "discarded";
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", {
+          bubbles: true,
+          data: "discarded",
+        }),
+      );
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertFromComposition",
+          data: "discarded",
+        }),
+      );
+    });
+    expect(commits).toEqual([]);
+    expect(cleanupConfirmed).toBe(false);
+    holdDiscovery = false;
+    for (const release of scopeReplies.splice(0)) release();
+    const worker =
+      backend.context.serviceWorkers()[0] ??
+      (await backend.context.waitForEvent("serviceworker"));
+    await worker.evaluate(
+      async ({ fromUrl, toUrl }) => {
+        const tabs = (
+          globalThis as unknown as {
+            chrome: {
+              tabs: {
+                query(
+                  query: object,
+                ): Promise<{ id: number; windowId: number; url: string }[]>;
+                move(
+                  id: number,
+                  options: { windowId: number; index: number },
+                ): Promise<unknown>;
+              };
+            };
+          }
+        ).chrome.tabs;
+        const all = await tabs.query({});
+        const from = all.find((tab) => tab.url === fromUrl)!;
+        const to = all.find((tab) => tab.url === toUrl)!;
+        await tabs.move(from.id, { windowId: to.windowId, index: -1 });
+      },
+      { fromUrl: first.remote.url(), toUrl: second.remote.url() },
+    );
+    await expect(a).toHaveAttribute("data-status", "unavailable");
+    releasePreedit!();
+    releasePreedit = undefined;
+    await expect
+      .poll(() => ({ cleanupConfirmed, detachConfirmed, retirementReplies }))
+      .toMatchObject({
+        cleanupConfirmed: true,
+        detachConfirmed: true,
+      });
+    // Chromium may commit the already accepted preedit while moving its native window.
+    expect(["", "n"]).toContain(
+      await first.remote.locator("#plain").inputValue(),
+    );
+    await page.keyboard.up("Shift");
+    expect(commits).toEqual([]);
+    await expect
+      .poll(() =>
+        a.locator("canvas").evaluate((canvas: HTMLCanvasElement) => {
+          const pixels = canvas
+            .getContext("2d")!
+            .getImageData(0, 0, canvas.width, canvas.height).data;
+          return pixels.some((value, index) => index % 4 < 3 && value !== 0);
+        }),
+      )
+      .toBe(false);
+    await expect(b).toHaveAttribute("data-status", "streaming");
+    await b.locator(`[data-target-id="${first.targetId}"]`).click();
+    await expect(b).toHaveAttribute("data-status", "streaming");
+    await clickRemote(sibling, b, first.remote, "#plain");
+    await sibling.keyboard.press("Control+a");
+    await sibling.keyboard.insertText("destination");
+    await expect(first.remote.locator("#plain")).toHaveValue("destination");
+    expect(commits).toEqual([]);
+  } finally {
+    holdDiscovery = false;
+    await info.attach("scope-retirement", {
+      body: JSON.stringify({ retirementReplies }),
+      contentType: "application/json",
+    });
+    for (const release of scopeReplies) release();
+    releasePreedit?.();
+    await sibling?.close();
     await backend.close();
   }
 });
