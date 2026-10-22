@@ -1,4 +1,5 @@
 import { NativeInput } from "../../src/input/native";
+import { isRecord } from "../../src/cdp/errors";
 import type { NativeInputPort } from "../../src/input/port";
 import type { InputOwner, InputTransition } from "../../src/input/lifecycle";
 import type { NativeAction } from "./native-actions";
@@ -279,7 +280,18 @@ window.installNativeExperiment = ({
   );
   socket.addEventListener("message", (event: MessageEvent<string>) => {
     if (stopped) return;
-    const value = JSON.parse(event.data) as {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(event.data);
+    } catch {
+      stop();
+      return;
+    }
+    if (!isRecord(decoded) || typeof decoded.type !== "string") {
+      stop();
+      return;
+    }
+    const value = decoded as {
       type: string;
       sequence?: number;
       ok?: boolean;

@@ -108,6 +108,13 @@ async function fullInteractions(value: Viewer) {
   await copySelection(value);
   expect(await localClipboard(value)).toBe("owned你");
   await resumed(value);
+  const paste = await position(value, "#multiline");
+  await value.page.mouse.click(paste.x, paste.y);
+  await value.page
+    .getByRole("textbox", { name: "Native executor input" })
+    .press("ControlOrMeta+v");
+  await expect(value.remote.locator("#multiline")).toHaveValue("owned你");
+  await drained(value);
   const at = await position(value, "#plain");
   await value.page.mouse.click(at.x, at.y);
   await drained(value);
@@ -183,10 +190,9 @@ async function receipt(
   );
 }
 
-async function clientReplyFault(
-  page: Page,
-  fault: "lost" | "rejected" | "partial",
-) {
+type ReplyFault = "lost" | "rejected" | "partial" | "truncated" | "non-object";
+
+async function clientReplyFault(page: Page, fault: ReplyFault) {
   await page.evaluate((fault) => {
     const state = { armed: false, seen: false, release: () => {} };
     window.recoveryReply = state;
@@ -195,12 +201,13 @@ async function clientReplyFault(
       constructor(url: string | URL, protocols?: string | string[]) {
         super(url, protocols);
         this.addEventListener("message", (event: MessageEvent<string>) => {
+          if (!state.armed) return;
           const reply = JSON.parse(event.data) as {
             type: string;
             ok?: boolean;
             sequence?: number;
           };
-          if (!state.armed || reply.type !== "ack") return;
+          if (reply.type !== "ack") return;
           state.armed = false;
           state.seen = true;
           event.stopImmediatePropagation();
@@ -210,6 +217,14 @@ async function clientReplyFault(
             this.dispatchEvent(new MessageEvent("message", { data: original }));
           };
           if (fault === "lost") return;
+          if (fault === "truncated" || fault === "non-object") {
+            this.dispatchEvent(
+              new MessageEvent("message", {
+                data: fault === "truncated" ? "{" : "null",
+              }),
+            );
+            return;
+          }
           if (fault === "rejected") reply.ok = false;
           else delete reply.sequence;
           this.dispatchEvent(
@@ -221,7 +236,13 @@ async function clientReplyFault(
   }, fault);
 }
 
-for (const fault of ["lost", "rejected", "partial"] as const) {
+for (const fault of [
+  "lost",
+  "rejected",
+  "partial",
+  "truncated",
+  "non-object",
+] as const) {
   test(`full native client ${fault} reply never replays a completed effect on reconnect`, async ({
     browser,
   }, info) => {
@@ -275,7 +296,11 @@ for (const fault of ["lost", "rejected", "partial"] as const) {
             window.nativeExperiment.close();
           });
       }
-      await a.page.waitForFunction(() => window.nativeExperiment.stats.revoked);
+      await expect
+        .poll(() =>
+          a.page.evaluate(() => window.nativeExperiment.stats.revoked),
+        )
+        .toBe(true);
       expect(await a.retired).toBe(true);
       expect(
         a.probe!.trace.filter((row) => row.method === "Input.insertText"),
