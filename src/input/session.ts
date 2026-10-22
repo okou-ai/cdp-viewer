@@ -55,7 +55,9 @@ export class InputSession {
   private viewportVersion = 0;
   private readonly lifecycle: InputLifecycle;
   private readonly queue: InputQueue;
-  private historyOwner: InputOwner | null = null;
+  private historyJob: InputJob | null = null;
+  private historyReading = false;
+  private historyVersion = 0;
   private navigationKnown = false;
   private frameId: string | null = null;
   private contextId: number | null = null;
@@ -68,7 +70,7 @@ export class InputSession {
   constructor(
     private readonly client: CdpClient,
     readonly sessionId: string,
-    owner: () => Promise<boolean>,
+    private readonly member: () => Promise<boolean>,
     private readonly changed: (value: ViewerNavigation | null) => void,
     private readonly resetLocal: (reason: InputTransition) => void,
     private readonly caret: (point: Point) => void,
@@ -76,7 +78,7 @@ export class InputSession {
     private readonly resetClipboard: () => void = () => {},
   ) {
     this.lifecycle = new InputLifecycle(sessionId);
-    this.queue = new InputQueue(client, this.lifecycle, owner, (error) =>
+    this.queue = new InputQueue(client, this.lifecycle, member, (error) =>
       this.reportFailure(error),
     );
   }
@@ -112,6 +114,9 @@ export class InputSession {
   private transition(reason: InputTransition): void {
     const cleanup = this.lifecycle.transition(reason);
     if (!cleanup) return;
+    const refreshHistory = this.historyReading || this.historyJob !== null;
+    this.historyVersion++;
+    this.historyJob = null;
     this.clipboardVersion++;
     if (reason !== "blur") this.resetClipboard();
     if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
@@ -131,6 +136,8 @@ export class InputSession {
         cleanup.owner.sessionId,
       );
     this.resetLocal(reason);
+    if ((reason === "blur" || reason === "failed") && refreshHistory)
+      this.updateHistory();
   }
 
   dispose(reason: InputStop = "disposed"): void {
@@ -561,30 +568,47 @@ export class InputSession {
   }
 
   private updateHistory(): void {
-    const owner = this.lifecycle.owner;
-    if (this.historyOwner === owner) return;
-    this.historyOwner = owner;
-    this.queue.enqueue(async (job) => {
-      try {
+    if (!this.available) return;
+    this.historyVersion++;
+    this.historyJob = this.queue.capture();
+    if (!this.historyReading)
+      this.drainHistory().catch(() => {
+        // Optional failures never discard input or change its diagnostic.
+        // Resume only a refresh already requested while this read was active.
+        if (this.historyJob && !this.historyReading) this.updateHistory();
+      });
+  }
+
+  private async drainHistory(): Promise<void> {
+    this.historyReading = true;
+    try {
+      while (this.historyJob && this.available) {
+        const job = this.historyJob;
+        const version = this.historyVersion;
+        this.historyJob = null;
+        const current = () =>
+          version === this.historyVersion && this.lifecycle.owns(job.owner);
+        if (!current() || !(await this.member()) || !current()) continue;
         const history = await job.request(
           "Page.getNavigationHistory",
           undefined,
         );
-        const current = history.entries[history.currentIndex];
-        if (current) {
-          this.navigationKnown = true;
-          this.changed(
-            Object.freeze({
-              url: current.url,
-              canGoBack: history.currentIndex > 0,
-              canGoForward: history.currentIndex < history.entries.length - 1,
-            }),
-          );
-        }
-      } finally {
-        if (this.historyOwner === owner) this.historyOwner = null;
+        if (!current()) continue;
+        const entry = history.entries[history.currentIndex];
+        this.navigationKnown = !!entry;
+        this.changed(
+          entry
+            ? Object.freeze({
+                url: entry.url,
+                canGoBack: history.currentIndex > 0,
+                canGoForward: history.currentIndex < history.entries.length - 1,
+              })
+            : null,
+        );
       }
-    });
+    } finally {
+      this.historyReading = false;
+    }
   }
 
   private reportFailure(error?: unknown): void {
