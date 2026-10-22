@@ -32,6 +32,11 @@ export interface PlaygroundOptions {
   readonly framed: boolean;
 }
 
+export const sizeLimits = {
+  height: { min: 240, max: 800 },
+  width: { min: 50, max: 100 },
+} as const;
+
 export const defaultOptions = Object.freeze<PlaygroundOptions>({
   paused: false,
   interactive: true,

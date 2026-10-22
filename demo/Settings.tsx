@@ -8,14 +8,14 @@ import {
 } from "lucide-react";
 import { demoScope } from "./context";
 import type { Panel } from "./model";
-import { propGuide, usageCode } from "./playground";
+import { propGuide, sizeLimits, usageCode } from "./playground";
 
 const extensionOptions = [
   { label: "Browser Use", extension: browserUse() },
 ] as const;
 const dimensions = [
-  { key: "height", label: "Height", min: 240, max: 800, step: 40, unit: "px" },
-  { key: "width", label: "Width", min: 50, max: 100, step: 5, unit: "%" },
+  { key: "height", label: "Height", ...sizeLimits.height, step: 1, unit: "px" },
+  { key: "width", label: "Width", ...sizeLimits.width, step: 1, unit: "%" },
   {
     key: "radius",
     label: "Corner radius",

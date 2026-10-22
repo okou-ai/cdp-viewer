@@ -62,6 +62,18 @@ settings scroll within that height. Narrow panels put settings below the preview
 where groups expand with the page. All controls belong to that panel; adding
 another viewer starts with independent defaults.
 
+Drag the preview's lower-right corner to resize it. Height, Width, the dimension
+caption and Usage stay in sync. The preview stays anchored at the top left while
+resizing. Height ranges from 240 to 800px; width ranges from 50% to 100% of the
+available stage, including on narrow screens. The surrounding stage keeps its
+initial minimum height when the viewer shrinks and grows to fit a taller viewer.
+
+The corner is also a keyboard control: Left/Right adjust width by 1%, Up/Down
+adjust height by 10px, and Shift uses larger 5%/40px steps. Escape, focus loss or
+pointer cancellation stops the drag at its current size. The sliders remain
+available for precise changes. Resizing a preview keeps its live viewer and input
+nodes and only changes local presentation.
+
 | Public prop      | Playground surface                             | When it changes                                                         |
 | ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
 | `cdpUrl`         | Masked connection bar                          | Connect or Apply & connect                                              |

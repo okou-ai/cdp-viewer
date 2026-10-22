@@ -399,6 +399,320 @@ test("playground changes live props independently and observes safe callbacks", 
   }
 });
 
+test("corner dragging resizes the live viewer without remote input or reconnection", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  let sockets = 0;
+  page.on("websocket", () => {
+    sockets++;
+  });
+  try {
+    const created = backend.context.waitForEvent("page");
+    const target = await backend.session.send("Target.createTarget", {
+      url: "about:blank",
+      newWindow: true,
+    });
+    const remote = await created;
+    await remote.setContent(`<!doctype html><title>Resize fixture</title>
+      <style>html,body{height:100%;margin:0}body{display:grid;place-items:center}input{width:240px;height:40px;font:20px sans-serif}</style>
+      <input aria-label="Fixture input">
+      <script>window.resizeInput={pointer:0,key:0};document.addEventListener('pointerdown',()=>window.resizeInput.pointer++);document.addEventListener('keydown',()=>window.resizeInput.key++);</script>`);
+    const scope = await backend.session.send("Browser.getWindowForTarget", {
+      targetId: target.targetId,
+    });
+    const a = panel(page, 1);
+    await configure(a, backend.endpoint, scope.windowId);
+    const view = a.getByRole("region", { name: "Remote browser viewer" });
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect(view.getByLabel("Remote browser input")).toBeEnabled();
+    const input = await view.getByLabel("Remote browser input").elementHandle();
+    const selected = await view
+      .getByRole("tab", { selected: true })
+      .getAttribute("data-target-id");
+    const originalSockets = sockets;
+    const originalBounds = await backend.session.send(
+      "Browser.getWindowBounds",
+      { windowId: scope.windowId },
+    );
+    await a
+      .locator("summary")
+      .filter({ hasText: "Appearance & layout" })
+      .click();
+    const handle = a.getByRole("button", {
+      name: "Resize viewer 1",
+      exact: true,
+    });
+    const corner = (await handle.boundingBox())!;
+    const initial = (await view.boundingBox())!;
+    const start = {
+      x: corner.x + corner.width / 2,
+      y: corner.y + corner.height / 2,
+    };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await expect(handle).toHaveAttribute("data-resizing", "true");
+    await page.mouse.move(start.x - initial.width * 0.2, start.y + 137, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    await expect(handle).toHaveAttribute("data-resizing", "false");
+    await expect(view).toHaveCSS("height", "497px");
+    await expect(
+      a.getByRole("slider", { name: "Height", exact: true }),
+    ).toHaveValue("497");
+    await expect(
+      a.getByRole("slider", { name: "Width", exact: true }),
+    ).toHaveValue("80");
+    expect(
+      Math.abs((await view.boundingBox())!.width - initial.width * 0.8),
+    ).toBeLessThan(1);
+    await handle.press("ArrowLeft");
+    await handle.press("Shift+ArrowUp");
+    await expect(view).toHaveCSS("height", "457px");
+    await expect(
+      a.getByRole("slider", { name: "Width", exact: true }),
+    ).toHaveValue("79");
+    await a.locator("summary").filter({ hasText: "Usage" }).click();
+    await expect(a.getByLabel("Component code")).toContainText('"height": 457');
+    await expect(a.getByLabel("Component code")).toContainText(
+      '"width": "79%"',
+    );
+    expect(sockets).toBe(originalSockets);
+    expect(
+      await view
+        .getByLabel("Remote browser input")
+        .evaluate((node, original) => node === original, input),
+    ).toBe(true);
+    await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+      "data-target-id",
+      selected!,
+    );
+    expect(
+      await backend.session.send("Browser.getWindowBounds", {
+        windowId: scope.windowId,
+      }),
+    ).toEqual(originalBounds);
+    expect(
+      await remote.evaluate(() => Reflect.get(window, "resizeInput")),
+    ).toEqual({ pointer: 0, key: 0 });
+    await view.getByRole("img", { name: "Live browser view" }).click();
+    await page.keyboard.insertText("after resize");
+    await expect(remote.getByLabel("Fixture input")).toHaveValue(
+      "after resize",
+    );
+    await page.keyboard.press("F8");
+    await page.getByRole("button", { name: "Add viewer" }).click();
+    await expect(panel(page, 2).locator(".demo-disconnected")).toHaveCSS(
+      "height",
+      "360px",
+    );
+    await a.getByRole("slider", { name: "Height", exact: true }).fill("520");
+    await expect(view).toHaveCSS("height", "520px");
+    expect(sockets).toBe(originalSockets);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("resize capture ends on Escape and capture loss, with native touch on narrow panels", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await openDemo(page);
+  const a = panel(page, 1);
+  await a.locator("summary").filter({ hasText: "Appearance & layout" }).click();
+  const handle = a.getByRole("button", {
+    name: "Resize viewer 1",
+    exact: true,
+  });
+  const height = a.getByRole("slider", { name: "Height", exact: true });
+  const width = a.getByRole("slider", { name: "Width", exact: true });
+  let corner = (await handle.boundingBox())!;
+  await page.mouse.move(
+    corner.x + corner.width / 2,
+    corner.y + corner.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(corner.x - 120, corner.y + 32);
+  await page.keyboard.press("Escape");
+  await expect(handle).toHaveAttribute("data-resizing", "false");
+  const stopped = {
+    height: await height.inputValue(),
+    width: await width.inputValue(),
+  };
+  await page.mouse.move(corner.x - 240, corner.y + 80);
+  await page.mouse.up();
+  await expect(height).toHaveValue(stopped.height);
+  await expect(width).toHaveValue(stopped.width);
+
+  await handle.evaluate((button) =>
+    button.addEventListener(
+      "gotpointercapture",
+      (event) => {
+        if (event instanceof PointerEvent)
+          button.dataset.capturedPointer = String(event.pointerId);
+      },
+      { once: true },
+    ),
+  );
+  corner = (await handle.boundingBox())!;
+  await page.mouse.move(
+    corner.x + corner.width / 2,
+    corner.y + corner.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(corner.x - 40, corner.y + 25);
+  await expect(handle).toHaveAttribute("data-captured-pointer", /^\d+$/);
+  const pointer = Number(await handle.getAttribute("data-captured-pointer"));
+  const released = await height.inputValue();
+  await handle.evaluate(
+    (button, pointerId) => button.releasePointerCapture(pointerId),
+    pointer,
+  );
+  // Chromium processes pending capture loss before the next pointer event.
+  await page.mouse.move(corner.x - 80, corner.y + 75);
+  await expect(handle).toHaveAttribute("data-resizing", "false");
+  await page.mouse.up();
+  await expect(height).toHaveValue(released);
+
+  corner = (await handle.boundingBox())!;
+  await page.mouse.move(
+    corner.x + corner.width / 2,
+    corner.y + corner.height / 2,
+  );
+  await page.mouse.down();
+  const outside = {
+    x: (await a.boundingBox())!.x + 20,
+    y: corner.y + corner.height / 2 + 25,
+  };
+  await page.mouse.move(outside.x, outside.y);
+  await expect(width).toHaveValue("50");
+  await expect(handle).toHaveAttribute("data-resizing", "true");
+  expect(outside.x).toBeLessThan((await handle.boundingBox())!.x);
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute("data-resizing", "false");
+  const completed = await height.inputValue();
+  await page.mouse.move(outside.x + 100, outside.y + 100);
+  await expect(height).toHaveValue(completed);
+  await expect(width).toHaveValue("50");
+  await width.fill("80");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await handle.scrollIntoViewIfNeeded();
+  corner = (await handle.boundingBox())!;
+  const touch = await page.context().newCDPSession(page);
+  try {
+    await touch.send("Emulation.setTouchEmulationEnabled", {
+      enabled: true,
+      maxTouchPoints: 1,
+    });
+    const start = {
+      x: corner.x + corner.width / 2,
+      y: corner.y + corner.height / 2,
+    };
+    const beforeHeight = Number(await height.inputValue());
+    const beforeWidth = Number(await width.inputValue());
+    const scroll = await page.evaluate(() => scrollY);
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ ...start, id: 1 }],
+    });
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: start.x - 30, y: start.y + 30, id: 1 }],
+    });
+    await expect(height).toHaveValue(String(beforeHeight + 30));
+    expect(Number(await width.inputValue())).toBeLessThan(beforeWidth);
+    expect(await page.evaluate(() => scrollY)).toBe(scroll);
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchCancel",
+      touchPoints: [],
+    });
+    await expect(handle).toHaveAttribute("data-resizing", "false");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  } finally {
+    await touch.detach();
+  }
+});
+
+test("preview stage retains its initial height when viewers shrink", async ({
+  page,
+}) => {
+  await openDemo(page);
+  const a = panel(page, 1);
+  await a.locator("summary").filter({ hasText: "Appearance & layout" }).click();
+  const height = a.getByRole("slider", { name: "Height", exact: true });
+  const initialHeight = await height.inputValue();
+  const view = a.locator(".demo-disconnected");
+  const stage = a.locator(".demo-stage");
+  const handle = a.getByRole("button", {
+    name: "Resize viewer 1",
+    exact: true,
+  });
+
+  for (const { width, viewers } of [
+    { width: 1440, viewers: 1 },
+    { width: 800, viewers: 1 },
+    { width: 390, viewers: 1 },
+    { width: 1280, viewers: 2 },
+  ]) {
+    await page.setViewportSize({ width, height: 1000 });
+    if (viewers === 2)
+      await page.getByRole("button", { name: "Add viewer" }).click();
+    await height.fill(initialHeight);
+    await expect(view).toHaveCSS("height", `${initialHeight}px`);
+    const initial = (await stage.boundingBox())!;
+    const expectFloor = async () => {
+      await expect
+        .poll(async () =>
+          Math.abs((await stage.boundingBox())!.height - initial.height),
+        )
+        .toBeLessThan(1);
+    };
+
+    await handle.scrollIntoViewIfNeeded();
+    const corner = (await handle.boundingBox())!;
+    const x = corner.x + corner.width / 2;
+    const y = corner.y + corner.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 240 - Number(initialHeight));
+    await page.mouse.up();
+    await expect(view).toHaveCSS("height", "240px");
+    await expectFloor();
+
+    await height.fill("520");
+    await expect(view).toHaveCSS("height", "520px");
+    expect((await stage.boundingBox())!.height).toBeGreaterThan(initial.height);
+    await height.fill("240");
+    await expect(view).toHaveCSS("height", "240px");
+    await expectFloor();
+    expect(
+      Math.abs((await stage.boundingBox())!.width - initial.width),
+    ).toBeLessThan(1);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    if (viewers === 2)
+      await expect(panel(page, 2).locator(".demo-disconnected")).toHaveCSS(
+        "height",
+        `${initialHeight}px`,
+      );
+  }
+});
+
 test("settings disclosure keeps preview height stable and overflow reachable", async ({
   page,
 }) => {

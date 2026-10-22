@@ -15,6 +15,7 @@ import { demoScope } from "./context";
 import type { Panel } from "./model";
 import { viewerClassName, viewerStyle } from "./playground";
 import { Settings } from "./Settings";
+import { ResizeHandle } from "./ResizeHandle";
 
 export function App() {
   return (
@@ -276,9 +277,10 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 </div>
               </div>
             )}
+            <ResizeHandle panel={panel} identity={identity} />
           </div>
           <div className="demo-preview-caption">
-            <span>
+            <span id={`${identity}-size`}>
               {options.width}% width{" "}
               <span className="demo-caption-separator">/</span> {options.height}
               px height
