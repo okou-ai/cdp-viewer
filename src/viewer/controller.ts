@@ -435,7 +435,8 @@ export class ViewerController {
         if (selection && this.isCurrent(selection))
           await this.upgradeCapture(selection);
       },
-      inputScale: (scale) => this.selection?.input?.setDisplayScale(scale),
+      inputScale: (scale, densityScale) =>
+        this.selection?.input?.setDisplayScale(scale, densityScale),
     });
     this.display.setMode(this.displayMode);
     this.display.measure(this.displaySize);

@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { launchBackend, serveBrowserConsumer } from "./backend";
+import {
+  launchBackend,
+  launchNativeBackend,
+  serveBrowserConsumer,
+} from "./backend";
 import type {} from "../consumer/api";
 
 let server: Awaited<ReturnType<typeof serveBrowserConsumer>>;
@@ -9,6 +13,12 @@ test.beforeAll(async () => {
 test.afterAll(async () => server?.close());
 
 test.use({ deviceScaleFactor: 2 });
+
+interface ZoomTabs {
+  query(query: { url: string }): Promise<{ id: number }[]>;
+  setZoom(id: number, zoom: number): Promise<void>;
+  getZoom(id: number): Promise<number>;
+}
 
 for (const nativeDpr of [1, 2]) {
   test(`synchronizes actual streamed pixels and input at native DPR ${nativeDpr}`, async ({
@@ -254,8 +264,228 @@ for (const nativeDpr of [1, 2]) {
         commands.filter((method) => method === "Page.startScreencast"),
       ).toHaveLength(2);
       await expect(page.locator("#host-submissions")).toHaveText("0");
+      await menu.click();
+      await view
+        .getByRole("menuitemradio", { name: "Do not sync automatically" })
+        .click();
+      await view.evaluate((element: HTMLElement) => {
+        element.style.width = "190px";
+      });
+      await menu.click();
+      const narrow = await view.boundingBox();
+      if (!narrow) throw new Error("Narrow viewer has no geometry.");
+      await expect
+        .poll(async () => {
+          const popup = await view.getByRole("menu").boundingBox();
+          return popup
+            ? Math.max(
+                narrow.x - popup.x,
+                popup.x + popup.width - narrow.x - narrow.width,
+              )
+            : Infinity;
+        })
+        .toBeLessThanOrEqual(1);
+      await expect(
+        view.getByRole("menuitem", { name: "Sync now", exact: true }),
+      ).toBeInViewport({ ratio: 1 });
+      await page.keyboard.press("Escape");
       await remoteCdp.detach();
       await localCdp.detach();
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
+for (const nativeDpr of [1, 2]) {
+  test(`preserves native browser zoom while fitting layout, DPR and input at native DPR ${nativeDpr}`, async ({
+    page,
+  }) => {
+    const backend = await launchNativeBackend(server.origin, true, nativeDpr);
+    try {
+      const created = backend.context.waitForEvent("page");
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+      });
+      const remote = await created;
+      await remote.goto(server.origin + "/fixture/editor");
+      const { windowId } = await backend.session.send(
+        "Browser.getWindowForTarget",
+        { targetId: target.targetId },
+      );
+      const worker =
+        backend.context.serviceWorkers()[0] ??
+        (await backend.context.waitForEvent("serviceworker"));
+      const tabId = await worker.evaluate(async (url) => {
+        const tabs = (globalThis as unknown as { chrome: { tabs: ZoomTabs } })
+          .chrome.tabs;
+        const [tab] = await tabs.query({ url });
+        return tab?.id;
+      }, server.origin + "/fixture/editor");
+      if (tabId === undefined) throw new Error("Owned tab is unavailable.");
+      const changeZoom = (zoom: number) =>
+        worker.evaluate(
+          async ({ tabId, zoom }) => {
+            const tabs = (
+              globalThis as unknown as { chrome: { tabs: ZoomTabs } }
+            ).chrome.tabs;
+            await tabs.setZoom(tabId, zoom);
+            return await tabs.getZoom(tabId);
+          },
+          { tabId, zoom },
+        );
+      expect(await changeZoom(1.25)).toBe(1.25);
+      await expect
+        .poll(() => remote.evaluate(() => devicePixelRatio))
+        .toBeCloseTo(nativeDpr * 1.25, 6);
+      await remote.evaluate(() => {
+        const marker = document.createElement("div");
+        marker.style.cssText =
+          "position:fixed;right:0;bottom:0;width:30px;height:30px;background:rgb(232,32,48)";
+        document.body.append(marker);
+        document.body.dataset.wheel = "0";
+        document.addEventListener("wheel", (event) => {
+          document.body.dataset.wheel = String(
+            Number(document.body.dataset.wheel) + event.deltaY,
+          );
+        });
+      });
+      await page.goto(server.origin);
+      await page.addStyleTag({
+        content:
+          "#panels { display:block !important } #viewer-a .cdpv-root { width:620px;height:460px }",
+      });
+      await page.waitForFunction(
+        () => typeof window.configureViewers === "function",
+      );
+      await page.evaluate(
+        async (settings) => window.configureViewers!(settings),
+        {
+          cdpUrl: backend.endpoint,
+          windowA: windowId,
+          second: false,
+          interactive: true,
+          windowSizeSync: "initial" as const,
+        },
+      );
+      const view = page.locator("#viewer-a .cdpv-root");
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      const canvas = view.locator("canvas");
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error("Owned stage has no geometry.");
+      const logical = {
+        width: Math.floor(box.width),
+        height: Math.floor(box.height),
+      };
+      const input = await view
+        .getByRole("textbox", { name: "Remote browser input" })
+        .elementHandle();
+      const verify = async (text: string) => {
+        await expect
+          .poll(() =>
+            remote.evaluate(
+              (expected) =>
+                Math.max(
+                  Math.abs(innerWidth - expected.width),
+                  Math.abs(innerHeight - expected.height),
+                ),
+              logical,
+            ),
+          )
+          .toBeLessThanOrEqual(1);
+        await expect
+          .poll(() => remote.evaluate(() => devicePixelRatio))
+          .toBeCloseTo(2, 6);
+        await expect
+          .poll(() =>
+            canvas.evaluate(
+              (element: HTMLCanvasElement, expected) =>
+                Math.max(
+                  Math.abs(element.width - expected.width * 2),
+                  Math.abs(element.height - expected.height * 2),
+                ),
+              logical,
+            ),
+          )
+          .toBeLessThanOrEqual(2);
+        await expect
+          .poll(() =>
+            canvas.evaluate((element: HTMLCanvasElement) => {
+              const pixel = element
+                .getContext("2d")!
+                .getImageData(
+                  element.width - 10,
+                  element.height - 10,
+                  1,
+                  1,
+                ).data;
+              return Math.max(
+                Math.abs(pixel[0]! - 232),
+                Math.abs(pixel[1]! - 32),
+                Math.abs(pixel[2]! - 48),
+              );
+            }),
+          )
+          .toBeLessThanOrEqual(5);
+        await remote.evaluate(() => {
+          scrollTo(0, 0);
+          document.body.dataset.wheel = "0";
+        });
+        await expect.poll(() => remote.evaluate(() => scrollY)).toBe(0);
+        await remote.locator("#plain").fill("");
+        await remote.locator("#plain").blur();
+        const rect = await remote.locator("#plain").evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return { x: bounds.x, y: bounds.y, height: bounds.height };
+        });
+        await page.mouse.click(
+          box.x + rect.x + 20,
+          box.y + rect.y + rect.height / 2,
+        );
+        await expect(remote.locator("#plain")).toBeFocused();
+        await page.keyboard.insertText(text);
+        await expect(remote.locator("#plain")).toHaveValue(text);
+        await canvas.evaluate(
+          (element, position) =>
+            element.dispatchEvent(
+              new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                clientX: position.x + 20,
+                clientY: position.y + 20,
+                deltaY: 120,
+              }),
+            ),
+          box,
+        );
+        await expect
+          .poll(() =>
+            remote.evaluate(() => Number(document.body.dataset.wheel)),
+          )
+          .toBeCloseTo(120, 2);
+        await page.keyboard.press("F8");
+      };
+      await verify("zoom 125%");
+      expect(await changeZoom(0.8)).toBe(0.8);
+      const menu = view.getByRole("button", { name: "Browser menu" });
+      await menu.click();
+      await view
+        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .click();
+      await verify("zoom 80%");
+      expect(
+        await worker.evaluate(
+          (id) =>
+            (
+              globalThis as unknown as { chrome: { tabs: ZoomTabs } }
+            ).chrome.tabs.getZoom(id),
+          tabId,
+        ),
+      ).toBe(0.8);
+      expect(await input!.evaluate((element) => element.isConnected)).toBe(
+        true,
+      );
     } finally {
       await backend.close();
     }

@@ -71,6 +71,7 @@ export class InputSession {
   private clipboardVersion = 0;
   private displayScale = 1;
   private wheelScale = 1;
+  private frameScale = 1;
 
   constructor(
     private readonly client: CdpClient,
@@ -122,10 +123,12 @@ export class InputSession {
     this.refreshCaret(this.queue.capture());
   }
 
-  setDisplayScale(scale: number): void {
+  setDisplayScale(scale: number, densityScale: number): void {
     this.displayScale = scale;
-    // CDP applies both the emulated view scale and its density/native-density ratio.
-    this.wheelScale = scale * scale;
+    // Wheel deltas include view scaling and the effective/native density ratio.
+    this.wheelScale = scale * densityScale;
+    // Screencast dimensions include native browser zoom; input coordinates do not.
+    this.frameScale = scale / densityScale;
     this.invalidateViewport();
   }
 
@@ -270,7 +273,11 @@ export class InputSession {
 
   /** The renderer calls this only when this exact frame has been painted. */
   frame(metadata: unknown): () => void {
-    const viewport = frameViewport(metadata);
+    const native = frameViewport(metadata);
+    const viewport = native && {
+      width: native.width * this.frameScale,
+      height: native.height * this.frameScale,
+    };
     const version = this.viewportVersion;
     const document = this.lifecycle.owner.document;
     return () => {

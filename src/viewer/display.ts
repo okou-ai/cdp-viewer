@@ -19,7 +19,6 @@ interface Target {
   readonly targetId: string;
   readonly sessionId: string;
   readonly current: () => boolean;
-  nativeDpr?: number;
   applied?: string;
 }
 
@@ -30,7 +29,7 @@ interface DisplayHost {
   readonly failed: (error: CdpFault) => void;
   readonly synchronized: () => void;
   readonly capture: () => Promise<void>;
-  readonly inputScale: (scale: number) => void;
+  readonly inputScale: (scale: number, densityScale: number) => void;
 }
 
 const positive = (value: unknown): value is number =>
@@ -64,6 +63,43 @@ function constrainDisplay(size: DisplaySize): DisplaySize & {
     height,
     dpr: size.dpr,
     constrained: scale < 1,
+  };
+}
+
+/** Project CSS dimensions into the zoomed viewport and native window DIP. */
+function projectDisplay(
+  windowId: number,
+  size: DisplaySize,
+  nativeDpr: number,
+  zoom: number,
+) {
+  const densityScale = size.dpr / nativeDpr;
+  const contents = {
+    windowId,
+    width: Math.max(1, Math.round(size.width * densityScale)),
+    height: Math.max(1, Math.round(size.height * densityScale)),
+  };
+  return {
+    contents,
+    densityScale,
+    metrics: {
+      width: Math.max(1, Math.round(size.width * zoom)),
+      height: Math.max(1, Math.round(size.height * zoom)),
+      deviceScaleFactor: size.dpr / zoom,
+      scale: densityScale / zoom,
+      dontSetVisibleSize: true,
+      mobile: false,
+    },
+    // Integer native sizes prevent metric float noise from defeating deduplication.
+    key: [
+      windowId,
+      size.width,
+      size.height,
+      size.dpr,
+      zoom,
+      contents.width,
+      contents.height,
+    ].join(":"),
   };
 }
 
@@ -222,13 +258,11 @@ export class DisplaySync {
           },
           target.sessionId,
         ),
-        target.nativeDpr
-          ? undefined
-          : this.client.request(
-              "Page.getLayoutMetrics",
-              undefined,
-              target.sessionId,
-            ),
+        this.client.request(
+          "Page.getLayoutMetrics",
+          undefined,
+          target.sessionId,
+        ),
       ]);
       if (!this.current(target)) return;
       if (revision !== this.revision) {
@@ -250,17 +284,16 @@ export class DisplaySync {
           "display",
           "The page display metrics are unavailable.",
         );
-      if (metrics) {
-        const nativeDpr =
-          metrics.visualViewport.clientWidth /
-          metrics.cssVisualViewport.clientWidth;
-        if (!positive(nativeDpr))
-          throw new CdpFault(
-            "display",
-            "The browser display scale is unavailable.",
-          );
-        target.nativeDpr = nativeDpr;
-      }
+      const zoom = metrics.cssVisualViewport.zoom ?? 1;
+      const nativeDpr =
+        metrics.visualViewport.clientWidth /
+        metrics.cssVisualViewport.clientWidth /
+        zoom;
+      if (!positive(zoom) || !positive(nativeDpr))
+        throw new CdpFault(
+          "display",
+          "The browser display scale is unavailable.",
+        );
       const remembered = this.initial.get(window.windowId);
       const restore = mode === "initial" && !manual && remembered !== undefined;
       let size = constrainDisplay(
@@ -272,12 +305,8 @@ export class DisplaySync {
             }
           : local,
       );
-      if (
-        !manual &&
-        target.applied ===
-          [window.windowId, size.width, size.height, size.dpr].join(":")
-      )
-        return;
+      let projected = projectDisplay(window.windowId, size, nativeDpr, zoom);
+      if (!manual && target.applied === projected.key) return;
       await this.host.capture();
       if (!this.current(target)) return;
       if (revision !== this.revision) {
@@ -286,27 +315,17 @@ export class DisplaySync {
       }
       if (!this.local) return;
       if (!restore) size = constrainDisplay(this.local);
-      const scale = size.dpr / target.nativeDpr!;
-      const key = [window.windowId, size.width, size.height, size.dpr].join(
-        ":",
-      );
+      projected = projectDisplay(window.windowId, size, nativeDpr, zoom);
       // Consume measurements coalesced during guards/capture; later changes stay pending.
       this.wanted = false;
       await this.client.request(
         "Emulation.setDeviceMetricsOverride",
-        {
-          width: size.width,
-          height: size.height,
-          deviceScaleFactor: size.dpr,
-          scale,
-          dontSetVisibleSize: true,
-          mobile: false,
-        },
+        projected.metrics,
         target.sessionId,
       );
       emulated = true;
       if (!this.current(target)) return;
-      this.host.inputScale(scale);
+      this.host.inputScale(projected.metrics.scale, projected.densityScale);
       const confirmed = await this.client.request(
         "Browser.getWindowForTarget",
         {
@@ -320,13 +339,9 @@ export class DisplaySync {
           "scope",
           "The page moved during display synchronization.",
         );
-      await this.client.request("Browser.setContentsSize", {
-        windowId: window.windowId,
-        width: Math.max(1, Math.round(size.width * scale)),
-        height: Math.max(1, Math.round(size.height * scale)),
-      });
+      await this.client.request("Browser.setContentsSize", projected.contents);
       if (!this.current(target)) return;
-      target.applied = key;
+      target.applied = projected.key;
       this.constrained = size.constrained;
       this.host.synchronized();
       if (mode === "initial" || this.initial.has(window.windowId))
@@ -347,7 +362,7 @@ export class DisplaySync {
             );
           if (!this.current(target)) return;
           if (restored) {
-            this.host.inputScale(1);
+            this.host.inputScale(1, 1);
             delete target.applied;
             this.constrained = false;
           }

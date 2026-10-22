@@ -139,8 +139,14 @@ export async function launchBackend(
 }
 
 /** Inspect an owned browser without Playwright's per-page focus emulation. */
-export async function launchNativeBackend(origin: string, headless = true) {
-  const owner = await chromium.launchServer(browserOptions(origin, headless));
+export async function launchNativeBackend(
+  origin: string,
+  headless = true,
+  nativeDpr?: number,
+) {
+  const owner = await chromium.launchServer(
+    browserOptions(origin, headless, nativeDpr),
+  );
   let inspection: Browser | undefined;
   const close = async () => {
     try {

@@ -77,6 +77,7 @@ export class FakeBrowser {
   unsupportedDisplay = false;
   unsupportedContentsSize = false;
   nativeDpr = 1;
+  browserZoom = 1;
   windowState = "normal";
   readonly windowSizes = new Map<number, { width: number; height: number }>();
   private readonly emulation = new Map<
@@ -160,11 +161,11 @@ export class FakeBrowser {
               result: {
                 type: "object",
                 value: {
-                  width: size.width,
-                  height: size.height,
+                  width: Math.round(size.width / this.browserZoom),
+                  height: Math.round(size.height / this.browserZoom),
                   dpr:
-                    this.emulation.get(command.sessionId!)?.dpr ??
-                    this.nativeDpr,
+                    (this.emulation.get(command.sessionId!)?.dpr ??
+                      this.nativeDpr) * this.browserZoom,
                 },
               },
             });
@@ -230,10 +231,11 @@ export class FakeBrowser {
         case "Page.getLayoutMetrics":
           socket.reply(command, {
             visualViewport: {
-              clientWidth: 800 * this.nativeDpr,
-              clientHeight: 600 * this.nativeDpr,
+              clientWidth: 800 * this.nativeDpr * this.browserZoom,
+              clientHeight: 600 * this.nativeDpr * this.browserZoom,
             },
             cssVisualViewport: {
+              zoom: this.browserZoom,
               offsetX: 0,
               offsetY: 0,
               clientWidth: 800,

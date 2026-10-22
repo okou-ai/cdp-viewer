@@ -578,8 +578,7 @@
   max-width: calc(100% - 16px);
 }
 .cdpv-root .cdpv-browser-menu {
-  min-width: 210px;
-  max-width: var(--available-width);
+  width: min(210px, var(--available-width));
   max-height: var(--available-height);
   border: 1px solid var(--cdpv-border);
   background: var(--cdpv-background);

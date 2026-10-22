@@ -216,7 +216,8 @@ Adaptation measures the available page surface in local CSS pixels and the clien
 browser's `devicePixelRatio`. It combines native content sizing with session-owned
 page emulation so the logical page fits the surface and the screencast can carry
 the corresponding physical pixels. This does not change the remote OS display
-scale. Continuous mode observes both surface size and DPR changes, coalesces work
+scale. Existing browser zoom settings are preserved during synchronization.
+Continuous mode observes both surface size and DPR changes, coalesces work
 with at least 150ms between operation starts, and retains one latest pending size.
 Resizing keeps the socket, selected session and native input textarea intact.
 

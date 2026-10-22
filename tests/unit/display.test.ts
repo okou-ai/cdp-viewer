@@ -111,6 +111,80 @@ it("bounds live work to one running resize and one final desired geometry", asyn
   ).toHaveLength(1);
 });
 
+it.each([1, 2])(
+  "accounts for existing and changed browser zoom at native DPR %s",
+  async (nativeDpr) => {
+    const browser = new FakeBrowser();
+    browser.nativeDpr = nativeDpr;
+    browser.browserZoom = 1.25;
+    const { controller, model } = mount(browser, "initial", 0);
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    expect(resizes(browser)[0]!.params).toEqual({
+      windowId: 0,
+      width: 1280 / nativeDpr,
+      height: 960 / nativeDpr,
+    });
+    expect(emulations(browser)[0]!.params).toMatchObject({
+      width: 800,
+      height: 600,
+      deviceScaleFactor: 1.6,
+      scale: 1.6 / nativeDpr,
+    });
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    const verifyInput = async (zoom: number) => {
+      await vi.waitFor(() => expect(controller.input).not.toBeNull());
+      const socket = browser.sockets[0]!;
+      const input = controller.input!;
+      browser.frame(socket, input.sessionId);
+      input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+      await vi.waitFor(() =>
+        expect(
+          socket.commands
+            .filter((command) => command.method === "Input.dispatchMouseEvent")
+            .at(-1)?.params,
+        ).toMatchObject({
+          type: "mouseMoved",
+          x: 320 / nativeDpr / zoom,
+          y: 480 / nativeDpr / zoom,
+        }),
+      );
+      input.pointer(
+        "mouseWheel",
+        { x: 0.25, y: 0.5 },
+        { deltaX: 0, deltaY: 120 },
+      );
+      await vi.waitFor(() =>
+        expect(
+          socket.commands
+            .filter((command) => command.method === "Input.dispatchMouseEvent")
+            .at(-1)?.params,
+        ).toMatchObject({
+          type: "mouseWheel",
+          deltaY: 480 / nativeDpr / nativeDpr / zoom,
+        }),
+      );
+    };
+    await verifyInput(1.25);
+    browser.browserZoom = 0.8;
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+    expect(resizes(browser)[1]!.params).toEqual(resizes(browser)[0]!.params);
+    expect(emulations(browser)[1]!.params).toMatchObject({
+      width: 512,
+      height: 384,
+      deviceScaleFactor: 2.5,
+      scale: 2.5 / nativeDpr,
+    });
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    await verifyInput(0.8);
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
 it("initial mode restores density across tabs without fitting a resized local stage again", async () => {
   const browser = new FakeBrowser();
   browser.targets[1]!.windowId = 0;
