@@ -117,8 +117,8 @@ whole logical batch after an owner-bound cancellable queue fence and actual
 native replies, rather than assigning one native reply to every intent. Fences
 are real candidate overhead; they do not change the normal direct send lane.
 
-The browser fixture verifies click/type ordering, Tab/focus, pointer drag and
-sibling DOM/canvas progress while an actual reply is held. Retirement still uses
+The browser fixture verifies click/type ordering, Tab/focus, actual drag selection
+and sibling DOM/canvas progress while actual guard/reply boundaries are held. Retirement still uses
 the original connection's native/release/detach receipts. Local blur closes this
 fixture admission; it does not implement nonterminal focus recovery. Optional
 remote caret placement metadata is not queried by the candidate port and cannot
@@ -129,9 +129,14 @@ Matched measurements use three trials of immediate click/type and a 300 CSS-pixe
 scroll for one viewer and two concurrent viewers, on one browser URL and distinct
 windows. Both 0/50ms one-way profiles preserve capture defaults; candidate CDP is
 local and all viewer/client intent/reply traffic is shaped. Synthetic DOM effects
-and an actual streamed viewport color marker use the common host clock. Each
-trial has a distinct expected color so an older frame cannot satisfy its final
-feedback assertion. Logical
+and an actual streamed document marker use the common host clock. Click/type
+changes its color; scrolling moves an already painted marker by 300 CSS pixels
+and verifies both its new position and the cleared old position. Each trial has
+a distinct expected color and position, preventing stale-frame acceptance.
+Compositor scrolling and main-thread scroll events are measured independently;
+post-scroll application repaint latency is outside this marker's proof. Direct
+command counts include any discovery/metadata work inside the sampled interval.
+Logical
 batch acknowledgements, coalescing and extra guard/fence work are not hidden as
 one-intent/one-write results. Keep raw observations and any regressions or
 variation in the PR. These checks establish this pointer/keyboard increment,
