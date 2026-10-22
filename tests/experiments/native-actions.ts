@@ -1,5 +1,8 @@
 import type { Protocol } from "devtools-protocol";
 import { isRecord } from "../../src/cdp/errors";
+import { navigationAddress } from "../../src/input/address";
+import { clipboardTextLimit } from "../../src/input/selection";
+import type { SelectionResult } from "../../src/input/selection";
 import type { Point } from "../../src/input/geometry";
 
 type Mouse = Protocol.Input.DispatchMouseEventRequest;
@@ -7,6 +10,7 @@ type Details = Pick<
   Mouse,
   "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
 >;
+export type NavigationAction = "back" | "forward" | "reload" | { url: string };
 export type NativeAction =
   | { kind: "text"; text: string }
   | { kind: "key"; key: Protocol.Input.DispatchKeyEventRequest }
@@ -17,7 +21,27 @@ export type NativeAction =
       selectionStart: number;
       selectionEnd: number;
     }
-  | { kind: "commit"; text: string };
+  | { kind: "commit"; text: string }
+  | { kind: "selection"; request: number }
+  | { kind: "navigate"; action: NavigationAction };
+
+export function selectionResult(value: unknown): SelectionResult | null {
+  if (
+    !isRecord(value) ||
+    typeof value.status !== "string" ||
+    !["ok", "empty", "unsupported", "stale", "too-large"].includes(
+      value.status,
+    ) ||
+    typeof value.text !== "string" ||
+    value.text.length > clipboardTextLimit ||
+    (value.status !== "ok" && value.text !== "")
+  )
+    return null;
+  return {
+    status: value.status as SelectionResult["status"],
+    text: value.text,
+  };
+}
 
 function finite(value: unknown, min: number, max: number): value is number {
   return (
@@ -31,6 +55,28 @@ function finite(value: unknown, min: number, max: number): value is number {
 /** Construct an allowlisted action; extra client fields never become CDP fields. */
 function action(value: unknown, composition: boolean): NativeAction | null {
   if (!isRecord(value)) return null;
+  if (composition && value.kind === "selection")
+    return Number.isSafeInteger(value.request) && Number(value.request) > 0
+      ? { kind: "selection", request: Number(value.request) }
+      : null;
+  if (composition && value.kind === "navigate") {
+    if (
+      typeof value.action === "string" &&
+      ["back", "forward", "reload"].includes(value.action)
+    )
+      return {
+        kind: "navigate",
+        action: value.action as "back" | "forward" | "reload",
+      };
+    if (
+      !isRecord(value.action) ||
+      typeof value.action.url !== "string" ||
+      value.action.url.length > 64 * 1024
+    )
+      return null;
+    const url = navigationAddress(value.action.url);
+    return url ? { kind: "navigate", action: { url } } : null;
+  }
   if (composition && (value.kind === "preedit" || value.kind === "commit")) {
     if (typeof value.text !== "string" || value.text.length > 64 * 1024)
       return null;
@@ -169,5 +215,10 @@ export function nativeActions(
   if (!Array.isArray(value) || value.length === 0 || value.length > 16)
     return null;
   const result = value.map((value) => action(value, composition));
-  return result.every((item) => item !== null) ? result : null;
+  return result.every((item) => item !== null) &&
+    result.every(
+      (item, index) => item.kind !== "navigate" || index === result.length - 1,
+    )
+    ? result
+    : null;
 }

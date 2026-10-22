@@ -64,7 +64,7 @@ interface Viewer {
   marker: { x: number; y: number; scroll: number };
   holdMessage: (
     direction: "intent" | "reply",
-    kind: "blur" | "ack",
+    kind: "blur" | "ack" | "selection" | "clipboard-reset",
   ) => { held: Promise<void>; release: () => void };
   close: () => Promise<void>;
 }
@@ -75,8 +75,18 @@ async function viewer(
   host: ProbeHost,
   adjacent: boolean,
   oneWayMs = 0,
-  composition = false,
+  options: {
+    composition?: boolean;
+    nativeFrames?: boolean;
+    origin?: string;
+    beforeInput?: (page: Page) => Promise<void>;
+  } = {},
 ): Promise<Viewer> {
+  const {
+    composition = false,
+    nativeFrames = false,
+    origin = server.origin,
+  } = options;
   const created = backend.context.waitForEvent("page");
   const { targetId } = await backend.session.send("Target.createTarget", {
     url: "about:blank",
@@ -119,7 +129,7 @@ async function viewer(
     timers.add(timer);
   };
   try {
-    await remote.goto(server.origin + "/fixture/editor?native=" + targetId);
+    await remote.goto(origin + "/fixture/editor?native=" + targetId);
     await remote.evaluate(() => {
       const marker = document.createElement("div");
       marker.id = "native-marker";
@@ -169,44 +179,45 @@ async function viewer(
       "Browser.getWindowForTarget",
       { targetId },
     );
-    await context.routeWebSocket(backend.endpoint, (socket) => {
-      const upstream = socket.connectToServer();
-      socket.onMessage((message) => {
-        const command = JSON.parse(String(message)) as {
-          method: string;
-          params?: object;
-        };
-        commands.push(command.method);
-        if (command.method === "Page.screencastFrameAck")
-          stream.acknowledgements++;
-        if (command.method === "Page.startScreencast" && command.params)
-          captures.push(command.params);
-        transit(() => upstream.send(message));
-      });
-      upstream.onMessage((message) =>
-        transit(() => {
-          const event = JSON.parse(String(message)) as {
-            method?: string;
-            params?: { data?: string; metadata?: { timestamp?: number } };
+    if (!nativeFrames)
+      await context.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            method: string;
+            params?: object;
           };
-          if (event.method === "Page.screencastFrame") {
-            latestFrame = event.params?.data ?? "";
-            stream.frames.push({
-              at: Date.now(),
-              captured: (event.params?.metadata?.timestamp ?? 0) * 1000,
-            });
-            if (stream.frames.length > 128) stream.frames.shift();
-          }
-          socket.send(message);
-        }),
-      );
-      socket.onClose(() => {
-        void upstream.close();
+          commands.push(command.method);
+          if (command.method === "Page.screencastFrameAck")
+            stream.acknowledgements++;
+          if (command.method === "Page.startScreencast" && command.params)
+            captures.push(command.params);
+          transit(() => upstream.send(message));
+        });
+        upstream.onMessage((message) =>
+          transit(() => {
+            const event = JSON.parse(String(message)) as {
+              method?: string;
+              params?: { data?: string; metadata?: { timestamp?: number } };
+            };
+            if (event.method === "Page.screencastFrame") {
+              latestFrame = event.params?.data ?? "";
+              stream.frames.push({
+                at: Date.now(),
+                captured: (event.params?.metadata?.timestamp ?? 0) * 1000,
+              });
+              if (stream.frames.length > 128) stream.frames.shift();
+            }
+            socket.send(message);
+          }),
+        );
+        socket.onClose(() => {
+          void upstream.close();
+        });
+        upstream.onClose(() => {
+          void socket.close();
+        });
       });
-      upstream.onClose(() => {
-        void socket.close();
-      });
-    });
     const endpoint = "wss://native.fixture.invalid/" + targetId;
     if (adjacent) {
       let reply: ((data: string) => void) | undefined;
@@ -236,7 +247,7 @@ async function viewer(
       });
     }
     const page = await context.newPage();
-    await page.goto(server.origin);
+    await page.goto(origin);
     await page.waitForFunction(
       () => typeof window.configureViewers === "function",
     );
@@ -251,6 +262,9 @@ async function viewer(
       "streaming",
     );
     if (probe) {
+      if (composition)
+        await expect.poll(() => probe!.navigation).not.toBeNull();
+      await options.beforeInput?.(page);
       await page.addScriptTag({ content: clientCode });
       await page.evaluate(
         (settings) => window.installNativeExperiment(settings),
@@ -258,6 +272,7 @@ async function viewer(
           endpoint,
           owner: probe.owner,
           ...(composition ? { ownership: probe.ownership } : {}),
+          navigation: probe.navigation,
         },
       );
     }
@@ -634,7 +649,7 @@ test("composition mode commits once and resumes after blur on the same native pr
   const host = new ProbeHost(backend.endpoint);
   let a: Viewer | undefined;
   try {
-    a = await viewer(browser, backend, host, true, 0, true);
+    a = await viewer(browser, backend, host, true, 0, { composition: true });
     const proxy = a.page.getByRole("textbox", {
       name: "Native executor input",
     });
@@ -707,7 +722,7 @@ test("composition mode drops old trailing events after a real document replaceme
   const host = new ProbeHost(backend.endpoint);
   let a: Viewer | undefined;
   try {
-    a = await viewer(browser, backend, host, true, 0, true);
+    a = await viewer(browser, backend, host, true, 0, { composition: true });
     const at = await position(a, "#plain");
     await a.page.mouse.click(at.x, at.y);
     await drained(a);
@@ -772,9 +787,13 @@ test("composition mode retires a held preview while an independent native window
   const host = new ProbeHost(backend.endpoint);
   const viewers: Viewer[] = [];
   try {
-    const a = await viewer(browser, backend, host, true, 0, true);
+    const a = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+    });
     viewers.push(a);
-    const b = await viewer(browser, backend, host, true, 0, true);
+    const b = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+    });
     viewers.push(b);
     const at = await position(a, "#plain");
     await a.page.mouse.click(at.x, at.y);
@@ -815,6 +834,501 @@ test("composition mode retires a held preview while an independent native window
   } finally {
     try {
       for (const value of viewers) await value.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
+async function observeClipboard(page: Page, gate = false) {
+  await page.evaluate((gate) => {
+    const field = document.createElement("textarea");
+    field.setAttribute("aria-label", "Owned local clipboard field");
+    document.body.append(field);
+    const observed = {
+      writes: 0,
+      gesture: false,
+      settled: 0,
+      held: false,
+      release: () => {},
+    };
+    Object.assign(window, { nativeClipboardProbe: observed });
+    const write = Clipboard.prototype.write.bind(navigator.clipboard);
+    Clipboard.prototype.write = (items) => {
+      observed.writes++;
+      observed.gesture = navigator.userActivation.isActive;
+      const result = write(items);
+      result.then(
+        () => observed.settled++,
+        () => observed.settled++,
+      );
+      return result;
+    };
+    if (!gate) return;
+    // Only the external fixture socket is gated. Frames use native CDP so
+    // Playwright's forwarding evaluations cannot keep activation alive.
+    const NativeSocket = WebSocket;
+    window.WebSocket = class extends NativeSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        let armed = true;
+        this.addEventListener("message", (event: MessageEvent<string>) => {
+          const value = JSON.parse(event.data) as { type?: string };
+          if (!armed || value.type !== "selection") return;
+          armed = false;
+          event.stopImmediatePropagation();
+          observed.held = true;
+          const data = event.data;
+          observed.release = () => {
+            observed.release = () => {};
+            this.dispatchEvent(new MessageEvent("message", { data }));
+          };
+        });
+      }
+    };
+  }, gate);
+}
+
+async function seedClipboard(value: Viewer, text: string) {
+  const field = value.page.getByRole("textbox", {
+    name: "Owned local clipboard field",
+  });
+  await field.fill(text);
+  await field.press("ControlOrMeta+a");
+  await field.press("ControlOrMeta+c");
+}
+
+async function localClipboard(value: Viewer) {
+  const field = value.page.getByRole("textbox", {
+    name: "Owned local clipboard field",
+  });
+  await field.fill("");
+  await field.press("ControlOrMeta+v");
+  return field.inputValue();
+}
+
+async function copySelection(value: Viewer) {
+  const before = await value.page.evaluate(
+    () =>
+      (window as unknown as { nativeClipboardProbe: { settled: number } })
+        .nativeClipboardProbe.settled,
+  );
+  const proxy = value.page.getByRole("textbox", {
+    name: "Native executor input",
+  });
+  await proxy.focus();
+  await proxy.press("ControlOrMeta+c");
+  await value.page.waitForFunction(
+    (before) =>
+      (window as unknown as { nativeClipboardProbe: { settled: number } })
+        .nativeClipboardProbe.settled ===
+      before + 1,
+    before,
+  );
+}
+
+test("interaction mode keeps a real gesture-time clipboard write alive after activation expires", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+      nativeFrames: true,
+      beforeInput: (page) => observeClipboard(page, true),
+    });
+    await seedClipboard(a, "previous owned clipboard");
+    await resumed(a);
+    await a.remote.locator("#plain").fill("deferred owned selection");
+    await a.remote.locator("#plain").selectText();
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    await proxy.focus();
+    await proxy.press("ControlOrMeta+c");
+    const cdp = await a.page.context().newCDPSession(a.page);
+    try {
+      await expect
+        .poll(
+          async () =>
+            (
+              await cdp.send("Runtime.evaluate", {
+                expression: "window.nativeClipboardProbe.held",
+                returnByValue: true,
+                userGesture: false,
+              })
+            ).result.value,
+        )
+        .toBe(true);
+      const expired = await cdp.send("Runtime.evaluate", {
+        expression: `new Promise(resolve => {
+          const start = performance.now();
+          const timer = setInterval(() => {
+            if (!navigator.userActivation.isActive) { clearInterval(timer); resolve(window.nativeClipboardProbe.gesture && window.nativeClipboardProbe.writes === 1 && window.nativeClipboardProbe.settled === 0); }
+            else if (performance.now() - start > 8000) { clearInterval(timer); resolve(false); }
+          }, 25);
+        })`,
+        returnByValue: true,
+        awaitPromise: true,
+        userGesture: false,
+      });
+      expect(expired.result.value).toBe(true);
+      await cdp.send("Runtime.evaluate", {
+        expression: "window.nativeClipboardProbe.release()",
+        userGesture: false,
+      });
+      const completed = await cdp.send("Runtime.evaluate", {
+        expression: `new Promise(resolve => {
+          const start = performance.now();
+          const timer = setInterval(() => {
+            if (window.nativeClipboardProbe.settled === 1) { clearInterval(timer); resolve(!navigator.userActivation.isActive); }
+            else if (performance.now() - start > 5000) { clearInterval(timer); resolve(false); }
+          }, 25);
+        })`,
+        returnByValue: true,
+        awaitPromise: true,
+        userGesture: false,
+      });
+      expect(completed.result.value).toBe(true);
+    } finally {
+      await cdp.detach();
+    }
+    expect(await localClipboard(a)).toBe("deferred owned selection");
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.revoked),
+    ).toBe(false);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
+test("interaction mode transfers Unicode once and discards protected, empty and old-generation copy results", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+      nativeFrames: true,
+      beforeInput: observeClipboard,
+    });
+    await seedClipboard(a, "previous");
+    await resumed(a);
+    const oldReset = a.holdMessage("reply", "clipboard-reset");
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await a.page.keyboard.insertText("owned copy 🙂");
+    await oldReset.held;
+    await expect(a.remote.locator("#plain")).toHaveValue("owned copy 🙂");
+    await a.remote.locator("#plain").selectText();
+    const copied = a.holdMessage("reply", "selection");
+    const copying = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    await copying.focus();
+    await copying.press("ControlOrMeta+c");
+    await copied.held;
+    oldReset.release();
+    copied.release();
+    await a.page.waitForFunction(
+      () =>
+        (window as unknown as { nativeClipboardProbe: { settled: number } })
+          .nativeClipboardProbe.settled === 1,
+    );
+    expect(await localClipboard(a)).toBe("owned copy 🙂");
+    const unicode = "你好🙂\nsecond line";
+    await seedClipboard(a, unicode);
+    await resumed(a);
+    await a.remote.evaluate(() => {
+      document.querySelector<HTMLElement>("#native-marker")!.style.background =
+        "rgb(232,32,48)";
+    });
+    await painted(a, false);
+    await a.remote.locator("#multiline").focus();
+    const before = a.probe!.trace.filter(
+      (c) => c.method === "Input.insertText",
+    ).length;
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    await proxy.focus();
+    await proxy.press("ControlOrMeta+v");
+    await expect(a.remote.locator("#multiline")).toHaveValue(unicode);
+    await drained(a);
+    await painted(a, true);
+    expect(
+      a.probe!.trace.filter((c) => c.method === "Input.insertText"),
+    ).toHaveLength(before + 1);
+    await a.remote.locator("#plain").fill("");
+    await a.remote.locator("#plain").selectText();
+    await copySelection(a);
+    expect(await localClipboard(a)).toBe(unicode);
+    await resumed(a);
+    await a.remote.evaluate(() => {
+      const protectedField = document.createElement("input");
+      protectedField.type = "password";
+      protectedField.value = "owned protected text";
+      document.body.append(protectedField);
+      protectedField.focus();
+      protectedField.select();
+    });
+    await copySelection(a);
+    expect(await localClipboard(a)).toBe(unicode);
+    await resumed(a);
+    await a.remote.evaluate(() => {
+      const frame = document.createElement("iframe");
+      frame.id = "opaque-frame";
+      frame.setAttribute("sandbox", "allow-scripts");
+      frame.srcdoc = '<input value="owned opaque text">';
+      document.body.append(frame);
+      frame.focus();
+    });
+    await copySelection(a);
+    expect(await localClipboard(a)).toBe(unicode);
+    await resumed(a);
+    await seedClipboard(a, "retained before stale reply");
+    await resumed(a);
+    await a.remote.locator("#plain").fill("must not reach clipboard");
+    await a.remote.locator("#plain").selectText();
+    const held = a.holdMessage("reply", "selection");
+    await proxy.focus();
+    await proxy.press("ControlOrMeta+c");
+    await held.held;
+    await proxy.evaluate((element: HTMLTextAreaElement) => element.blur());
+    await resumed(a);
+    held.release();
+    expect(await localClipboard(a)).toBe("retained before stale reply");
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.revoked),
+    ).toBe(false);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
+test("interaction mode retains native local-copy recovery under real clipboard policy denial", async ({
+  browser,
+}, info) => {
+  const denied = await serveConsumer(consumer.dist, "/", {
+    "Permissions-Policy": "clipboard-write=()",
+  });
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    denied.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+      nativeFrames: true,
+      origin: denied.origin,
+      beforeInput: observeClipboard,
+    });
+    await seedClipboard(a, "previous");
+    await resumed(a);
+    await a.remote.locator("#plain").fill("owned recovery text");
+    await a.remote.locator("#plain").selectText();
+    await copySelection(a);
+    const recovery = a.page.getByRole("textbox", { name: "Text to copy" });
+    await expect(recovery).toHaveValue("owned recovery text");
+    await recovery.focus();
+    await recovery.press("ControlOrMeta+c");
+    expect(await localClipboard(a)).toBe("owned recovery text");
+    await a.page
+      .getByRole("button", { name: "Copy text", exact: true })
+      .click();
+    await expect(recovery).toHaveValue("owned recovery text");
+    await a.page
+      .getByRole("button", { name: "Dismiss copy", exact: true })
+      .click();
+    await expect(recovery).toHaveCount(0);
+    await resumed(a);
+    await a.remote.locator("#plain").fill("");
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await a.page.keyboard.type("still usable");
+    await expect(a.remote.locator("#plain")).toHaveValue("still usable");
+    await drained(a);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+      await denied.close();
+    }
+  }
+});
+
+test("interaction mode orders toolbar navigation across same, full and retained 204 documents", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, {
+      composition: true,
+      beforeInput: observeClipboard,
+    });
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    const identity = await proxy.elementHandle();
+    const address = a.page.getByRole("textbox", { name: "Executor address" });
+    const initial = a.probe!.ownership;
+    const held = a.probe!.holdNext("Page.navigate");
+    await address.fill(a.remote.url() + "#owned");
+    await a.page
+      .getByRole("button", { name: "Executor navigate", exact: true })
+      .click();
+    await held.held;
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.ready),
+    ).toBe(false);
+    expect(await a.remote.evaluate(() => location.hash)).toBe("#owned");
+    held.release();
+    await resumed(a);
+    expect(a.probe!.ownership.document).toBe(initial.document);
+    expect(a.probe!.ownership.focus).toBeGreaterThan(initial.focus);
+    await expect
+      .poll(() =>
+        a!.page.evaluate(() => window.nativeExperiment.stats.navigation?.url),
+      )
+      .toContain("#owned");
+    const full = server.origin + "/fixture/editor?full";
+    const beforeFull = a.probe!.ownership;
+    await address.fill(full);
+    await a.page
+      .getByRole("button", { name: "Executor navigate", exact: true })
+      .click();
+    await expect(a.remote).toHaveURL(full);
+    await resumed(a);
+    expect(a.probe!.ownership.document).toBeGreaterThan(beforeFull.document);
+    await expect
+      .poll(() =>
+        a!.page.evaluate(() => window.nativeExperiment.stats.navigation?.url),
+      )
+      .toBe(full);
+    await a.page
+      .getByRole("button", { name: "Executor back", exact: true })
+      .click();
+    await expect(a.remote).toHaveURL(/#owned$/);
+    await resumed(a);
+    await a.page
+      .getByRole("button", { name: "Executor forward", exact: true })
+      .click();
+    await expect(a.remote).toHaveURL(full);
+    await resumed(a);
+    const reloaded = a.remote.waitForEvent("load");
+    await a.page
+      .getByRole("button", { name: "Executor reload", exact: true })
+      .click();
+    await reloaded;
+    await resumed(a);
+    await a.remote.evaluate(() => {
+      const marker = document.createElement("div");
+      marker.id = "native-marker";
+      marker.style.cssText =
+        "position:absolute;left:900px;top:350px;width:48px;height:48px;background:rgb(232,32,48);pointer-events:none";
+      document.body.append(marker);
+      document.addEventListener("input", () => {
+        marker.style.background = "rgb(24,224,80)";
+      });
+      Object.assign(window, { retainedSentinel: "owned-context" });
+    });
+    await painted(a, false);
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await composing(a, "preview");
+    await expect(a.remote.locator("#plain")).toHaveValue("preview");
+    const before204 = a.probe!.ownership;
+    const response = a.remote.waitForResponse(
+      server.origin + "/fixture/no-content",
+    );
+    await address.fill(server.origin + "/fixture/no-content");
+    await a.page
+      .getByRole("button", { name: "Executor navigate", exact: true })
+      .click();
+    expect((await response).status()).toBe(204);
+    await resumed(a);
+    expect(a.probe!.ownership.document).toBe(before204.document);
+    expect(a.remote.url()).toBe(full);
+    expect(
+      await a.remote.evaluate(
+        () =>
+          (window as unknown as { retainedSentinel: string }).retainedSentinel,
+      ),
+    ).toBe("owned-context");
+    expect(
+      await a.remote.evaluate(
+        () => document.querySelector<HTMLInputElement>("#plain")!.value,
+      ),
+    ).toBe("");
+    await a.remote.evaluate(() => {
+      document.querySelector<HTMLElement>("#native-marker")!.style.background =
+        "rgb(232,32,48)";
+    });
+    await painted(a, false);
+    await a.page.mouse.click(at.x, at.y);
+    await a.page.keyboard.type("after 204");
+    await expect
+      .poll(() =>
+        a!.remote.evaluate(
+          () => document.querySelector<HTMLInputElement>("#plain")!.value,
+        ),
+      )
+      .toBe("after 204");
+    await painted(a, true);
+    await drained(a);
+    await a.page.keyboard.press("F8");
+    await expect(address).toBeFocused();
+    await resumed(a);
+    expect(
+      await identity!.evaluate(
+        (element) =>
+          element ===
+          document.querySelector('[aria-label="Native executor input"]'),
+      ),
+    ).toBe(true);
+    const local = a.page.getByRole("textbox", {
+      name: "Owned local clipboard field",
+    });
+    await local.fill("local host draft");
+    await expect(local).toHaveValue("local host draft");
+    expect(
+      await a.remote.evaluate(
+        () => document.querySelector<HTMLInputElement>("#plain")!.value,
+      ),
+    ).toBe("after 204");
+  } finally {
+    try {
+      await a?.close();
     } finally {
       host.close();
       await backend.close();

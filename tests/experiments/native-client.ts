@@ -2,6 +2,11 @@ import { NativeInput } from "../../src/input/native";
 import type { NativeInputPort } from "../../src/input/port";
 import type { InputOwner, InputTransition } from "../../src/input/lifecycle";
 import type { NativeAction } from "./native-actions";
+import { selectionResult } from "./native-actions";
+import type { NavigationAction } from "./native-actions";
+import type { SelectionResult } from "../../src/input/selection";
+import type { ViewerNavigation } from "../../src/viewer/types";
+import { nativeControls } from "./native-controls";
 
 interface NativeStats {
   actions: number;
@@ -14,6 +19,8 @@ interface NativeStats {
   resets: number;
   generation: string | null;
   discardedReplies: number;
+  navigation: ViewerNavigation | null;
+  error: string | null;
 }
 
 declare global {
@@ -22,13 +29,19 @@ declare global {
       endpoint: string;
       owner: string;
       ownership?: { generation: string; document: number; focus: number };
+      navigation?: ViewerNavigation | null;
     }) => Promise<void>;
     nativeExperiment: { stats: NativeStats; close: () => void };
   }
 }
 
 /** Bundled only by the opt-in fixture; this is the real DOM adapter, not a copy. */
-window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
+window.installNativeExperiment = ({
+  endpoint,
+  owner,
+  ownership,
+  navigation,
+}) => {
   const canvas = document.querySelector<HTMLCanvasElement>("#viewer-a canvas");
   if (!canvas?.parentElement) throw new Error("Owned viewer canvas is missing");
   const proxy = document.createElement("textarea");
@@ -55,6 +68,8 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
     resets: 0,
     generation,
     discardedReplies: 0,
+    navigation: navigation ?? null,
+    error: null,
   };
   const queued: NativeAction[] = [];
   const pending = new Map<number, number>();
@@ -65,7 +80,23 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
   let scheduled = false;
   let stopped = false;
   let native: NativeInput | undefined;
+  let selectionVersion = 0;
+  let selection: {
+    request: number;
+    owner: InputOwner;
+    resolve: (value: SelectionResult) => void;
+    reject: (error: Error) => void;
+    deadline: ReturnType<typeof setTimeout>;
+  } | null = null;
+  let controls: ReturnType<typeof nativeControls> | undefined;
+  const cancelSelection = () => {
+    if (!selection) return;
+    clearTimeout(selection.deadline);
+    selection.reject(new Error("Selection cancelled"));
+    selection = null;
+  };
   const discard = () => {
+    cancelSelection();
     token = null;
     queued.length = 0;
     pending.clear();
@@ -74,6 +105,7 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
     acknowledged = 0;
     unconfirmed = 0;
     stats.ready = false;
+    controls?.ready(false);
     if (composition) {
       stats.actions = 0;
       stats.batches = 0;
@@ -86,6 +118,7 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
     stats.revoked = true;
     discard();
     native?.dispose();
+    controls?.dispose();
     socket.close();
   };
   const unsupported = () => {
@@ -119,6 +152,13 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
   };
   const send = (action: NativeAction) => {
     if (stopped || !token) return;
+    if (
+      action.kind !== "selection" &&
+      (action.kind !== "key" || action.key.type !== "keyUp")
+    ) {
+      stats.error = null;
+      controls?.error(null);
+    }
     if (unconfirmed >= 64) {
       stop();
       return;
@@ -132,6 +172,23 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
       queueMicrotask(flush);
     }
   };
+  const navigate = (action: NavigationAction) => {
+    if (stopped || !token) return;
+    send({ kind: "navigate", action });
+    while (!stopped && queued.length) flush();
+    // No more old-generation effects while the navigation is crossing the link.
+    discard();
+    native?.reset("navigation-started");
+  };
+  if (composition) {
+    controls = nativeControls(
+      canvas.parentElement,
+      navigate,
+      () => native?.copyClipboard(),
+      () => native?.clearClipboard(),
+    );
+    controls.navigation(stats.navigation);
+  }
   const port: NativeInputPort = {
     get owner() {
       return stopped ? null : token;
@@ -173,13 +230,40 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
       }
       if (captured === token) send({ kind: "commit", text });
     },
-    selection: () => {
-      unsupported();
-      return Promise.reject(new Error("Selection is outside this experiment"));
+    selection: (captured) => {
+      if (!composition) {
+        unsupported();
+        return Promise.reject(
+          new Error("Selection is outside this experiment"),
+        );
+      }
+      if (stopped || !token || captured !== token)
+        return Promise.reject(new Error("Selection cancelled"));
+      cancelSelection();
+      const request = ++selectionVersion;
+      return new Promise<SelectionResult>((resolve, reject) => {
+        const deadline = setTimeout(() => {
+          if (selection?.request !== request || selection.owner !== captured)
+            return;
+          selection = null;
+          reject(new Error("Selection unavailable"));
+        }, 10_000);
+        selection = { request, owner: captured, resolve, reject, deadline };
+        send({ kind: "selection", request });
+      });
     },
-    clipboardError: () => {},
+    clipboardError: (message) => {
+      stats.error = message;
+      controls?.error(message);
+    },
   };
-  native = new NativeInput(canvas, proxy, () => (stopped ? null : port), stop);
+  native = new NativeInput(
+    canvas,
+    proxy,
+    () => (stopped ? null : port),
+    () => (composition ? controls?.focus() : stop()),
+    (value) => controls?.recovery(value),
+  );
   socket.addEventListener("message", (event: MessageEvent<string>) => {
     if (stopped) return;
     const value = JSON.parse(event.data) as {
@@ -191,6 +275,10 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
       reason?: InputTransition;
       document?: number;
       focus?: number;
+      request?: number;
+      result?: unknown;
+      through?: number;
+      value?: ViewerNavigation | null;
     };
     // A reply already crossing the link may arrive after local blur discarded
     // its pending batch, before the server's suspension reaches this client.
@@ -217,10 +305,53 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
         stats.generation = generation;
         stats.resets++;
         discard();
+        selectionVersion = 0;
         native?.reset(value.reason);
         return;
       }
       if (value.generation !== generation) return;
+      if (value.type === "selection") {
+        const pending = selection;
+        if (!pending || value.request !== pending.request) return;
+        selection = null;
+        clearTimeout(pending.deadline);
+        const result = selectionResult(value.result);
+        if (
+          pending.owner === token &&
+          value.request === selectionVersion &&
+          result
+        )
+          pending.resolve(result);
+        else pending.reject(new Error("Selection unavailable"));
+        return;
+      }
+      if (value.type === "clipboard-reset") {
+        if (
+          Number.isSafeInteger(value.through) &&
+          Number(value.through) >= selectionVersion
+        ) {
+          cancelSelection();
+          native?.clearClipboard();
+        }
+        return;
+      }
+      if (value.type === "navigation") {
+        const navigation = value.value;
+        if (
+          navigation !== null &&
+          (!navigation ||
+            typeof navigation.url !== "string" ||
+            navigation.url.length > 64 * 1024 ||
+            typeof navigation.canGoBack !== "boolean" ||
+            typeof navigation.canGoForward !== "boolean")
+        ) {
+          stop();
+          return;
+        }
+        stats.navigation = navigation;
+        controls?.navigation(navigation);
+        return;
+      }
       if (value.type === "ready") {
         if (
           typeof value.document !== "number" ||
@@ -239,6 +370,7 @@ window.installNativeExperiment = ({ endpoint, owner, ownership }) => {
           focus: value.focus,
         });
         stats.ready = true;
+        controls?.ready(true);
         return;
       }
     }
