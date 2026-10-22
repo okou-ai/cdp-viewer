@@ -1,4 +1,4 @@
-import type { DisplaySize } from "../viewer/display";
+import type { DisplaySize } from "../display/geometry";
 
 /** Committed DOM observations; no transport or per-frame React updates. */
 export function observeDisplay(

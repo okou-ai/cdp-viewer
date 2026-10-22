@@ -16,8 +16,9 @@ import type { InputTransition } from "../input/lifecycle";
 import type { InputStop } from "../input/lifecycle";
 import type { Point } from "../input/geometry";
 import type { FrameSink } from "../render/canvas";
-import { DisplaySync } from "./display";
-import type { DisplaySize } from "./display";
+import { DisplaySync } from "../display/sync";
+import { DisplayViewport } from "../display/viewport";
+import type { DisplaySize } from "../display/geometry";
 import type { TabAction, ViewerModel } from "./model";
 import type { ViewerError, WindowSizeSync } from "./types";
 
@@ -30,7 +31,7 @@ interface Selection {
   input: InputSession | null;
   inputReady: boolean;
   highDensity: boolean;
-  frameTimestamp: number;
+  geometry: DisplayViewport;
 }
 
 interface Retirement {
@@ -129,7 +130,7 @@ export class ViewerController {
       input: null,
       inputReady: !this.options.interactive,
       highDensity: false,
-      frameTimestamp: -Infinity,
+      geometry: new DisplayViewport(),
     };
     this.selection = selection;
     this.attach(selection).catch((error: unknown) => {
@@ -435,8 +436,6 @@ export class ViewerController {
         if (selection && this.isCurrent(selection))
           await this.upgradeCapture(selection);
       },
-      inputScale: (scale, densityScale) =>
-        this.selection?.input?.setDisplayScale(scale, densityScale),
     });
     this.display.setMode(this.displayMode);
     this.display.measure(this.displaySize);
@@ -613,6 +612,7 @@ export class ViewerController {
         () => {
           if (this.isCurrent(selection)) this.options.onClipboardReset?.();
         },
+        selection.geometry,
       );
       selection.input = input;
       inputReady = input.start().then(() => {
@@ -640,6 +640,7 @@ export class ViewerController {
       targetId: selection.targetId,
       sessionId: attached.sessionId,
       current: () => this.isCurrent(selection),
+      geometry: selection.geometry,
     });
     if (selection.painted) return;
     timeout(
@@ -766,6 +767,8 @@ export class ViewerController {
 
   private readonly onEvent = (event: CdpEvent): void => {
     if (this.disposed) return;
+    if (event.sessionId === this.selection?.sessionId)
+      this.selection?.geometry.event(event.method);
     this.selection?.input?.event(event);
     for (const retirement of this.retirements.values())
       retirement.input.event(event);
@@ -791,20 +794,13 @@ export class ViewerController {
         typeof params.data !== "string"
       )
         return;
-      // Native resize readbacks can arrive after a newer captured image.
-      const timestamp = isRecord(params.metadata)
-        ? params.metadata.timestamp
-        : null;
-      if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
-        if (timestamp < selection.frameTimestamp) return;
-        selection.frameTimestamp = timestamp;
-      }
-      const paintedViewport = selection.input?.frame(params.metadata);
+      const paintedViewport = selection.geometry.frame(params.metadata);
+      if (!paintedViewport) return;
       this.sink.push(
         params.data,
         () => {
           if (!this.isCurrent(selection)) return;
-          paintedViewport?.();
+          paintedViewport();
           if (selection.painted) return;
           selection.painted = true;
           selection.deadline.abort();

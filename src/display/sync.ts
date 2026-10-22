@@ -1,13 +1,10 @@
 import { timeout } from "signal-timers";
 import type { CdpClient } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
-import type { WindowSizeSync } from "./types";
-
-export interface DisplaySize {
-  readonly width: number;
-  readonly height: number;
-  readonly dpr: number;
-}
+import type { WindowSizeSync } from "../viewer/types";
+import { constrainDisplay, positive, projectDisplay } from "./geometry";
+import type { DisplaySize } from "./geometry";
+import type { DisplayViewport } from "./viewport";
 
 export interface DisplayState {
   readonly ready: boolean;
@@ -19,6 +16,7 @@ interface Target {
   readonly targetId: string;
   readonly sessionId: string;
   readonly current: () => boolean;
+  readonly geometry: DisplayViewport;
   applied?: string;
 }
 
@@ -29,91 +27,22 @@ interface DisplayHost {
   readonly failed: (error: CdpFault) => void;
   readonly synchronized: () => void;
   readonly capture: () => Promise<void>;
-  readonly inputScale: (scale: number, densityScale?: number) => void;
 }
 
-const positive = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value) && value > 0;
+type Request = { readonly source: "manual" | "automatic" };
+type Operation =
+  | { readonly kind: "fit" }
+  | { readonly kind: "restore-density"; readonly size: DisplaySize };
+type Phase = "idle" | "scheduled" | "applying" | "failed";
 
-/** Product policy, independently of the capture cap and native window chrome. */
-function constrainDisplay(size: DisplaySize): DisplaySize & {
-  constrained: boolean;
-} {
-  const scale = Math.min(
-    1,
-    4096 / size.width,
-    4096 / size.height,
-    4096 / (size.width * size.dpr),
-    4096 / (size.height * size.dpr),
-    Math.sqrt((3840 * 2160) / size.width / size.height) / size.dpr,
-  );
-  const width = Math.max(1, Math.floor(size.width * scale));
-  const height = Math.max(1, Math.floor(size.height * scale));
-  if (
-    width * size.dpr > 4096 ||
-    height * size.dpr > 4096 ||
-    width * height * size.dpr * size.dpr > 3840 * 2160
-  )
-    throw new CdpFault(
-      "display",
-      "The display density cannot fit within the supported size limits.",
-    );
-  return {
-    width,
-    height,
-    dpr: size.dpr,
-    constrained: scale < 1,
-  };
-}
-
-/** Project CSS dimensions into the zoomed viewport and native window DIP. */
-function projectDisplay(
-  windowId: number,
-  size: DisplaySize,
-  nativeDpr: number,
-  zoom: number,
-) {
-  const densityScale = size.dpr / nativeDpr;
-  const contents = {
-    windowId,
-    width: Math.max(1, Math.round(size.width * densityScale)),
-    height: Math.max(1, Math.round(size.height * densityScale)),
-  };
-  return {
-    contents,
-    densityScale,
-    metrics: {
-      width: Math.max(1, Math.round(size.width * zoom)),
-      height: Math.max(1, Math.round(size.height * zoom)),
-      deviceScaleFactor: size.dpr / zoom,
-      scale: densityScale / zoom,
-      dontSetVisibleSize: true,
-      mobile: false,
-    },
-    // Integer native sizes prevent metric float noise from defeating deduplication.
-    key: [
-      windowId,
-      size.width,
-      size.height,
-      size.dpr,
-      zoom,
-      contents.width,
-      contents.height,
-    ].join(":"),
-  };
-}
-
-/** One connection, one running transaction, and one newest desired update. */
+/** One connection's policy, explicit pending request and bounded execution phase. */
 export class DisplaySync {
   private target: Target | null = null;
   private local: DisplaySize | null = null;
   private mode: WindowSizeSync = "off";
   private readonly initial = new Map<number, number>();
-  private wanted = false;
-  private manual = false;
-  private running = false;
-  private scheduled = false;
-  private faulted = false;
+  private request: Request | null = null;
+  private phase: Phase = "idle";
   private constrained = false;
   private revision = 0;
   private started = -Infinity;
@@ -126,10 +55,10 @@ export class DisplaySync {
   setTarget(target: Target | null): void {
     this.target = target;
     this.revision++;
-    this.faulted = false;
+    if (this.phase === "failed") this.phase = "idle";
     this.constrained = false;
-    this.wanted = !!target && this.mode !== "off";
-    this.manual = false;
+    this.request =
+      target && this.mode !== "off" ? { source: "automatic" } : null;
     this.schedule();
     this.publish();
   }
@@ -138,8 +67,9 @@ export class DisplaySync {
     if (this.mode === mode) return;
     this.mode = mode;
     this.revision++;
-    this.faulted = false;
-    this.wanted = this.manual || mode !== "off";
+    if (this.phase === "failed") this.phase = "idle";
+    if (this.request?.source !== "manual")
+      this.request = mode !== "off" ? { source: "automatic" } : null;
     this.schedule();
     this.publish();
   }
@@ -159,16 +89,15 @@ export class DisplaySync {
       this.mode === "live" ||
       (this.mode === "initial" && (!previous || !this.target?.applied))
     )
-      this.wanted = true;
+      this.request ??= { source: "automatic" };
     this.schedule();
     this.publish();
   }
 
   sync(): void {
     if (!this.local || !this.target || this.host.signal.aborted) return;
-    this.faulted = false;
-    this.manual = true;
-    this.wanted = true;
+    if (this.phase === "failed") this.phase = "idle";
+    this.request = { source: "manual" };
     this.revision++;
     this.schedule();
     this.publish();
@@ -177,8 +106,7 @@ export class DisplaySync {
   close(): void {
     this.target = null;
     this.local = null;
-    this.wanted = false;
-    this.manual = false;
+    this.request = null;
     this.initial.clear();
     this.publish();
   }
@@ -192,29 +120,29 @@ export class DisplaySync {
   private publish(): void {
     this.host.changed({
       ready: !!this.local && !!this.target,
-      pending: this.running || (this.scheduled && this.wanted),
+      pending:
+        this.phase === "applying" ||
+        (this.phase === "scheduled" && this.request !== null),
       constrained: this.constrained,
     });
   }
 
   private schedule(): void {
     if (
-      this.running ||
-      this.scheduled ||
-      !this.wanted ||
+      this.phase !== "idle" ||
+      !this.request ||
       !this.local ||
       !this.target ||
-      this.faulted ||
       this.host.signal.aborted
     )
       return;
-    this.scheduled = true;
+    this.phase = "scheduled";
     timeout(
       () => {
-        this.scheduled = false;
+        this.phase = "idle";
         this.drain().catch(() => {
           // run() reports only fixed, owner-bound diagnostics.
-          this.faulted = true;
+          this.phase = "failed";
           this.publish();
         });
       },
@@ -223,24 +151,21 @@ export class DisplaySync {
     );
   }
 
+  private retain(request: Request): void {
+    if (request.source === "manual") this.request = request;
+  }
+
   private async drain(): Promise<void> {
     const target = this.target;
-    if (
-      !target ||
-      !this.local ||
-      !this.wanted ||
-      this.faulted ||
-      !this.current(target)
-    ) {
+    const request = this.request;
+    if (!target || !this.local || !request || !this.current(target)) {
       this.publish();
       return;
     }
     const revision = this.revision;
-    const manual = this.manual;
     const mode = this.mode;
-    this.wanted = false;
-    this.manual = false;
-    this.running = true;
+    this.request = null;
+    this.phase = "applying";
     this.started = performance.now();
     this.publish();
     let emulated = false;
@@ -266,11 +191,10 @@ export class DisplaySync {
       ]);
       if (!this.current(target)) return;
       if (revision !== this.revision) {
-        if (manual) this.manual = this.wanted = true;
+        this.retain(request);
         return;
       }
-      const local = this.local;
-      if (!local) return;
+      if (!this.local) return;
       this.assertWindow(window);
       const value: unknown = remote.result.value;
       if (
@@ -284,40 +208,37 @@ export class DisplaySync {
           "display",
           "The page display metrics are unavailable.",
         );
-      const zoom = metrics.cssVisualViewport.zoom ?? 1;
-      const nativeDpr =
-        metrics.visualViewport.clientWidth /
-        metrics.cssVisualViewport.clientWidth /
-        zoom;
-      if (!positive(zoom) || !positive(nativeDpr))
-        throw new CdpFault(
-          "display",
-          "The browser display scale is unavailable.",
-        );
       const remembered = this.initial.get(window.windowId);
-      const restore = mode === "initial" && !manual && remembered !== undefined;
-      let size = constrainDisplay(
-        restore
+      const operation: Operation =
+        mode === "initial" &&
+        request.source !== "manual" &&
+        remembered !== undefined
           ? {
-              width: (value.width * value.dpr) / remembered,
-              height: (value.height * value.dpr) / remembered,
-              dpr: remembered,
+              kind: "restore-density",
+              size: {
+                width: (value.width * value.dpr) / remembered,
+                height: (value.height * value.dpr) / remembered,
+                dpr: remembered,
+              },
             }
-          : local,
+          : { kind: "fit" };
+      let size = constrainDisplay(
+        operation.kind === "fit" ? this.local : operation.size,
       );
-      let projected = projectDisplay(window.windowId, size, nativeDpr, zoom);
-      if (!manual && target.applied === projected.key) return;
+      let projected = projectDisplay(window.windowId, size, metrics);
+      if (request.source !== "manual" && target.applied === projected.key)
+        return;
       await this.host.capture();
       if (!this.current(target)) return;
       if (revision !== this.revision) {
-        if (manual) this.manual = this.wanted = true;
+        this.retain(request);
         return;
       }
       if (!this.local) return;
-      if (!restore) size = constrainDisplay(this.local);
-      projected = projectDisplay(window.windowId, size, nativeDpr, zoom);
-      // Consume measurements coalesced during guards/capture; later changes stay pending.
-      this.wanted = false;
+      if (operation.kind === "fit") size = constrainDisplay(this.local);
+      projected = projectDisplay(window.windowId, size, metrics);
+      // Consume measurements coalesced during guards; later changes stay pending.
+      this.request = null;
       await this.client.request(
         "Emulation.setDeviceMetricsOverride",
         projected.metrics,
@@ -325,12 +246,10 @@ export class DisplaySync {
       );
       emulated = true;
       if (!this.current(target)) return;
-      this.host.inputScale(projected.metrics.scale, projected.densityScale);
+      target.geometry.apply(projected.input);
       const confirmed = await this.client.request(
         "Browser.getWindowForTarget",
-        {
-          targetId: target.targetId,
-        },
+        { targetId: target.targetId },
       );
       if (!this.current(target)) return;
       this.assertWindow(confirmed);
@@ -339,8 +258,7 @@ export class DisplaySync {
           "scope",
           "The page moved during display synchronization.",
         );
-      // Restoring density must not feed rounded CSS sizes back into native bounds.
-      if (!restore || size.constrained)
+      if (operation.kind === "fit" || size.constrained)
         await this.client.request(
           "Browser.setContentsSize",
           projected.contents,
@@ -367,13 +285,14 @@ export class DisplaySync {
             );
           if (!this.current(target)) return;
           if (restored) {
-            // Recalibrate native zoom on the next input after emulation is retired.
-            this.host.inputScale(1);
+            target.geometry.apply(null);
             delete target.applied;
             this.constrained = false;
           }
         }
-        this.faulted = true;
+        // A later explicit policy/manual request survives this older failure.
+        // Measurements alone do not reopen a failed transaction.
+        this.phase = revision === this.revision ? "failed" : "idle";
         this.host.failed(
           !restored
             ? new CdpFault(
@@ -392,7 +311,7 @@ export class DisplaySync {
         );
       }
     } finally {
-      this.running = false;
+      if (this.phase === "applying") this.phase = "idle";
       this.schedule();
       this.publish();
     }

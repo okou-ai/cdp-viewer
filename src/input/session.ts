@@ -4,8 +4,9 @@ import { CdpFault, isRecord } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
 import { navigationAddress } from "./address";
 import { InputEffects } from "./effects";
-import { frameViewport } from "./geometry";
-import type { Point, Viewport } from "./geometry";
+import { DisplayViewport } from "../display/viewport";
+import type { InputGeometry } from "../display/geometry";
+import type { Point } from "./geometry";
 import { InputLifecycle } from "./lifecycle";
 import type { InputOwner, InputStop, InputTransition } from "./lifecycle";
 import { InputQueue } from "./queue";
@@ -52,8 +53,6 @@ const caretPosition = `(() => {
 
 /** Native focus belongs to Chromium; each selected session owns its input work. */
 export class InputSession {
-  private viewport: Viewport | null = null;
-  private viewportVersion = 0;
   private readonly lifecycle: InputLifecycle;
   private readonly queue: InputQueue;
   private readonly effects: InputEffects;
@@ -69,10 +68,6 @@ export class InputSession {
   private caretVersion = 0;
   private preeditSupported = true;
   private clipboardVersion = 0;
-  private displayScale = 1;
-  private wheelScale = 1;
-  // Native zoom is calibrated at startup/sync and refreshed after viewport changes.
-  private frameScale: number | null = null;
 
   constructor(
     private readonly client: CdpClient,
@@ -83,6 +78,7 @@ export class InputSession {
     private readonly caret: (point: Point) => void,
     private readonly setError: (error: CdpFault | null) => void,
     private readonly resetClipboard: () => void = () => {},
+    private readonly geometry = new DisplayViewport(),
   ) {
     this.lifecycle = new InputLifecycle(sessionId);
     this.effects = new InputEffects(client, sessionId);
@@ -108,15 +104,14 @@ export class InputSession {
   }
 
   async start(): Promise<void> {
-    const version = this.viewportVersion;
+    const revision = this.geometry.revision;
     const [tree, metrics] = await Promise.all([
       this.client.request("Page.getFrameTree", undefined, this.sessionId),
       this.client.request("Page.getLayoutMetrics", undefined, this.sessionId),
     ]);
     if (!this.available) return;
     this.frameId = tree.frameTree.frame.id;
-    if (version === this.viewportVersion && this.frameScale === null)
-      this.calibrateZoom(metrics.cssVisualViewport.zoom ?? 1);
+    this.geometry.read(metrics, revision);
     await this.client.request("Runtime.enable", undefined, this.sessionId);
     if (this.available) this.updateHistory();
   }
@@ -124,17 +119,6 @@ export class InputSession {
   focus(): void {
     if (!this.accepting) return;
     this.refreshCaret(this.queue.capture());
-  }
-
-  setDisplayScale(scale: number, densityScale?: number): void {
-    this.invalidateViewport();
-    this.displayScale = scale;
-    if (densityScale !== undefined) {
-      // Wheel deltas include view scaling and the effective/native density ratio.
-      this.wheelScale = scale * densityScale;
-      // Screencast dimensions include native browser zoom; input coordinates do not.
-      this.frameScale = scale / densityScale;
-    }
   }
 
   blur(): void {
@@ -175,7 +159,7 @@ export class InputSession {
     this.historyJob = null;
     this.clipboardVersion++;
     if (reason !== "blur") this.resetClipboard();
-    if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
+    if (reason !== "blur" && reason !== "failed") this.geometry.invalidate();
     this.invalidateCaret();
     this.queue.clear();
     if (cleanup.composition) this.cancelComposition();
@@ -217,7 +201,6 @@ export class InputSession {
       ].includes(method)
     )
       this.invalidateClipboard();
-    if (method === "Page.frameResized") this.invalidateViewport();
     if (
       method === "Runtime.executionContextCreated" &&
       isRecord(params.context)
@@ -276,57 +259,10 @@ export class InputSession {
     }
   }
 
-  /** The renderer calls this only when this exact frame has been painted. */
-  frame(metadata: unknown): () => void {
-    const viewport = frameViewport(metadata);
-    const version = this.viewportVersion;
-    const document = this.lifecycle.owner.document;
-    return () => {
-      if (
-        this.available &&
-        version === this.viewportVersion &&
-        document === this.lifecycle.owner.document
-      )
-        this.viewport = viewport;
-    };
-  }
-
-  private invalidateViewport(): void {
-    this.viewportVersion++;
-    this.viewport = null;
-    this.frameScale = null;
-  }
-
-  private calibrateZoom(zoom: number): void {
-    if (!Number.isFinite(zoom) || zoom <= 0)
-      throw new CdpFault(
-        "input",
-        "The remote display scale is unavailable for input.",
-      );
-    this.frameScale = 1 / zoom;
-    this.wheelScale = this.displayScale * this.displayScale * zoom;
-  }
-
-  private async readViewport(job: InputJob): Promise<Viewport> {
-    const version = this.viewportVersion;
-    const viewport = (await job.request("Page.getLayoutMetrics", undefined))
-      .cssVisualViewport;
-    if (
-      ![viewport.clientWidth, viewport.clientHeight].every(
-        (v) => Number.isFinite(v) && v > 0,
-      )
-    )
-      throw new CdpFault(
-        "input",
-        "The remote viewport is unavailable for input.",
-      );
-    if (version === this.viewportVersion && this.frameScale === null) {
-      this.calibrateZoom(viewport.zoom ?? 1);
-    }
-    return {
-      width: viewport.clientWidth * this.displayScale,
-      height: viewport.clientHeight * this.displayScale,
-    };
+  private async readGeometry(job: InputJob): Promise<InputGeometry | null> {
+    const revision = this.geometry.revision;
+    const layout = await job.request("Page.getLayoutMetrics", undefined);
+    return this.geometry.read(layout, revision);
   }
 
   pointer(
@@ -339,30 +275,16 @@ export class InputSession {
   ): void {
     if (!this.accepting) return;
     if (type === "mousePressed") this.invalidateClipboard();
-    let viewport: Viewport | null = null;
-    let version = this.viewportVersion;
+    let geometry: InputGeometry | null = null;
     const prepare = async (job: InputJob) => {
-      version = this.viewportVersion;
-      const fallback =
-        this.frameScale === null ? await this.readViewport(job) : null;
-      const native = this.viewport;
-      viewport =
-        native && this.frameScale !== null
-          ? {
-              width: native.width * this.frameScale,
-              height: native.height * this.frameScale,
-            }
-          : (fallback ?? (await this.readViewport(job)));
+      geometry = this.geometry.input ?? (await this.readGeometry(job));
     };
     const run = async (job: InputJob) => {
-      if (!viewport || version !== this.viewportVersion)
-        viewport = await this.readViewport(job);
-      const pointInViewport = {
-        // Owned metadata and fallback both describe the visible native view.
-        // Emulation scale maps that view to page CSS coordinates in Chromium.
-        x: point.x * viewport.width,
-        y: point.y * viewport.height,
-      };
+      if (!geometry || geometry.revision !== this.geometry.revision)
+        geometry = this.geometry.input ?? (await this.readGeometry(job));
+      // A second invalidation retires this unsent gesture; never dispatch stale units.
+      if (!geometry || geometry.revision !== this.geometry.revision) return;
+      const pointInViewport = geometry.position(point);
       if (type === "mousePressed") this.invalidateCaret();
       this.lifecycle.pointer(
         job.owner,
@@ -381,10 +303,7 @@ export class InputSession {
           ...pointInViewport,
           ...details,
           ...(job.wheel
-            ? {
-                deltaX: job.wheel.deltaX * this.wheelScale,
-                deltaY: job.wheel.deltaY * this.wheelScale,
-              }
+            ? geometry.wheel(job.wheel.deltaX, job.wheel.deltaY)
             : {}),
         },
         () => {

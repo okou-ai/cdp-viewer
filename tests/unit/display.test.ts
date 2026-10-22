@@ -340,6 +340,39 @@ it("preserves a queued manual sync when automatic synchronization is turned off"
   expect(resizes(browser)).toHaveLength(2);
 });
 
+it("retains an active manual request through policy changes and fits the latest measured surface", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0);
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  browser.holdMethod = "Browser.getWindowForTarget";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  controller.setWindowSizeSync("live");
+  controller.measureDisplay({ width: 900, height: 700, dpr: 2 });
+  controller.setWindowSizeSync("off");
+  browser.holdMethod = null;
+  const guard = browser.heldCommands[0]!;
+  guard.socket.reply(guard.command, {
+    windowId: 0,
+    bounds: { windowState: "normal" },
+  });
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  expect(resizes(browser)[0]!.params).toEqual({
+    windowId: 0,
+    width: 1800,
+    height: 1400,
+  });
+  expect(emulations(browser).at(-1)!.params).toMatchObject({
+    width: 900,
+    height: 700,
+    deviceScaleFactor: 2,
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(model.getSnapshot().error).toBeNull();
+});
+
 it("clears queued busy state for a zero-area stage and resumes at the latest valid size", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "off", 0);
@@ -406,6 +439,33 @@ it("contains unsupported display failures without leaking provider payloads or s
   controller.syncDisplay();
   await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
   await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
+});
+
+it("retains a newer policy request when the preceding operation finishes rolling back", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0);
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  browser.unsupportedContentsSize = true;
+  browser.holdMethod = "Emulation.clearDeviceMetricsOverride";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  expect(resizes(browser)).toHaveLength(1);
+  controller.setWindowSizeSync("initial");
+  controller.measureDisplay({ width: 900, height: 700, dpr: 1.5 });
+  browser.unsupportedContentsSize = false;
+  browser.holdMethod = null;
+  const rollback = browser.heldCommands[0]!;
+  rollback.socket.reply(rollback.command);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  expect(resizes(browser)[1]!.params).toEqual({
+    windowId: 0,
+    width: 1350,
+    height: 1050,
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(model.getSnapshot().error).toBeNull();
 });
 
 it("keeps the latest initial measurement while the first guard is pending", async () => {

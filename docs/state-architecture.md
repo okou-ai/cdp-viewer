@@ -57,6 +57,19 @@ or isolate website state. See [concurrent-viewer validation](validation.md#concu
 
 ## Commands and runtime resources
 
+Display adaptation owns its rules in the private display module. A connection's
+synchronizer distinguishes automatic policy, explicit requests and execution
+phases. Each selected session shares one geometry owner across adaptation,
+capture and input; native calibration, acknowledged transforms and painted facts
+retain distinct meanings. Input consumes an immutable mapping rather than
+deriving its own density and zoom formulas. Invalidations retire earlier geometry
+reads and paint callbacks without changing native input ownership.
+
+The controller retains target/session lifetime and frame acknowledgement. DOM
+observation and the effective host/menu mode remain in the runtime/model layers.
+Capture timestamps order images; they do not identify an adaptation generation
+or make native sizing, emulation and painting atomic.
+
 Views invoke bound commands from event handlers. Keep semantic transitions in
 the model rather than synchronizing duplicate state through React effects.
 Use React effects only in the runtime adapter to synchronize external resources

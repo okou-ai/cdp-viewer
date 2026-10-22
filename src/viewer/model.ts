@@ -3,7 +3,7 @@ import { createInstance } from "../state/instance";
 import { layoutTabs } from "./tab-layout";
 import type { TabSpace } from "./tab-layout";
 import type { ViewerError, ViewerSnapshot, WindowSizeSync } from "./types";
-import type { DisplayState } from "./display";
+import type { DisplayState } from "../display/sync";
 import type { ClipboardRecovery } from "../input/clipboard";
 
 export interface ViewerActions {

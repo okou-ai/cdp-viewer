@@ -20,6 +20,7 @@ adding extensions; ordinary CDP must remain usable independently.
 
 - `src/index.ts`: public component and type exports.
 - `src/cdp/`: native WebSocket transport, protocol diagnostics and window lookup.
+- `src/display/`: shared selected-session geometry, input projection and connection-owned synchronization policy/execution.
 - `src/extensions/`: public adapter types, owned registration lifecycle and optional vendors.
 - `src/viewer/`: controller/session lifecycle, ccstate model and public types.
 - `src/react/`: React component and private context/subscription bridge.

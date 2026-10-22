@@ -1,31 +1,6 @@
-import { isRecord } from "../cdp/errors";
+import type { Point } from "../display/geometry";
 
-export interface Point {
-  x: number;
-  y: number;
-}
-
-export interface Viewport {
-  width: number;
-  height: number;
-}
-
-export function frameViewport(metadata: unknown): Viewport | null {
-  if (!isRecord(metadata)) return null;
-  const { deviceWidth, deviceHeight, pageScaleFactor } = metadata;
-  if (
-    ![deviceWidth, deviceHeight, pageScaleFactor].every(
-      (value) =>
-        typeof value === "number" && Number.isFinite(value) && value > 0,
-    )
-  )
-    return null;
-  const width = (deviceWidth as number) / (pageScaleFactor as number);
-  const height = (deviceHeight as number) / (pageScaleFactor as number);
-  return [width, height].every((value) => Number.isFinite(value) && value > 0)
-    ? { width, height }
-    : null;
-}
+export type { Point } from "../display/geometry";
 
 /** Image-relative position, independent of JPEG resolution and client DPR. */
 export function imagePoint(
