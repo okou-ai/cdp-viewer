@@ -296,6 +296,7 @@
 .cdpv-root .cdpv-tab-options {
   overscroll-behavior: contain;
   min-height: 0;
+  overflow-y: auto;
 }
 .cdpv-root .cdpv-tab-option {
   cursor: pointer;

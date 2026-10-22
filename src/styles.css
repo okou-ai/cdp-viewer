@@ -257,6 +257,7 @@
 }
 .cdpv-root .cdpv-tab-options {
   min-height: 0;
+  overflow-y: auto;
   overscroll-behavior: contain;
 }
 .cdpv-root .cdpv-tab-option {
