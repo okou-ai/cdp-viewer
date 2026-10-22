@@ -155,16 +155,16 @@ it.each([1, 2])(
         { x: 0.25, y: 0.5 },
         { deltaX: 0, deltaY: 120 },
       );
-      await vi.waitFor(() =>
-        expect(
-          socket.commands
-            .filter((command) => command.method === "Input.dispatchMouseEvent")
-            .at(-1)?.params,
-        ).toMatchObject({
-          type: "mouseWheel",
-          deltaY: 480 / nativeDpr / nativeDpr / zoom,
-        }),
-      );
+      await vi.waitFor(() => {
+        const wheel = socket.commands
+          .filter((command) => command.method === "Input.dispatchMouseEvent")
+          .at(-1)?.params;
+        expect(wheel?.type).toBe("mouseWheel");
+        expect(wheel?.deltaY).toBeCloseTo(
+          480 / nativeDpr / nativeDpr / zoom,
+          8,
+        );
+      });
     };
     await verifyInput(1.25);
     browser.browserZoom = 0.8;
@@ -182,6 +182,69 @@ it.each([1, 2])(
     );
     await verifyInput(0.8);
     expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
+it.each([false, true])(
+  "keeps native zoom input correct with failed synchronization=%s",
+  async (failSync) => {
+    const browser = new FakeBrowser();
+    browser.browserZoom = 1.25;
+    browser.windowSizes.set(0, { width: 1000, height: 750 });
+    browser.unsupportedContentsSize = failSync;
+    const { controller, model } = mount(
+      browser,
+      failSync ? "initial" : "off",
+      0,
+    );
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    if (failSync)
+      await vi.waitFor(() =>
+        expect(model.getSnapshot().error?.kind).toBe("unsupported-capability"),
+      );
+    const socket = browser.sockets[0]!;
+    const input = controller.input!;
+    browser.frame(socket, input.sessionId);
+    const events = () =>
+      socket.commands.filter(
+        (command) => command.method === "Input.dispatchMouseEvent",
+      );
+    const point = async (x: number) => {
+      const previous = events().length;
+      input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+      await vi.waitFor(() => {
+        expect(events()).toHaveLength(previous + 1);
+        expect(events().at(-1)?.params).toMatchObject({
+          type: "mouseMoved",
+          x,
+        });
+      });
+    };
+    await point(200);
+    const metrics = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.getLayoutMetrics",
+      ).length;
+    const calibrated = metrics();
+    await point(200);
+    expect(metrics()).toBe(calibrated);
+    browser.browserZoom = 0.8;
+    socket.emit("Page.frameResized", {}, input.sessionId);
+    browser.frame(socket, input.sessionId);
+    await point(312.5);
+    expect(metrics()).toBe(calibrated + 1);
+    input.pointer("mouseWheel", { x: 0.25, y: 0.5 }, { deltaY: 120 });
+    await vi.waitFor(() =>
+      expect(
+        socket.commands
+          .filter((command) => command.method === "Input.dispatchMouseEvent")
+          .at(-1)?.params,
+      ).toMatchObject({ type: "mouseWheel", deltaY: 96 }),
+    );
+    expect(metrics()).toBe(calibrated + 1);
+    expect(resizes(browser)).toHaveLength(failSync ? 1 : 0);
   },
 );
 

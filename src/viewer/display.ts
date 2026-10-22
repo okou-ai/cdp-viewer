@@ -29,7 +29,7 @@ interface DisplayHost {
   readonly failed: (error: CdpFault) => void;
   readonly synchronized: () => void;
   readonly capture: () => Promise<void>;
-  readonly inputScale: (scale: number, densityScale: number) => void;
+  readonly inputScale: (scale: number, densityScale?: number) => void;
 }
 
 const positive = (value: unknown): value is number =>
@@ -362,7 +362,8 @@ export class DisplaySync {
             );
           if (!this.current(target)) return;
           if (restored) {
-            this.host.inputScale(1, 1);
+            // Recalibrate native zoom on the next input after emulation is retired.
+            this.host.inputScale(1);
             delete target.applied;
             this.constrained = false;
           }

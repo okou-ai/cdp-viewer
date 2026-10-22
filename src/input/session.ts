@@ -71,7 +71,8 @@ export class InputSession {
   private clipboardVersion = 0;
   private displayScale = 1;
   private wheelScale = 1;
-  private frameScale = 1;
+  // Calibrate on explicit synchronization or the first input after a viewport change.
+  private frameScale: number | null = null;
 
   constructor(
     private readonly client: CdpClient,
@@ -123,13 +124,15 @@ export class InputSession {
     this.refreshCaret(this.queue.capture());
   }
 
-  setDisplayScale(scale: number, densityScale: number): void {
-    this.displayScale = scale;
-    // Wheel deltas include view scaling and the effective/native density ratio.
-    this.wheelScale = scale * densityScale;
-    // Screencast dimensions include native browser zoom; input coordinates do not.
-    this.frameScale = scale / densityScale;
+  setDisplayScale(scale: number, densityScale?: number): void {
     this.invalidateViewport();
+    this.displayScale = scale;
+    if (densityScale !== undefined) {
+      // Wheel deltas include view scaling and the effective/native density ratio.
+      this.wheelScale = scale * densityScale;
+      // Screencast dimensions include native browser zoom; input coordinates do not.
+      this.frameScale = scale / densityScale;
+    }
   }
 
   blur(): void {
@@ -273,11 +276,7 @@ export class InputSession {
 
   /** The renderer calls this only when this exact frame has been painted. */
   frame(metadata: unknown): () => void {
-    const native = frameViewport(metadata);
-    const viewport = native && {
-      width: native.width * this.frameScale,
-      height: native.height * this.frameScale,
-    };
+    const viewport = frameViewport(metadata);
     const version = this.viewportVersion;
     const document = this.lifecycle.owner.document;
     return () => {
@@ -293,13 +292,16 @@ export class InputSession {
   private invalidateViewport(): void {
     this.viewportVersion++;
     this.viewport = null;
+    this.frameScale = null;
   }
 
   private async readViewport(job: InputJob): Promise<Viewport> {
+    const version = this.viewportVersion;
     const viewport = (await job.request("Page.getLayoutMetrics", undefined))
       .cssVisualViewport;
+    const zoom = viewport.zoom ?? 1;
     if (
-      ![viewport.clientWidth, viewport.clientHeight].every(
+      ![viewport.clientWidth, viewport.clientHeight, zoom].every(
         (v) => Number.isFinite(v) && v > 0,
       )
     )
@@ -307,6 +309,10 @@ export class InputSession {
         "input",
         "The remote viewport is unavailable for input.",
       );
+    if (version === this.viewportVersion && this.frameScale === null) {
+      this.frameScale = 1 / zoom;
+      this.wheelScale = this.displayScale * this.displayScale * zoom;
+    }
     return {
       width: viewport.clientWidth * this.displayScale,
       height: viewport.clientHeight * this.displayScale,
@@ -327,7 +333,16 @@ export class InputSession {
     let version = this.viewportVersion;
     const prepare = async (job: InputJob) => {
       version = this.viewportVersion;
-      viewport = this.viewport ?? (await this.readViewport(job));
+      const fallback =
+        this.frameScale === null ? await this.readViewport(job) : null;
+      const native = this.viewport;
+      viewport =
+        native && this.frameScale !== null
+          ? {
+              width: native.width * this.frameScale,
+              height: native.height * this.frameScale,
+            }
+          : (fallback ?? (await this.readViewport(job)));
     };
     const run = async (job: InputJob) => {
       if (!viewport || version !== this.viewportVersion)

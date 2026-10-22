@@ -351,6 +351,27 @@ for (const nativeDpr of [1, 2]) {
           );
         });
       });
+      let failContentsSize = false;
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as {
+            id: number;
+            method: string;
+          };
+          if (failContentsSize && command.method === "Browser.setContentsSize")
+            socket.send(
+              JSON.stringify({
+                id: command.id,
+                error: {
+                  code: -32601,
+                  message: "Synthetic unsupported capability",
+                },
+              }),
+            );
+          else upstream.send(message);
+        });
+      });
       await page.goto(server.origin);
       await page.addStyleTag({
         content:
@@ -359,16 +380,15 @@ for (const nativeDpr of [1, 2]) {
       await page.waitForFunction(
         () => typeof window.configureViewers === "function",
       );
-      await page.evaluate(
-        async (settings) => window.configureViewers!(settings),
-        {
+      const configure = (mode: "off" | "initial") =>
+        page.evaluate(async (settings) => window.configureViewers!(settings), {
           cdpUrl: backend.endpoint,
           windowA: windowId,
           second: false,
           interactive: true,
-          windowSizeSync: "initial" as const,
-        },
-      );
+          windowSizeSync: mode,
+        });
+      await configure("off");
       const view = page.locator("#viewer-a .cdpv-root");
       await expect(view).toHaveAttribute("data-status", "streaming");
       const canvas = view.locator("canvas");
@@ -381,6 +401,72 @@ for (const nativeDpr of [1, 2]) {
       const input = await view
         .getByRole("textbox", { name: "Remote browser input" })
         .elementHandle();
+      const verifyInput = async (text: string) => {
+        await remote.evaluate(() => {
+          scrollTo(0, 0);
+          document.body.dataset.wheel = "0";
+        });
+        await expect.poll(() => remote.evaluate(() => scrollY)).toBe(0);
+        await remote.locator("#plain").fill("");
+        await remote.locator("#plain").blur();
+        const rect = await remote.locator("#plain").evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            x: bounds.x,
+            y: bounds.y,
+            height: bounds.height,
+            viewportWidth: visualViewport!.width,
+            viewportHeight: visualViewport!.height,
+          };
+        });
+        const position = await canvas.evaluate(
+          (element: HTMLCanvasElement, rect) => {
+            const bounds = element.getBoundingClientRect();
+            const scale = Math.min(
+              bounds.width / element.width,
+              bounds.height / element.height,
+            );
+            const width = element.width * scale,
+              height = element.height * scale;
+            return {
+              x:
+                bounds.x +
+                (bounds.width - width) / 2 +
+                ((rect.x + 20) / rect.viewportWidth) * width,
+              y:
+                bounds.y +
+                (bounds.height - height) / 2 +
+                ((rect.y + rect.height / 2) / rect.viewportHeight) * height,
+            };
+          },
+          rect,
+        );
+        await page.mouse.click(position.x, position.y);
+        await expect(remote.locator("#plain")).toBeFocused();
+        await page.keyboard.insertText(text);
+        await expect(remote.locator("#plain")).toHaveValue(text);
+        await canvas.evaluate(
+          (element, position) =>
+            element.dispatchEvent(
+              new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                clientX: position.x,
+                clientY: position.y,
+                deltaY: 120,
+              }),
+            ),
+          position,
+        );
+        await expect
+          .poll(() =>
+            remote.evaluate(() => Number(document.body.dataset.wheel)),
+          )
+          .toBeCloseTo(120, 2);
+        await page.keyboard.press("F8");
+      };
+      await verifyInput("untouched native zoom");
+      await configure("initial");
       const verify = async (text: string) => {
         await expect
           .poll(() =>
@@ -428,43 +514,7 @@ for (const nativeDpr of [1, 2]) {
             }),
           )
           .toBeLessThanOrEqual(5);
-        await remote.evaluate(() => {
-          scrollTo(0, 0);
-          document.body.dataset.wheel = "0";
-        });
-        await expect.poll(() => remote.evaluate(() => scrollY)).toBe(0);
-        await remote.locator("#plain").fill("");
-        await remote.locator("#plain").blur();
-        const rect = await remote.locator("#plain").evaluate((element) => {
-          const bounds = element.getBoundingClientRect();
-          return { x: bounds.x, y: bounds.y, height: bounds.height };
-        });
-        await page.mouse.click(
-          box.x + rect.x + 20,
-          box.y + rect.y + rect.height / 2,
-        );
-        await expect(remote.locator("#plain")).toBeFocused();
-        await page.keyboard.insertText(text);
-        await expect(remote.locator("#plain")).toHaveValue(text);
-        await canvas.evaluate(
-          (element, position) =>
-            element.dispatchEvent(
-              new WheelEvent("wheel", {
-                bubbles: true,
-                cancelable: true,
-                clientX: position.x + 20,
-                clientY: position.y + 20,
-                deltaY: 120,
-              }),
-            ),
-          box,
-        );
-        await expect
-          .poll(() =>
-            remote.evaluate(() => Number(document.body.dataset.wheel)),
-          )
-          .toBeCloseTo(120, 2);
-        await page.keyboard.press("F8");
+        await verifyInput(text);
       };
       await verify("zoom 125%");
       expect(await changeZoom(0.8)).toBe(0.8);
@@ -474,6 +524,24 @@ for (const nativeDpr of [1, 2]) {
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
       await verify("zoom 80%");
+      failContentsSize = true;
+      await menu.click();
+      await view
+        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .click();
+      await expect(view.getByRole("alert")).toContainText(
+        "could not be synchronized",
+      );
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      await expect
+        .poll(() => remote.evaluate(() => devicePixelRatio))
+        .toBeCloseTo(nativeDpr * 0.8, 6);
+      await verifyInput("restored native zoom");
+      expect(await changeZoom(1.25)).toBe(1.25);
+      await expect
+        .poll(() => remote.evaluate(() => devicePixelRatio))
+        .toBeCloseTo(nativeDpr * 1.25, 6);
+      await verifyInput("changed native zoom");
       expect(
         await worker.evaluate(
           (id) =>
@@ -482,7 +550,7 @@ for (const nativeDpr of [1, 2]) {
             ).chrome.tabs.getZoom(id),
           tabId,
         ),
-      ).toBe(0.8);
+      ).toBe(1.25);
       expect(await input!.evaluate((element) => element.isConnected)).toBe(
         true,
       );
