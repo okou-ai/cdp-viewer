@@ -143,7 +143,8 @@ If the tabs cannot all fit at useful minimum widths, an **All tabs** popup
 keeps every page reachable while the strip retains the selected page. Its styled
 list inherits the viewer's theme, marks the current tab and wraps full titles.
 Arrow keys move through the list; Enter selects, and Escape closes it. The popup
-fits inside the viewer and scrolls vertically for long lists. This compact
+fits inside the viewer; long lists scroll vertically with the mouse wheel or
+trackpad without scrolling the host page. This compact
 fallback has no search field. Interactive viewers add new/close actions. The compact new-tab button
 follows the tabs and stays reachable, showing a spinner during creation.
 Enter in the address bar completes recognizable host addresses with `http://`

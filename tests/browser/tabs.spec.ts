@@ -1833,6 +1833,70 @@ for (const colorScheme of ["light", "dark"] as const) {
         })),
       );
       await selectOverflowTab(viewer, ordered[0]!.id);
+      await page.evaluate(() => {
+        document.body.style.minHeight = "200vh";
+      });
+      // Prove native wheel input can scroll this host before testing containment.
+      const viewport = page.viewportSize()!;
+      const initialHostY = await page.evaluate(() => scrollY);
+      await page.mouse.move(viewport.width - 20, viewport.height / 2);
+      await page.mouse.wheel(0, 40);
+      await expect
+        .poll(() => page.evaluate(() => scrollY))
+        .toBeGreaterThan(initialHostY);
+      const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
+      const list = viewer.getByRole("listbox", { name: "All tabs" });
+      const lastOption = viewer.locator(
+        `[data-tab-option="${ordered.at(-1)!.id}"]`,
+      );
+      await overflowOptions(viewer);
+      await expect(lastOption).not.toBeInViewport({ ratio: 1 });
+      await list.hover();
+      await page.mouse.wheel(0, 1000);
+      await expect
+        .poll(() => list.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          list.evaluate(
+            (element) =>
+              element.scrollHeight - element.clientHeight - element.scrollTop,
+          ),
+        )
+        .toBeLessThanOrEqual(1);
+      await expect(lastOption).toBeInViewport();
+      await page.mouse.wheel(0, 1000);
+      // Locator.click() would automatically scroll a clipped option into view.
+      const lastBounds = (await lastOption.boundingBox())!;
+      await page.mouse.click(
+        lastBounds.x + lastBounds.width / 2,
+        lastBounds.y + lastBounds.height / 2,
+      );
+      await expect(allTabs).toBeFocused();
+      await expect(viewer.getByRole("tab", { selected: true })).toHaveAttribute(
+        "data-target-id",
+        ordered.at(-1)!.id,
+      );
+      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
+      await overflowOptions(viewer);
+      await expect(
+        viewer.getByRole("option", { selected: true }),
+      ).toHaveAttribute("data-tab-option", ordered.at(-1)!.id);
+      await expect(lastOption).toBeFocused();
+      await expect(lastOption).toBeInViewport();
+      await list.hover();
+      await page.mouse.wheel(0, -1000);
+      await expect
+        .poll(() => list.evaluate((element) => element.scrollTop))
+        .toBe(0);
+      await page.mouse.wheel(0, -1000);
+      const firstOption = viewer.locator(
+        `[data-tab-option="${ordered[0]!.id}"]`,
+      );
+      await expect(firstOption).toBeInViewport({ ratio: 1 });
+      await firstOption.click();
+      await expect(allTabs).toBeFocused();
+      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual(hostScroll);
       await allTabs.press("ArrowDown");
       await expect(
         viewer.locator(`[data-tab-option="${ordered[0]!.id}"]`),
@@ -1854,6 +1918,11 @@ for (const colorScheme of ["light", "dark"] as const) {
       );
       await expect(selected).toHaveAccessibleName(ordered.at(-1)!.title);
       await expect(selected).toBeInViewport({ ratio: 1 });
+      await allTabs.press("Enter");
+      await expect(lastOption).toHaveAttribute("aria-selected", "true");
+      await expect(lastOption).toBeFocused();
+      await expect(lastOption).toBeInViewport();
+      await page.keyboard.press("Escape");
       const ids = await viewer
         .getByRole("tab")
         .evaluateAll((items) =>
