@@ -18,17 +18,12 @@ test("a custom adapter from the installed public SDK follows a live page event",
     server.origin,
   );
   try {
-    await backend.session.send("Target.createTarget", {
-      url: server.origin + "/fixture/red",
-      newWindow: true,
-    });
+    const remote = await backend.context.newPage();
+    await remote.goto(server.origin + "/fixture/red");
     await backend.session.send("Target.createTarget", {
       url: server.origin + "/fixture/blue",
       newWindow: true,
     });
-    const remote = backend.context
-      .pages()
-      .find((candidate) => candidate.url() === server.origin + "/fixture/red")!;
     await expect(remote).toHaveTitle("rgb(232,32,48)");
     await page.goto(server.origin);
     await page.waitForFunction(
@@ -59,12 +54,16 @@ test("a custom adapter from the installed public SDK follows a live page event",
       second: false,
       extensions: false,
     });
+    await expect(page.locator("#host-shell")).toHaveAttribute(
+      "data-extensions",
+      "off",
+    );
     await viewer.getByRole("tab", { name: "rgb(24,80,224)" }).click();
     await remote.evaluate(() => {
-      document.title = "No longer followed";
+      document.title = "Adapter should stay ignored";
     });
     await expect(
-      viewer.getByRole("tab", { name: "No longer followed" }),
+      viewer.getByRole("tab", { name: "Adapter should stay ignored" }),
     ).toBeVisible();
     await expect(viewer.getByRole("tab", { selected: true })).toHaveText(
       "rgb(24,80,224)",

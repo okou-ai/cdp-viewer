@@ -66,6 +66,7 @@ function App() {
     <StoreProvider value={hostStore}>
       <HostContainer
         id="host-shell"
+        data-extensions={settings?.extensions ? "on" : "off"}
         onSubmit={(event) => {
           event.preventDefault();
           setSubmissions((count) => count + 1);
