@@ -24,7 +24,10 @@ and the first canvas frame containing a distinct current marker. Reset and
 observe preparation outside the stopwatch equally for both paths. A pointer
 preparation may be deferred through an animation frame; an empty batch counter
 alone does not prove that it has even entered the queue. Join its real remote
-event and the candidate's actual ACK before cutting the sample.
+event and the candidate's actual ACK before cutting the sample. Also join input
+readiness: ownership invalidation can empty both batch and ACK counters while
+input remains unavailable. Synthetic composition must use the current focused
+proxy and admitted generation rather than silently emitting an unowned event.
 
 Keep all guards and writes required by the measured action. Record raw samples,
 workload, trial/window, method counts, visible latency and bounded-work evidence.

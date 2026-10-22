@@ -537,10 +537,12 @@ export async function painted(
   }
 }
 
+/** Ownership resets empty the ACK counters before input admission resumes. */
 export async function drained(value: Viewer) {
   if (value.probe)
     await value.page.waitForFunction(
       () =>
+        window.nativeExperiment.stats.ready &&
         !window.nativeExperiment.stats.revoked &&
         window.nativeExperiment.stats.acknowledgements.length ===
           window.nativeExperiment.stats.batches,
@@ -551,6 +553,11 @@ export async function composing(value: Viewer, text: string) {
   await value.page
     .getByRole("textbox", { name: "Native executor input" })
     .evaluate((element: HTMLTextAreaElement, text) => {
+      if (
+        !window.nativeExperiment.stats.ready ||
+        document.activeElement !== element
+      )
+        throw new Error("Composition requires a ready, focused native proxy");
       element.dispatchEvent(
         new CompositionEvent("compositionstart", { bubbles: true }),
       );
