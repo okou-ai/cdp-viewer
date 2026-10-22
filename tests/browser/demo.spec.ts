@@ -267,6 +267,229 @@ test("page appearance controls drive inherited viewer colors without reconnectin
   }
 });
 
+test("playground changes live props independently and observes safe callbacks", async ({
+  page,
+}, info) => {
+  await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  let sockets = 0;
+  page.on("websocket", () => {
+    sockets++;
+  });
+  try {
+    const target = await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/red",
+      newWindow: true,
+    });
+    const scope = await backend.session.send("Browser.getWindowForTarget", {
+      targetId: target.targetId,
+    });
+    const a = panel(page, 1);
+    await configure(a, backend.endpoint, scope.windowId);
+    const view = a.getByRole("region", { name: "Remote browser viewer" });
+    await expectColor(view, [232, 32, 48]);
+    const selected = await view
+      .getByRole("tab", { selected: true })
+      .getAttribute("data-target-id");
+    const original = await view
+      .getByLabel("Remote browser input")
+      .elementHandle();
+    const opened = sockets;
+    await a.getByRole("button", { name: "Pause stream", exact: true }).click();
+    await expect(view).toHaveAttribute("data-status", "paused");
+    await a.getByRole("button", { name: "Resume stream", exact: true }).click();
+    await expectColor(view, [232, 32, 48]);
+    await a
+      .locator("summary")
+      .filter({ hasText: "Appearance & layout" })
+      .click();
+    await a.getByLabel(/^Viewer theme/).selectOption("dark");
+    await expect(view).toHaveCSS("background-color", "rgb(53, 54, 58)");
+    await a.getByRole("slider", { name: "Height", exact: true }).fill("520");
+    await a.getByRole("slider", { name: "Width", exact: true }).fill("75");
+    await a.getByRole("slider", { name: "Corner radius" }).fill("20");
+    await a.getByRole("checkbox", { name: /Framed presentation/ }).check();
+    await a.getByRole("checkbox", { name: "Custom accent" }).check();
+    await a.getByLabel("Accent color", { exact: true }).fill("#b84a37");
+    await expect(view).toHaveCSS("height", "520px");
+    await expect(view).toHaveClass(/demo-viewer-framed/);
+    expect(
+      await view.evaluate((element) =>
+        element.style.getPropertyValue("--cdpv-radius"),
+      ),
+    ).toBe("20px");
+    expect(
+      await view.evaluate((element) =>
+        element.style.getPropertyValue("--cdpv-accent"),
+      ),
+    ).toBe("#b84a37");
+    await view.getByRole("button", { name: "Reload remote page" }).press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(
+      view.getByRole("button", { name: "Reload remote page" }),
+    ).toBeFocused();
+    await expect(
+      view.getByRole("button", { name: "Reload remote page" }),
+    ).toHaveCSS("outline-color", "rgb(184, 74, 55)");
+    expect(sockets).toBe(opened);
+    expect(
+      await view
+        .getByLabel("Remote browser input")
+        .evaluate((element, old) => element === old, original),
+    ).toBe(true);
+    await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+      "data-target-id",
+      selected!,
+    );
+    await a.locator("summary").filter({ hasText: "State & events" }).click();
+    await expect(a.getByLabel("Current status summary")).toContainText(
+      '"status": "streaming"',
+    );
+    await expect(a.getByLabel("Current status summary")).toContainText(
+      '"targetCount": 1',
+    );
+    await expect(a.getByLabel("Current status summary")).not.toContainText(
+      target.targetId,
+    );
+    await expect(a.getByLabel("Current status summary")).not.toContainText(
+      server.origin,
+    );
+    await a.locator("summary").filter({ hasText: "Usage" }).click();
+    await expect(a.getByLabel("Component code")).toContainText(
+      `windowId={${scope.windowId}}`,
+    );
+    await expect(a.getByLabel("Component code")).not.toContainText(
+      backend.endpoint,
+    );
+    await a
+      .getByLabel("CDP URL", { exact: true })
+      .fill("wss://draft.invalid/?token=synthetic");
+    await a.getByLabel(/^Window ID/).fill("-1");
+    await a.getByLabel("Control mode").selectOption("view-only");
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect(view.getByLabel("Remote browser input")).toHaveCount(0);
+    expect(sockets).toBe(opened + 1);
+    await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+      "data-target-id",
+      selected!,
+    );
+    await expect(a.getByLabel("Component code")).toContainText(
+      `windowId={${scope.windowId}}`,
+    );
+    await page.getByRole("button", { name: "Add viewer" }).click();
+    const b = panel(page, 2);
+    await b
+      .locator("summary")
+      .filter({ hasText: "Appearance & layout" })
+      .click();
+    await expect(b.getByLabel(/^Viewer theme/)).toHaveValue("inherit");
+    await expect(
+      b.getByRole("checkbox", { name: /Framed presentation/ }),
+    ).not.toBeChecked();
+    await expect(b.getByLabel("Control mode")).toHaveValue("interactive");
+    await page.screenshot({
+      path: info.outputPath("playground-props.png"),
+      fullPage: true,
+    });
+  } finally {
+    await backend.close();
+  }
+});
+
+test("playground layout keeps the preview and controls usable across appearances and narrow screens", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openDemo(page);
+  const a = panel(page, 1);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await expect(
+    a.getByText("Ready when you are.", { exact: true }),
+  ).toBeVisible();
+  const stage = a.locator(".demo-stage");
+  const settings = a.getByRole("complementary", {
+    name: "Viewer 1 properties",
+  });
+  const stageBounds = await stage.boundingBox();
+  const settingsBounds = await settings.boundingBox();
+  expect(stageBounds!.x + stageBounds!.width).toBeLessThanOrEqual(
+    settingsBounds!.x + 1,
+  );
+  await page
+    .getByRole("combobox", { name: "Appearance", exact: true })
+    .selectOption("light");
+  await page.getByRole("button", { name: "Add viewer" }).hover();
+  await expect(a.locator(".demo-disconnected")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)",
+  );
+  await page.screenshot({
+    path: info.outputPath("playground-light.png"),
+    fullPage: true,
+  });
+  await page
+    .getByRole("combobox", { name: "Appearance", exact: true })
+    .selectOption("dark");
+  await expect(a.locator(".demo-disconnected")).toHaveCSS(
+    "background-color",
+    "rgb(37, 40, 34)",
+  );
+  await expect(page.getByRole("button", { name: "Add viewer" })).toHaveCSS(
+    "background-color",
+    "rgb(229, 234, 220)",
+  );
+  await page.screenshot({
+    path: info.outputPath("playground-dark.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Add viewer" }).click();
+  await expect(panel(page, 2)).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const firstPanel = await a.boundingBox();
+  const secondPanel = await panel(page, 2).boundingBox();
+  expect(Math.abs(firstPanel!.y - secondPanel!.y)).toBeLessThan(1);
+  expect(secondPanel!.x).toBeGreaterThan(firstPanel!.x);
+  await page.screenshot({
+    path: info.outputPath("playground-two-viewers.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Remove viewer 2" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await a.locator("summary").filter({ hasText: "Appearance & layout" }).click();
+  await a.locator("summary").filter({ hasText: "Usage" }).click();
+  await expect(a.getByLabel("Component code")).toContainText("cdpUrl={cdpUrl}");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  const narrowStage = await stage.boundingBox();
+  const narrowSettings = await settings.boundingBox();
+  expect(narrowStage!.y + narrowStage!.height).toBeLessThanOrEqual(
+    narrowSettings!.y,
+  );
+  await page.screenshot({
+    path: info.outputPath("playground-mobile-dark.png"),
+    fullPage: true,
+  });
+  await page
+    .getByRole("combobox", { name: "Appearance", exact: true })
+    .selectOption("light");
+  await expect(page.getByRole("button", { name: "Add viewer" })).toHaveCSS(
+    "background-color",
+    "rgb(40, 45, 36)",
+  );
+  await page.screenshot({
+    path: info.outputPath("playground-mobile-light.png"),
+    fullPage: true,
+  });
+  expect(errors).toEqual([]);
+});
+
 test("demo applies settings explicitly and isolates two real windows and cleanup", async ({
   page,
   browser,
@@ -565,6 +788,16 @@ test("demo reports real Origin denial without echoing the endpoint", async ({
     await expect(view).toHaveAttribute("data-status", "error");
     await expect(view.getByRole("alert")).toContainText("Origin and TLS");
     await expect(view).not.toContainText(backend.endpoint);
+    await a.locator("summary").filter({ hasText: "State & events" }).click();
+    await expect(
+      a.getByRole("list", { name: "Callback activity", exact: true }),
+    ).toContainText("onError");
+    await expect(
+      a.getByRole("list", { name: "Callback activity", exact: true }),
+    ).toContainText("Origin and TLS");
+    await expect(
+      a.getByRole("list", { name: "Callback activity", exact: true }),
+    ).not.toContainText(backend.endpoint);
     expect(page.url()).toBe(demoUrl);
   } finally {
     await backend.close();

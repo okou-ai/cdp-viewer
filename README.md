@@ -22,6 +22,10 @@ Each panel has optional **Extensions** checkboxes. Enable Browser Use to follow
 active tabs reported by a compatible endpoint; leave all unchecked for standard
 CDP. Extension choices apply with the other connection settings.
 
+Each panel also offers pause/resume, interactive or view-only mode, independent
+appearance and layout controls, a host-style preset, safe callback observations
+and a usage example reflecting its applied configuration.
+
 The demo enables interaction: click the live page to use your mouse and keyboard,
 or use its address and history controls. Press **F8** to release remote keyboard
 focus. Interactive viewers support plain-text copy/paste with an explicit local

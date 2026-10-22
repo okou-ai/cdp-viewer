@@ -1,8 +1,19 @@
 import { command, computed, state } from "ccstate";
-import type { CdpViewerProps, ViewerExtension } from "cdp-viewer";
+import type {
+  CdpViewerProps,
+  ViewerError,
+  ViewerExtension,
+  ViewerSnapshot,
+} from "cdp-viewer";
 import { createInstance } from "../src/state/instance";
 import { parseConnection } from "./connection";
 import type { Connection, ConnectionError } from "./connection";
+import { callbackLimit, defaultOptions, summarizeSnapshot } from "./playground";
+import type {
+  CallbackEvent,
+  PlaygroundOptions,
+  SnapshotSummary,
+} from "./playground";
 
 export interface Panel {
   readonly id: number;
@@ -12,6 +23,10 @@ export interface Panel {
   readonly connection: Connection | null;
   readonly error: ConnectionError | null;
   readonly generation: number;
+  readonly options: PlaygroundOptions;
+  readonly snapshot: SnapshotSummary | null;
+  readonly activity: readonly CallbackEvent[];
+  readonly sequence: number;
 }
 
 function panel(id: number): Panel {
@@ -23,6 +38,10 @@ function panel(id: number): Panel {
     connection: null,
     error: null,
     generation: 0,
+    options: { ...defaultOptions },
+    snapshot: null,
+    activity: [],
+    sequence: 0,
   };
 }
 
@@ -85,6 +104,8 @@ function createDemoSignals() {
           ...item,
           error: null,
           generation,
+          snapshot: null,
+          activity: [],
           connection: {
             ...result.value,
             extensions: item.extensions,
@@ -102,6 +123,8 @@ function createDemoSignals() {
         return {
           ...item,
           generation,
+          snapshot: null,
+          activity: [],
           connection: { ...item.connection, generation },
         };
       }),
@@ -110,10 +133,93 @@ function createDemoSignals() {
   const disconnect$ = command(({ set }, id: number) => {
     set(internalPanels$, (values) =>
       values.map((item) =>
-        item.id === id ? { ...item, connection: null } : item,
+        item.id === id
+          ? { ...item, connection: null, snapshot: null, activity: [] }
+          : item,
       ),
     );
   });
+  const configure$ = command(
+    ({ set }, id: number, patch: Partial<PlaygroundOptions>) => {
+      set(internalPanels$, (values) =>
+        values.map((item) => {
+          if (item.id !== id) return item;
+          const options = { ...item.options, ...patch };
+          if (
+            item.connection &&
+            options.interactive !== item.options.interactive
+          ) {
+            const generation = item.generation + 1;
+            return {
+              ...item,
+              options,
+              generation,
+              connection: { ...item.connection, generation },
+              snapshot: null,
+              activity: [],
+            };
+          }
+          return { ...item, options };
+        }),
+      );
+    },
+  );
+  const clearActivity$ = command(({ set }, id: number) => {
+    set(internalPanels$, (values) =>
+      values.map((item) => (item.id === id ? { ...item, activity: [] } : item)),
+    );
+  });
+  const observeStatus$ = command(
+    (
+      { get, set },
+      id: number,
+      generation: number,
+      snapshot: ViewerSnapshot,
+    ) => {
+      const owner = get(internalPanels$).find((item) => item.id === id);
+      if (!owner?.connection || owner.connection.generation !== generation)
+        return;
+      const value = summarizeSnapshot(snapshot);
+      const sequence = owner.sequence + 1;
+      const event: CallbackEvent = { sequence, name: "onStatusChange", value };
+      set(internalPanels$, (values) =>
+        values.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                snapshot: value,
+                sequence,
+                activity: [...item.activity, event].slice(-callbackLimit),
+              }
+            : item,
+        ),
+      );
+    },
+  );
+  const observeError$ = command(
+    ({ get, set }, id: number, generation: number, error: ViewerError) => {
+      const owner = get(internalPanels$).find((item) => item.id === id);
+      if (!owner?.connection || owner.connection.generation !== generation)
+        return;
+      const sequence = owner.sequence + 1;
+      const event: CallbackEvent = {
+        sequence,
+        name: "onError",
+        value: { kind: error.kind, message: error.message },
+      };
+      set(internalPanels$, (values) =>
+        values.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                sequence,
+                activity: [...item.activity, event].slice(-callbackLimit),
+              }
+            : item,
+        ),
+      );
+    },
+  );
   return {
     appearance$,
     setAppearance$,
@@ -125,6 +231,10 @@ function createDemoSignals() {
     connect$,
     reconnect$,
     disconnect$,
+    configure$,
+    clearActivity$,
+    observeStatus$,
+    observeError$,
   };
 }
 
