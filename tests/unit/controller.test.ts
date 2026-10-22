@@ -19,7 +19,12 @@ function mount(
 ) {
   const model = createViewerModel();
   const sink = {
-    push: vi.fn((_data: string, paint: () => void) => paint()),
+    push: vi.fn(
+      (
+        _data: string,
+        paint: (raster: { width: number; height: number }) => void,
+      ) => paint({ width: 800, height: 600 }),
+    ),
     reset: vi.fn(),
     dispose: vi.fn(),
   };
@@ -70,6 +75,7 @@ describe("viewer lifecycle", () => {
       "without-time",
       expect.any(Function),
       expect.any(Function),
+      expect.any(Function),
     );
     controller.select("page-b");
     await vi.waitFor(() =>
@@ -85,6 +91,7 @@ describe("viewer lifecycle", () => {
     );
     expect(sink.push).toHaveBeenLastCalledWith(
       "replacement",
+      expect.any(Function),
       expect.any(Function),
       expect.any(Function),
     );

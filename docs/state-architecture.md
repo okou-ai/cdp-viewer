@@ -64,10 +64,23 @@ capture and input; native calibration, acknowledged transforms and painted facts
 retain distinct meanings. Input consumes an immutable mapping rather than
 deriving its own density and zoom formulas. Invalidations retire earlier geometry
 reads and paint callbacks without changing native input ownership.
-Starting a display write retires its calibration; a definite rejection can
-restore the previous calibration. An unconfirmed outcome keeps geometry unknown
-until a confirmed application or restoration. New pointer gestures require known units, while
-text input and release of already-owned buttons retain their native ownership.
+The geometry owner distinguishes native calibration, writing, awaiting
+presentation, presented and uncertain adaptation. Starting a write retires its
+pointer mapping. A definite rejection can restore previous acknowledged units;
+an unconfirmed outcome keeps them unknown. Successful application or rollback
+requires compatible metadata and actual decoded raster dimensions followed by
+successful drawing. The renderer rejects obsolete or incompatible decoded images
+before changing the canvas. Native acknowledgements alone cannot end a display
+transaction or enable fresh-layout fallback over its old visible pixels.
+
+Presentation waits share the bounded request/stream budget and retire with their
+selected session. A same-geometry density change or rollback also needs causal
+capture evidence: the synchronizer reads a clock in a private isolated world
+after acknowledged writes while the controller stops/starts the same bounded
+stream. The geometry owner rejects pre-fence timestamps and decodes. This adds
+no per-frame reads, React updates or refreshes during ordinary distinct-size
+updates. New pointer gestures remain suspended through the transition; text,
+native keys and release of already-owned buttons retain their input ownership.
 
 The controller retains target/session lifetime and frame acknowledgement. DOM
 observation and the effective host/menu mode remain in the runtime/model layers.

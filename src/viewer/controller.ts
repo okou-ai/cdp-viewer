@@ -418,6 +418,7 @@ export class ViewerController {
     let displayError: ViewerError | null = null;
     this.display = new DisplaySync(client, {
       signal: this.lifetime.signal,
+      presentationTimeout: this.options.requestTimeout,
       windowId: this.options.windowId,
       changed: (state) => {
         if (!this.disposed) this.model.run(this.model.setDisplay$, state);
@@ -435,6 +436,11 @@ export class ViewerController {
         const selection = this.selection;
         if (selection && this.isCurrent(selection))
           await this.upgradeCapture(selection);
+      },
+      refresh: async (prepare) => {
+        const selection = this.selection;
+        if (selection && this.isCurrent(selection))
+          await this.refreshCapture(selection, prepare);
       },
     });
     this.display.setMode(this.displayMode);
@@ -624,16 +630,7 @@ export class ViewerController {
     selection.highDensity = this.displayMode !== "off";
     await Promise.all([
       inputReady,
-      client.request(
-        "Page.startScreencast",
-        {
-          format: "jpeg",
-          quality: 70,
-          maxWidth: selection.highDensity ? 4096 : 1920,
-          maxHeight: selection.highDensity ? 4096 : 1080,
-        },
-        attached.sessionId,
-      ),
+      this.startScreencast(attached.sessionId, selection.highDensity),
     ]);
     if (!this.isCurrent(selection)) return;
     this.display?.setTarget({
@@ -676,20 +673,49 @@ export class ViewerController {
     await client.request("Page.stopScreencast", undefined, session);
     if (!this.isCurrent(selection)) return;
     try {
-      await client.request(
-        "Page.startScreencast",
-        { format: "jpeg", quality: 70, maxWidth: 4096, maxHeight: 4096 },
-        session,
-      );
+      await this.startScreencast(session, true);
       if (this.isCurrent(selection)) selection.highDensity = true;
     } catch (error) {
       if (this.isCurrent(selection)) {
         try {
-          await client.request(
-            "Page.startScreencast",
-            { format: "jpeg", quality: 70, maxWidth: 1920, maxHeight: 1080 },
-            session,
-          );
+          await this.startScreencast(session, false);
+        } catch (restoreError) {
+          if (this.isCurrent(selection)) this.fail(restoreError);
+        }
+      }
+      throw error;
+    }
+  }
+
+  private startScreencast(sessionId: string, highDensity: boolean) {
+    return this.client!.request(
+      "Page.startScreencast",
+      {
+        format: "jpeg",
+        quality: 70,
+        maxWidth: highDensity ? 4096 : 1920,
+        maxHeight: highDensity ? 4096 : 1080,
+      },
+      sessionId,
+    );
+  }
+
+  private async refreshCapture(
+    selection: Selection,
+    prepare: () => Promise<void>,
+  ): Promise<void> {
+    if (!selection.sessionId) return;
+    const session = selection.sessionId;
+    await this.client!.request("Page.stopScreencast", undefined, session);
+    if (!this.isCurrent(selection)) return;
+    try {
+      await prepare();
+      if (!this.isCurrent(selection)) return;
+      await this.startScreencast(session, true);
+    } catch (error) {
+      if (this.isCurrent(selection)) {
+        try {
+          await this.startScreencast(session, true);
         } catch (restoreError) {
           if (this.isCurrent(selection)) this.fail(restoreError);
         }
@@ -798,9 +824,9 @@ export class ViewerController {
       if (!paintedViewport) return;
       this.sink.push(
         params.data,
-        () => {
+        (raster) => {
           if (!this.isCurrent(selection)) return;
-          paintedViewport();
+          paintedViewport.painted(raster);
           if (selection.painted) return;
           selection.painted = true;
           selection.deadline.abort();
@@ -809,6 +835,7 @@ export class ViewerController {
         (error) => {
           if (this.isCurrent(selection)) this.fail(error);
         },
+        paintedViewport.accept,
       );
     } else if (event.method === "Target.detachedFromTarget") {
       const id = params.sessionId;

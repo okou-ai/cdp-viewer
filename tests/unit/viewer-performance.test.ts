@@ -17,8 +17,9 @@ async function mount(windowId?: number, holdPaint = false) {
     model,
     {
       push: (_data, paint) => {
-        paints.push(paint);
-        if (!holdPaint) paint();
+        const done = () => paint({ width: 800, height: 600 });
+        paints.push(done);
+        if (!holdPaint) done();
       },
       reset() {},
       dispose() {},
@@ -368,7 +369,12 @@ it("starts frames during input initialization without enabling input early", asy
   const browser = new FakeBrowser();
   browser.holdMethod = "Page.getFrameTree";
   const model = createViewerModel();
-  const paint = vi.fn((_data: string, done: () => void) => done());
+  const paint = vi.fn(
+    (
+      _data: string,
+      done: (raster: { width: number; height: number }) => void,
+    ) => done({ width: 800, height: 600 }),
+  );
   const controller = new ViewerController(
     model,
     { push: paint, reset() {}, dispose() {} },

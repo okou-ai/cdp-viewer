@@ -93,6 +93,42 @@ it("reports invalid dimensions and closes the bitmap", async () => {
   renderer.dispose();
 });
 
+it("checks actual decoded dimensions before drawing and commits only after draw", async () => {
+  const drawing = context();
+  const canvas = document.createElement("canvas");
+  const first = deferred();
+  const image = bitmap(12);
+  const renderer = new CanvasRenderer(canvas, () => first.promise);
+  let current = true;
+  const accept = vi.fn(
+    (raster: { width: number; height: number }) =>
+      current && raster.width === 12 && raster.height === 4,
+  );
+  const painted = vi.fn();
+  renderer.push("late", painted, vi.fn(), accept);
+  current = false;
+  first.resolve(image);
+  await vi.waitFor(() => expect(image.close).toHaveBeenCalledOnce());
+  expect(accept).toHaveBeenCalledWith({ width: 12, height: 4 });
+  expect(drawing.drawImage).not.toHaveBeenCalled();
+  expect(painted).not.toHaveBeenCalled();
+  current = true;
+  renderer.push(
+    "current",
+    (raster) => {
+      expect(drawing.drawImage).toHaveBeenCalledOnce();
+      expect(canvas.width).toBe(12);
+      painted(raster);
+    },
+    vi.fn(),
+    accept,
+  );
+  await vi.waitFor(() =>
+    expect(painted).toHaveBeenCalledWith({ width: 12, height: 4 }),
+  );
+  renderer.dispose();
+});
+
 it.each([true, false])(
   "decodes JPEG bytes with native base64 available: %s",
   async (native) => {

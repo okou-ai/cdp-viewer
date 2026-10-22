@@ -241,7 +241,11 @@ High DPR still increases capture, transport and decode cost within those limits.
 
 Native sizing and emulation require browser support. Non-normal windows must be
 restored first; unsupported commands produce a recoverable diagnostic and leave
-viewing available. Pointer actions pause while a display write awaits its reply.
+viewing available. Synchronization remains pending until the new image paints;
+pointer actions pause while native changes or a compatible image are pending.
+When a DPR/layout change can keep the same image dimensions, the viewer refreshes
+capture once on the existing session and requires a timestamp after the native
+change. Ordinary size changes keep the current stream running.
 If display recovery cannot be confirmed, they remain paused
 until synchronization succeeds; choose **Sync now** to retry. Text input remains
 available. Native minimum sizes, fractional scale rounding and provider

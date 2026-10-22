@@ -757,6 +757,11 @@ for (const nativeDpr of [1, 2]) {
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
       await verify("zoom 80%");
+      // Force a real geometry change: an already presented size is a no-op and
+      // cannot exercise the native sizing failure/rollback boundary.
+      await view.evaluate((element: HTMLElement) => {
+        element.style.width = "700px";
+      });
       failContentsSize = true;
       await menu.click();
       await view

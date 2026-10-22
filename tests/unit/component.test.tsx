@@ -30,7 +30,10 @@ function browser() {
   });
   vi.stubGlobal(
     "createImageBitmap",
-    vi.fn(() => Promise.resolve({ width: 2, height: 2, close: vi.fn() })),
+    vi.fn(async (blob: Blob) => ({
+      ...(JSON.parse(await blob.text()) as { width: number; height: number }),
+      close: vi.fn(),
+    })),
   );
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     clearRect: vi.fn(),

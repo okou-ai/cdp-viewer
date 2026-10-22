@@ -23,6 +23,45 @@ export interface DisplayTransform {
   readonly wheelScale: number;
 }
 
+/** Observable native frame dimensions and the bounded decoded image. */
+export interface PresentationGeometry {
+  readonly device: Viewport;
+  readonly nativeDpr: number;
+}
+
+export function captureRaster(device: Viewport, nativeDpr: number): Viewport {
+  const scale = Math.min(nativeDpr, 4096 / device.width, 4096 / device.height);
+  return {
+    width: Math.round(device.width * scale),
+    height: Math.round(device.height * scale),
+  };
+}
+
+function presentationGeometry(
+  device: Viewport,
+  nativeDpr: number,
+): PresentationGeometry {
+  if (![device.width, device.height, nativeDpr].every(positive))
+    throw new CdpFault("display", "The browser display scale is unavailable.");
+  return { device, nativeDpr };
+}
+
+export function nativePresentation(
+  layout: Protocol.Page.GetLayoutMetricsResponse,
+): PresentationGeometry {
+  const viewport = layout.cssVisualViewport;
+  const zoom = viewport.zoom ?? 1;
+  if (![viewport.clientWidth, viewport.clientHeight, zoom].every(positive))
+    throw new CdpFault("display", "The browser display scale is unavailable.");
+  return presentationGeometry(
+    {
+      width: viewport.clientWidth * zoom,
+      height: viewport.clientHeight * zoom,
+    },
+    layout.visualViewport.clientWidth / viewport.clientWidth / zoom,
+  );
+}
+
 export const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
 
@@ -138,6 +177,7 @@ export function projectDisplay(
     contents,
     metrics,
     input: inputTransform(zoom, viewportScale),
+    presentation: presentationGeometry(contents, nativeDpr),
     // Integer native sizes prevent metric float noise from defeating deduplication.
     key: [
       windowId,

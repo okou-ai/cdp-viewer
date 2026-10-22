@@ -3,7 +3,12 @@ import type { CdpClient } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import type { WindowSizeSync } from "../viewer/types";
-import { constrainDisplay, positive, projectDisplay } from "./geometry";
+import {
+  constrainDisplay,
+  nativePresentation,
+  positive,
+  projectDisplay,
+} from "./geometry";
 import type { DisplaySize } from "./geometry";
 import type { DisplayViewport } from "./viewport";
 
@@ -24,11 +29,13 @@ interface Target {
 
 interface DisplayHost {
   readonly signal: AbortSignal;
+  readonly presentationTimeout?: number | undefined;
   readonly windowId: number | undefined;
   readonly changed: (state: DisplayState) => void;
   readonly failed: (error: CdpFault) => void;
   readonly synchronized: () => void;
   readonly capture: () => Promise<void>;
+  readonly refresh: (prepare: () => Promise<void>) => Promise<void>;
 }
 
 type Request = { readonly source: "manual" | "automatic" };
@@ -55,6 +62,7 @@ export class DisplaySync {
   ) {}
 
   setTarget(target: Target | null): void {
+    this.target?.geometry.cancelPresentation();
     this.target = target;
     this.revision++;
     if (this.phase === "failed") this.phase = "idle";
@@ -106,6 +114,7 @@ export class DisplaySync {
   }
 
   close(): void {
+    this.target?.geometry.cancelPresentation();
     this.target = null;
     this.local = null;
     this.request = null;
@@ -154,15 +163,19 @@ export class DisplaySync {
     );
   }
 
-  private async readPageSize(sessionId: string) {
+  private async evaluate(
+    sessionId: string,
+    expression: string,
+    contextId?: number,
+  ) {
     const release = (result: unknown) =>
       releaseRuntimeObjects(this.client, sessionId, result);
     const result = await this.client.request(
       "Runtime.evaluate",
       {
-        expression:
-          "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
+        expression,
         returnByValue: true,
+        ...(contextId === undefined ? {} : { contextId }),
       },
       sessionId,
       release,
@@ -170,6 +183,41 @@ export class DisplaySync {
     // Exceptional by-value reads can still allocate result/exception handles.
     release(result);
     return result;
+  }
+
+  private async fenceCapture(target: Target): Promise<void> {
+    await this.host.refresh(async () => {
+      const tree = await this.client.request(
+        "Page.getFrameTree",
+        undefined,
+        target.sessionId,
+      );
+      if (!this.current(target)) return;
+      const world = await this.client.request(
+        "Page.createIsolatedWorld",
+        {
+          frameId: tree.frameTree.frame.id,
+          worldName: "cdp-viewer-display",
+        },
+        target.sessionId,
+      );
+      if (!this.current(target)) return;
+      const clock = await this.evaluate(
+        target.sessionId,
+        "Date.now()",
+        world.executionContextId,
+      );
+      if (!this.current(target)) return;
+      const value: unknown = clock.result.value;
+      if (clock.exceptionDetails || !positive(value))
+        throw new CdpFault(
+          "display",
+          "A fresh browser image could not be confirmed. Try synchronizing again.",
+        );
+      // Date.now has millisecond precision. Pre-write captures cannot cross this
+      // native-clock boundary, even when old/new images have identical dimensions.
+      target.geometry.fence((value + 1) / 1000);
+    });
   }
 
   /** Revalidate intent after a read boundary without consuming a hidden surface's request. */
@@ -207,7 +255,10 @@ export class DisplaySync {
         this.client.request("Browser.getWindowForTarget", {
           targetId: target.targetId,
         }),
-        this.readPageSize(target.sessionId),
+        this.evaluate(
+          target.sessionId,
+          "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
+        ),
         this.client.request(
           "Page.getLayoutMetrics",
           undefined,
@@ -247,8 +298,14 @@ export class DisplaySync {
         operation.kind === "fit" ? local : operation.size,
       );
       let projected = projectDisplay(window.windowId, size, metrics);
-      if (request.source !== "manual" && target.applied === projected.key)
+      if (
+        target.applied === projected.key &&
+        target.geometry.matches(projected.presentation, projected.input)
+      ) {
+        this.constrained = size.constrained;
+        this.host.synchronized();
         return;
+      }
       await this.host.capture();
       local = this.currentSize(target, revision, request);
       if (!local) return;
@@ -256,6 +313,10 @@ export class DisplaySync {
       projected = projectDisplay(window.windowId, size, metrics);
       // Consume measurements coalesced during guards; later changes stay pending.
       this.request = null;
+      const freshCapture = target.geometry.needsCaptureFence(
+        metrics,
+        projected.presentation,
+      );
       rejectWrite = target.geometry.beginWrite();
       this.publish();
       override = "pending";
@@ -266,8 +327,6 @@ export class DisplaySync {
       );
       override = "applied";
       if (!this.current(target)) return;
-      target.geometry.apply(projected.input);
-      this.publish();
       const confirmed = await this.client.request(
         "Browser.getWindowForTarget",
         { targetId: target.targetId },
@@ -284,6 +343,19 @@ export class DisplaySync {
           "Browser.setContentsSize",
           projected.contents,
         );
+      if (!this.current(target)) return;
+      target.geometry.apply(
+        projected.input,
+        projected.presentation,
+        freshCapture,
+      );
+      this.publish();
+      if (freshCapture) await this.fenceCapture(target);
+      if (!this.current(target)) return;
+      await target.geometry.waitForPresentation(
+        this.host.signal,
+        this.host.presentationTimeout,
+      );
       if (!this.current(target)) return;
       target.applied = projected.key;
       this.constrained = size.constrained;
@@ -314,7 +386,25 @@ export class DisplaySync {
             );
           if (!this.current(target)) return;
           if (restored) {
-            target.geometry.apply(null);
+            try {
+              const layout = await this.client.request(
+                "Page.getLayoutMetrics",
+                undefined,
+                target.sessionId,
+              );
+              if (!this.current(target)) return;
+              target.geometry.apply(null, nativePresentation(layout), true);
+              await this.fenceCapture(target);
+              if (!this.current(target)) return;
+              await target.geometry.waitForPresentation(
+                this.host.signal,
+                this.host.presentationTimeout,
+              );
+            } catch {
+              if (!this.current(target)) return;
+              restored = false;
+              target.geometry.uncertain();
+            }
           }
         }
         // A later explicit policy/manual request survives this older failure.
