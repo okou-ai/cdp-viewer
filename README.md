@@ -18,6 +18,9 @@ Licensed under the [Apache License 2.0](./LICENSE).
 browser-level CDP WebSocket URL, optionally enter a window ID, then connect.
 Add independent panels to view different windows. Draft edits apply only when
 you choose **Apply & connect**; reconnect uses the last applied settings.
+Each panel has optional **Extensions** checkboxes. Enable Browser Use to follow
+active tabs reported by a compatible endpoint; leave all unchecked for standard
+CDP. Extension choices apply with the other connection settings.
 
 The demo enables interaction: click the live page to use your mouse and keyboard,
 or use its address and history controls. Press **F8** to release remote keyboard

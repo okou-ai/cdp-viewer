@@ -4,15 +4,16 @@ The [GitHub Pages demo](https://okou-ai.github.io/cdp-viewer/) uses the same pub
 `cdp-viewer` component/types and `cdp-viewer/style.css` exports as consumers.
 It enables the public `interactive` option for live viewing, tab selection,
 tab creation/closure, mouse/keyboard input, plain-text clipboard transfer and
-navigation, with independent panels. Vendor adapters are not supported. Genuine
-macOS/Windows system IME validation remains pending.
+navigation, with independent panels. Optional extensions use the public adapter
+exports; Browser Use is the currently available choice. Genuine macOS/Windows
+system IME and live Browser Use provider validation remain pending.
 
 ## Connect
 
 1. Obtain a browser-level CDP WebSocket endpoint from a browser you control.
    Provisioning, authentication and endpoint discovery belong to your provider.
 2. Paste it into the masked **CDP URL** field. Optionally supply an actual
-   **Window ID**. Choose **Connect**.
+   **Window ID** and tick any optional **Extensions**. Choose **Connect**.
 3. Select a page in the viewer's top tab strip. Add another viewer
    to control a different window independently. For windows of the same browser,
    use the same **CDP URL** in each panel with different actual **Window ID** values.
@@ -20,10 +21,11 @@ macOS/Windows system IME validation remains pending.
 Selecting a page activates that tab in its remote window so it can produce live
 frames.
 
-| Parameter | Accepted value                                | Behavior                                                                                                                                     |
-| --------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| CDP URL   | Absolute `ws://` or `wss://` browser endpoint | Required. Native WebSocket does not support arbitrary auth headers, URL userinfo or fragments. Provider query/path credentials are accepted. |
-| Window ID | Omitted or a safe integer, including `0`      | Omitted lists pages across windows. Present limits listing/selection to confirmed members of that window.                                    |
+| Parameter  | Accepted value                                   | Behavior                                                                                                                                     |
+| ---------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| CDP URL    | Absolute `ws://` or `wss://` browser endpoint    | Required. Native WebSocket does not support arbitrary auth headers, URL userinfo or fragments. Provider query/path credentials are accepted. |
+| Window ID  | Omitted or a safe integer, including `0`         | Omitted lists pages across windows. Present limits listing/selection to confirmed members of that window.                                    |
+| Extensions | Independent checkboxes, all unchecked by default | Enable optional adapters for this panel. Browser Use follows endpoint-reported active tabs within the configured window scope.               |
 
 Window IDs are browser-owned values, not tab indexes. Scoped viewing requires
 `Browser.getWindowForTarget`; unsupported lookup, an empty/missing window or lost
@@ -37,6 +39,15 @@ remains in the form so you can connect again. **Remove viewer** removes its stat
 Neither action closes the remote browser or its tabs. Refresh clears all panels
 and settings. No endpoint is read from or written to the page URL, storage or
 analytics. The app has no telemetry or third-party scripts/fonts.
+
+Extension choices are independent, so multiple adapters can be enabled together
+when available. Checkbox edits are drafts until **Connect** or **Apply & connect**;
+**Reconnect** keeps the last applied extension list. The demo passes these
+descriptors directly to the public component, which owns their subscriptions and
+cleanup. Browser Use requires browser-level `BrowserUse.activeTargetChanged`
+events from the endpoint. Choosing it does not provision a browser, change
+authentication or establish provider compatibility; an endpoint without those
+events continues to work as ordinary CDP.
 
 Each viewer owns its connection, selection and cleanup. Two viewers of different
 windows are supported; simultaneous screencasts of the same tab are not
@@ -163,4 +174,8 @@ receipts use `local-production-fixture`; the workflow
 labels actual deployed-page receipts `actual-pages-deployment` and checks the
 source revision to reject stale deployments. The same smoke file exercises
 native input, local focus, independent windows and navigation after deployment.
+The ownership smoke also exercises optional Browser Use configuration alongside
+a standard CDP panel, draft isolation, reconnection and cleanup against owned
+Chromium. This does not verify live Browser Use activation events or its service's
+Origin policy.
 Genuine system IME and provider compatibility still require their own evidence.

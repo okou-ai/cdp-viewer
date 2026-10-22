@@ -301,11 +301,15 @@ test("demo applies settings explicitly and isolates two real windows and cleanup
     });
     expect(aWindow.windowId).not.toBe(bWindow.windowId);
     const a = panel(page, 1);
+    await a.getByRole("checkbox", { name: "Browser Use" }).check();
     await configure(a, backend.endpoint, aWindow.windowId);
     const aView = a.getByRole("region", { name: "Remote browser viewer" });
     await expectColor(aView, [232, 32, 48]);
     await page.getByRole("button", { name: "Add viewer" }).click();
     const b = panel(page, 2);
+    await expect(
+      b.getByRole("checkbox", { name: "Browser Use" }),
+    ).not.toBeChecked();
     await configure(b, backend.endpoint, bWindow.windowId);
     const bView = b.getByRole("region", { name: "Remote browser viewer" });
     await expectColor(bView, [24, 80, 224]);
@@ -321,6 +325,7 @@ test("demo applies settings explicitly and isolates two real windows and cleanup
       .getByLabel("CDP URL", { exact: true })
       .fill("wss://draft.invalid/?token=synthetic");
     await a.getByLabel(/^Window ID/).fill("-1");
+    await a.getByRole("checkbox", { name: "Browser Use" }).uncheck();
     await expectColor(aView, [232, 32, 48]);
     expect(sockets.length).toBe(opened);
     await a.getByRole("button", { name: "Reconnect", exact: true }).click();
@@ -392,6 +397,7 @@ test("demo applies settings explicitly and isolates two real windows and cleanup
           directBrowserWebSocket: true,
           differentWindows: true,
           draftIsolation: true,
+          optionalExtensionConfiguration: true,
           reconnect: true,
           independentCleanup: true,
           otherProviders: "unverified",

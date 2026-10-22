@@ -1,5 +1,5 @@
 import { command, computed, state } from "ccstate";
-import type { CdpViewerProps } from "cdp-viewer";
+import type { CdpViewerProps, ViewerExtension } from "cdp-viewer";
 import { createInstance } from "../src/state/instance";
 import { parseConnection } from "./connection";
 import type { Connection, ConnectionError } from "./connection";
@@ -8,6 +8,7 @@ export interface Panel {
   readonly id: number;
   readonly endpoint: string;
   readonly windowDraft: string;
+  readonly extensions: readonly ViewerExtension[];
   readonly connection: Connection | null;
   readonly error: ConnectionError | null;
   readonly generation: number;
@@ -18,6 +19,7 @@ function panel(id: number): Panel {
     id,
     endpoint: "",
     windowDraft: "",
+    extensions: [],
     connection: null,
     error: null,
     generation: 0,
@@ -52,6 +54,26 @@ function createDemoSignals() {
       );
     },
   );
+  const setExtension$ = command(
+    ({ set }, id: number, extension: ViewerExtension, enabled: boolean) => {
+      set(internalPanels$, (values) =>
+        values.map((item) => {
+          if (
+            item.id !== id ||
+            item.extensions.some((value) => value.id === extension.id) ===
+              enabled
+          )
+            return item;
+          return {
+            ...item,
+            extensions: enabled
+              ? [...item.extensions, extension]
+              : item.extensions.filter((value) => value.id !== extension.id),
+          };
+        }),
+      );
+    },
+  );
   const connect$ = command(({ set }, id: number) => {
     set(internalPanels$, (values) =>
       values.map((item) => {
@@ -63,7 +85,11 @@ function createDemoSignals() {
           ...item,
           error: null,
           generation,
-          connection: { ...result.value, generation },
+          connection: {
+            ...result.value,
+            extensions: item.extensions,
+            generation,
+          },
         };
       }),
     );
@@ -95,6 +121,7 @@ function createDemoSignals() {
     add$,
     remove$,
     edit$,
+    setExtension$,
     connect$,
     reconnect$,
     disconnect$,
