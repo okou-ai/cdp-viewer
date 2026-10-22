@@ -86,11 +86,7 @@ export async function serveConsumer(
   };
 }
 
-function browserOptions(
-  origin: string,
-  headless: boolean,
-  nativeDpr?: number,
-) {
+function browserOptions(origin: string, headless: boolean, nativeDpr?: number) {
   const extension = fileURLToPath(new URL("./extension", import.meta.url));
   return {
     headless,
