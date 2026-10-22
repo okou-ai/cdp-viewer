@@ -39,6 +39,13 @@ jobs:
       - name: Run browser tests
         id: browser_tests
         run: pnpm test:browser
+      - name: Save window isolation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: window-isolation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/**/window-isolation.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Save browser failure diagnostics
         if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v4

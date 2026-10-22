@@ -76,6 +76,40 @@ Check transitions separately by moving a selected target between windows with
 queued or held input and late results or cleanup. Stable-window concurrency
 alone does not establish correctness during an in-flight window handover.
 
+The focused `tests/browser/windows.spec.ts` scenarios distinguish direct CDP
+sessions from installed public viewers. Direct checks overlap text, keys and
+pointer dispatch while another window activates a tab, and inspect actual tab
+selection and page/window focus. Public checks cover sibling viewers' wheel
+queues and separate client documents' keyboard/text input. A held real reply
+establishes that the sibling completes input and paints while the first viewer
+still owns in-flight work. A single host document's physical keyboard focus is
+separate from these independent remote operation lanes.
+
+Remove any automation framework's remote-page focus emulation before native
+focus acceptance. The native-focus fixture inspects the owned default context
+with `noDefaults: true`. A headed browser alone is insufficient: verify that
+unselected tabs are not forced focused, and record DOM focus separately from
+native window focus. Keep local client input focus separate from the remote
+browser's focus when interpreting results.
+
+Run the focused spec with an explicit immutable source revision. For headed
+activation/focus validation, the direct CDP scenario passes Playwright's normal
+`--headed` setting to the owned remote browser. On Linux a dedicated X11 display
+needs a window manager; for example, with Xvfb and Openbox installed:
+
+```sh
+CDP_VIEWER_SOURCE_SHA=FULL_40_CHARACTER_SHA xvfb-run -a sh -c '
+  openbox >/dev/null 2>&1 &
+  pnpm test:browser tests/browser/windows.spec.ts --headed --grep "cdp sessions"
+'
+```
+
+The temporary display belongs to this invocation. The test records the source,
+browser, mode, window/target/session mapping and observed focus state in its
+attachment. Virtual X11 evidence does not establish physical macOS/Windows IME
+or a live provider's event routing. Keep synthetic Browser Use window-following
+coverage distinct from live service evidence.
+
 ## Deterministic asynchronous tests
 
 Hold and release actual protocol or event boundaries to test delayed work,

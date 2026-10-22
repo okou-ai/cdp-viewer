@@ -96,6 +96,37 @@ describe("viewer lifecycle", () => {
     ).toHaveLength(1);
   });
 
+  it("follows each window's activation independently with a shared Browser Use adapter", async () => {
+    const browser = new FakeBrowser();
+    browser.targets.push(
+      { id: "next-a", windowId: 0, title: "Next A" },
+      { id: "next-b", windowId: 2, title: "Next B" },
+    );
+    const a = mount(browser, 0);
+    const b = mount(browser, 2);
+    const adapter = browserUse();
+    a.controller.setExtensions([adapter]);
+    b.controller.setExtensions([adapter]);
+    await vi.waitFor(() => {
+      expect(a.model.getSnapshot().status).toBe("streaming");
+      expect(b.model.getSnapshot().status).toBe("streaming");
+    });
+    for (const targetId of ["next-a", "next-b"]) {
+      for (const socket of browser.sockets)
+        socket.emit("BrowserUse.activeTargetChanged", { targetId });
+      await vi.waitFor(() => {
+        expect(a.model.getSnapshot()).toMatchObject({
+          status: "streaming",
+          selectedTargetId: "next-a",
+        });
+        expect(b.model.getSnapshot()).toMatchObject({
+          status: "streaming",
+          selectedTargetId: targetId === "next-a" ? "page-b" : "next-b",
+        });
+      });
+    }
+  });
+
   it("finishes adapter cleanup before replacing its configuration on the same connection", async () => {
     const browser = new FakeBrowser();
     const { controller, model } = mount(browser);
