@@ -175,20 +175,24 @@ export async function prepareConsumer() {
   }
 }
 
+export async function writePackageReceipt(consumer) {
+  const output = join(root, "test-results/package");
+  await mkdir(output, { recursive: true });
+  await writeFile(
+    join(output, "receipt.json"),
+    JSON.stringify(consumer.receipt, null, 2),
+  );
+  console.log(
+    "External " +
+      consumer.receipt.source +
+      " consumer passed: pnpm 10.33.4, source types/CSS, frozen reinstall, React 19.2.6 build and SSR.",
+  );
+}
+
 export async function savePackageReceipt() {
   const consumer = await prepareConsumer();
   try {
-    const output = join(root, "test-results/package");
-    await mkdir(output, { recursive: true });
-    await writeFile(
-      join(output, "receipt.json"),
-      JSON.stringify(consumer.receipt, null, 2),
-    );
-    console.log(
-      "External " +
-        consumer.receipt.source +
-        " consumer passed: pnpm 10.33.4, source types/CSS, frozen reinstall, React 19.2.6 build and SSR.",
-    );
+    await writePackageReceipt(consumer);
   } finally {
     await consumer.cleanup();
   }
