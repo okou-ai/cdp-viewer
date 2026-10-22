@@ -345,6 +345,24 @@ it.each(["back", "forward"] as const)(
   },
 );
 
+it("reports an action-critical history failure without retrying navigation", async () => {
+  const { browser, input, socket, held, error, settled } = await fixture();
+  browser.holdMethod = "Page.getNavigationHistory";
+  input.navigate("back");
+  await vi.waitFor(() => expect(held()).toHaveLength(1));
+  socket.reject(held()[0]!.command, -32000);
+  await vi.waitFor(() =>
+    expect(error).toHaveBeenCalledWith(expect.any(CdpFault)),
+  );
+  await settled();
+  expect(
+    socket.commands.some((c) => c.method === "Page.navigateToHistoryEntry"),
+  ).toBe(false);
+  expect(
+    socket.commands.filter((c) => c.method === "Page.getNavigationHistory"),
+  ).toHaveLength(2);
+});
+
 it("keeps different-window viewers independent while one history owner is disposed", async () => {
   const browser = new FakeBrowser();
   const a = await fixture({ browser, windowId: 0, holdHistory: true });
