@@ -325,6 +325,36 @@ Original native cleanup and detach likewise require an explicit CDP result
 object; an ID-only or non-object detach reply cannot confirm retirement or
 release the target reservation.
 
+## Full-interaction measurement and assessment
+
+Select `full-interaction.spec.ts` with the explicit immutable source and existing
+experiment configuration to add three matched trials of preedit, Unicode commit,
+trusted local copy, native paste, same-document navigation and subsequent text.
+Both paths use the actual DOM adapter and native Chromium operations; direct is
+the installed public interactive viewer, adjacent is the source-matched private
+generation adapter on the installed read-only stream. Preserve 0/50ms each-way
+profiles, one/two independent scoped windows and default capture.
+
+Each case writes `full-interaction.json` with every raw row, source/clean checkout,
+consumer/lockfile/browser/capture, native/navigation write and membership counts,
+and candidate unconfirmed-action peaks. Samples start at actual local events and
+end at actual remote DOM and a distinct current canvas marker. Preparation joins
+real remote pointer release and candidate ACKs outside each sample. Copy records
+the actual trusted Clipboard API completion separately, with its contents checked
+through a real local paste. Copy has no fabricated remote DOM/pixel latency.
+The shared physical clipboard requires serial copy gestures; paired paste,
+composition and navigation remain simultaneous. `observedThroughMs` includes
+verification/ACK joins and is not exact direct acknowledgement-drain timing.
+
+Full/history/reload/retained-document correctness remains in the lifetime suites;
+this profile measures representative same-document navigation and subsequent
+input. Existing key/text and pointer/scroll profiles and all actual recovery
+cases remain required evidence. These measurements do not establish physical OS
+IME, arbitrary application repaint, provider behavior, production capacity/tails,
+authentication, wire rollout, durable restart or operating cost. Use the
+[assessment method](../../docs/executor-assessment.md) to publish the complete
+passed/failed/unverified matrix and dated adopt/defer decision in the PR/issue.
+
 ## Limits
 
 The keys/text comparator uses a deliberately smaller local adapter than

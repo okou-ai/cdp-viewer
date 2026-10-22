@@ -224,6 +224,71 @@ test("composition mode commits once and resumes after blur on the same native pr
   }
 });
 
+test("composition fixture rejects unowned previews before waiting for a native reply", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  let release: (() => void) | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, { composition: true });
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await expect(proxy).toBeFocused();
+    await expect(a.remote.locator("#plain")).toBeFocused();
+    await drained(a);
+    const blur = a.holdMessage("intent", "blur");
+    release = blur.release;
+    await proxy.evaluate((element: HTMLTextAreaElement) => element.blur());
+    await blur.held;
+    expect(
+      await a.page.evaluate(() => ({
+        ready: window.nativeExperiment.stats.ready,
+        batches: window.nativeExperiment.stats.batches,
+        acks: window.nativeExperiment.stats.acknowledgements.length,
+      })),
+    ).toEqual({ ready: false, batches: 0, acks: 0 });
+    await expect(composing(a, "unowned")).rejects.toThrow(
+      "Composition requires a ready, focused native proxy",
+    );
+    expect(
+      a.probe!.trace.filter((row) => row.method === "Input.imeSetComposition"),
+    ).toHaveLength(0);
+    await expect(a.remote.locator("#plain")).toHaveValue("");
+    const joining = drained(a);
+    blur.release();
+    await joining;
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.ready),
+    ).toBe(true);
+    await expect(composing(a, "unfocused")).rejects.toThrow(
+      "Composition requires a ready, focused native proxy",
+    );
+    await a.page.mouse.click(at.x, at.y);
+    await expect(a.remote.locator("#plain")).toBeFocused();
+    await drained(a);
+    await composing(a, "admitted");
+    await expect(a.remote.locator("#plain")).toHaveValue("admitted");
+    await painted(a, true);
+    await drained(a);
+  } finally {
+    release?.();
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
 test("composition mode drops old trailing events after a real document replacement", async ({
   browser,
 }, info) => {
@@ -235,14 +300,16 @@ test("composition mode drops old trailing events after a real document replaceme
   let a: Viewer | undefined;
   try {
     a = await viewer(browser, backend, host, true, 0, { composition: true });
+    await resumed(a);
     const at = await position(a, "#plain");
     await a.page.mouse.click(at.x, at.y);
+    await expect(a.remote.locator("#plain")).toBeFocused();
     await drained(a);
     const old = a.probe!.ownership;
     const held = a.probe!.holdNext("Input.imeSetComposition");
     await composing(a, "old");
-    await held.held;
     await expect(a.remote.locator("#plain")).toHaveValue("old");
+    await test.step("hold the emitted native preedit reply", () => held.held);
     await a.remote.goto(server.origin + "/fixture/editor?replacement");
     await expect(a.remote.locator("#plain")).toHaveValue("");
     await committed(a, "late-before-ready");

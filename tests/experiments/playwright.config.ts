@@ -8,6 +8,7 @@ export default defineConfig({
     "handover.spec.ts",
     "native-input.spec.ts",
     "recovery.spec.ts",
+    "full-interaction.spec.ts",
   ],
   outputDir: "../../test-results/adjacent-input",
   workers: 1,
