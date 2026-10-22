@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Browser, Locator, Page } from "@playwright/test";
+import type { Browser, Locator, Page, TestInfo } from "@playwright/test";
 import { prepareConsumer } from "../../scripts/consumer.mjs";
 import { launchBackend, serveConsumer } from "./backend";
 import type {} from "../consumer/api";
@@ -55,6 +55,15 @@ async function overflowOptions(viewer: Locator) {
     await trigger.click();
   await expect(viewer.getByRole("listbox", { name: "All tabs" })).toBeVisible();
   return viewer.getByRole("option");
+}
+
+async function captureTabScreenshot(
+  viewer: Locator,
+  info: TestInfo,
+  name: string,
+) {
+  if (process.env.CDP_VIEWER_CAPTURE_TAB_SCREENSHOTS === "1")
+    await viewer.screenshot({ path: info.outputPath(name) });
 }
 
 async function selectOverflowTab(viewer: Locator, targetId: string) {
@@ -206,6 +215,12 @@ for (const colorScheme of ["light", "dark"] as const) {
           element.style.gridTemplateColumns = "minmax(0, 1fr)";
         });
         await expect(viewer).toHaveAttribute("data-status", "streaming");
+        await expect(viewer.getByLabel("Remote page address")).toBeVisible();
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
         const create = viewer.getByRole("button", {
           name: "New tab",
           exact: true,
@@ -213,7 +228,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         const idle = await create.boundingBox();
         expect(idle).not.toBeNull();
         const pages = backend.context.pages().length;
-        await viewer.screenshot({ path: info.outputPath("idle.png") });
+        await captureTabScreenshot(viewer, info, "idle.png");
         const opened = backend.context.waitForEvent("page");
         await create.click();
         await expect.poll(() => typeof release).toBe("function");
@@ -224,7 +239,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         await expect(create.locator(".cdpv-spinning")).toBeVisible();
         await expect(viewer.getByRole("status")).toContainText("Creating tab");
         expect(backend.context.pages()).toHaveLength(pages + 1);
-        await viewer.screenshot({ path: info.outputPath("pending.png") });
+        await captureTabScreenshot(viewer, info, "pending.png");
         await expect(create).toHaveText("");
         expect(await create.boundingBox()).toMatchObject({
           width: idle!.width,
@@ -244,7 +259,7 @@ for (const colorScheme of ["light", "dark"] as const) {
           width: idle!.width,
           height: idle!.height,
         });
-        await viewer.screenshot({ path: info.outputPath("complete.png") });
+        await captureTabScreenshot(viewer, info, "complete.png");
       } finally {
         await backend.close();
       }
@@ -717,9 +732,11 @@ test.describe(() => {
             list.scrollLeft = 0;
           });
           await tabs.first().hover();
-          await viewer.screenshot({
-            path: info.outputPath(`${width}-leading-hover.png`),
-          });
+          await captureTabScreenshot(
+            viewer,
+            info,
+            `${width}-leading-hover.png`,
+          );
           const leading = await viewer.evaluate((root) => {
             const row = root
               .querySelector(".cdpv-toolbar")!
@@ -739,9 +756,11 @@ test.describe(() => {
           await tabs.last().blur();
           await tabs.last().click();
           await create.hover();
-          await viewer.screenshot({
-            path: info.outputPath(`${width}-new-tab-hover.png`),
-          });
+          await captureTabScreenshot(
+            viewer,
+            info,
+            `${width}-new-tab-hover.png`,
+          );
           await expectNewTabHoverAlignment(viewer);
           const last = await tabs.last().locator("..").boundingBox();
           const action = await create.boundingBox();
@@ -830,9 +849,7 @@ test.describe(() => {
         await page.keyboard.press("Enter");
         await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
         await create.hover();
-        await viewer.screenshot({
-          path: info.outputPath("320-compressed-end.png"),
-        });
+        await captureTabScreenshot(viewer, info, "320-compressed-end.png");
         await expectTabBarAlignment(viewer);
       } finally {
         await backend.close();
@@ -897,9 +914,7 @@ test.describe(() => {
                 idle[3],
                 "Selected right curve remains visible at strip edges",
               ).toEqual(idle[0]);
-              await viewer.screenshot({
-                path: info.outputPath(`${prefix}-idle.png`),
-              });
+              await captureTabScreenshot(viewer, info, `${prefix}-idle.png`);
               await tabs.nth(selected).hover();
               expect(await tabSurfacePixels(viewer)).toEqual(idle);
               if (width === 960) {
@@ -910,9 +925,11 @@ test.describe(() => {
                 expect(hovered[1]).not.toEqual(idle[0]);
                 expect(hovered[2]).toEqual(idle[2]);
                 expect(hovered[3]).toEqual(idle[3]);
-                await viewer.screenshot({
-                  path: info.outputPath(`${prefix}-inactive-hover.png`),
-                });
+                await captureTabScreenshot(
+                  viewer,
+                  info,
+                  `${prefix}-inactive-hover.png`,
+                );
                 await expectParallelContour(viewer, {
                   hover: hovered[1]!,
                   gutter: hovered[4]!,
@@ -926,9 +943,11 @@ test.describe(() => {
                     exact: true,
                   })
                   .hover();
-                await viewer.screenshot({
-                  path: info.outputPath(`${prefix}-close-hover.png`),
-                });
+                await captureTabScreenshot(
+                  viewer,
+                  info,
+                  `${prefix}-close-hover.png`,
+                );
               }
               await expectTabBarAlignment(viewer);
             }
@@ -1030,9 +1049,7 @@ for (const nativeScrollbars of [false, true]) {
               exact: true,
             });
             if (interactive) await create.hover();
-            await viewer.screenshot({
-              path: info.outputPath(`${width}-one.png`),
-            });
+            await captureTabScreenshot(viewer, info, `${width}-one.png`);
             await expectTabBarAlignment(viewer);
             if (interactive) {
               await page.mouse.move(0, 0);
@@ -1066,9 +1083,7 @@ for (const nativeScrollbars of [false, true]) {
               .toBe(0);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
             await expectTabBarAlignment(viewer);
-            await viewer.screenshot({
-              path: info.outputPath(`${width}-overflow.png`),
-            });
+            await captureTabScreenshot(viewer, info, `${width}-overflow.png`);
             for (const extra of extras) await extra.remote.close();
             await expect(viewer.getByRole("tab")).toHaveCount(1);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
@@ -1078,9 +1093,7 @@ for (const nativeScrollbars of [false, true]) {
             }, width);
             await expect(viewer.getByRole("tab")).toHaveCount(0);
             await expect(viewer).toHaveAttribute("data-status", "unavailable");
-            await viewer.screenshot({
-              path: info.outputPath(`${width}-empty.png`),
-            });
+            await captureTabScreenshot(viewer, info, `${width}-empty.png`);
             expect(await viewerGeometry(viewer)).toEqual(baseline);
             if (interactive) {
               await expect(create).toBeDisabled();
@@ -1103,9 +1116,7 @@ for (const nativeScrollbars of [false, true]) {
               await expect(create).toHaveAttribute("aria-busy", "true");
               expect(await viewerGeometry(viewer)).toEqual(baseline);
               await expectTabBarAlignment(viewer);
-              await viewer.screenshot({
-                path: info.outputPath(`${width}-pending.png`),
-              });
+              await captureTabScreenshot(viewer, info, `${width}-pending.png`);
               holdCreate = false;
               releaseCreate!();
               await expect(create).toHaveAttribute("aria-busy", "false");
@@ -1147,249 +1158,186 @@ for (const nativeScrollbars of [false, true]) {
   }
 }
 
-for (const colorScheme of ["light", "dark"] as const) {
-  test(`captures rendered ${colorScheme} tab, recovery, pending and responsive states`, async ({
-    page,
-  }, info) => {
-    const backend = await launchBackend(
-      info.outputPath("backend"),
-      server.origin,
-    );
-    let holdCreate = false;
-    let failClose = false;
-    let holdClose = false;
-    let holdStream = false;
-    let empty = false;
-    let release: (() => void) | undefined;
-    let disconnect: (() => void) | undefined;
-    let releaseClose: (() => void) | undefined;
-    let releaseStream: (() => void) | undefined;
-    await page.routeWebSocket(backend.endpoint, (socket) => {
-      const upstream = socket.connectToServer();
-      disconnect = () => socket.close();
-      socket.onMessage((message) => {
-        const command = JSON.parse(String(message)) as {
-          id: number;
-          method: string;
-        };
-        if (holdCreate && command.method === "Page.createIsolatedWorld") {
-          release = () => upstream.send(message);
-          return;
-        }
-        if (failClose && command.method === "Target.closeTarget") {
-          const reject = () =>
-            socket.send(
-              JSON.stringify({
-                id: command.id,
-                error: { code: -32000, message: "Synthetic denial" },
-              }),
-            );
-          if (holdClose) releaseClose = reject;
-          else reject();
-          return;
-        }
-        if (holdStream && command.method === "Page.startScreencast") {
-          releaseStream = () => upstream.send(message);
-          return;
-        }
-        if (empty && command.method === "Target.getTargets") {
-          socket.send(
-            JSON.stringify({ id: command.id, result: { targetInfos: [] } }),
-          );
-          return;
-        }
-        upstream.send(message);
-      });
-    });
-    try {
-      await page.emulateMedia({ colorScheme });
-      const first = await remoteTab(backend, "Workspace", true);
-      await remoteTab(backend, "Product notes");
-      await remoteTab(backend, "Weekly report");
-      const a = await host(page, {
-        cdpUrl: backend.endpoint,
-        windowA: first.windowId,
-        second: false,
-        interactive: true,
-      });
-      const arrange = async () => {
-        await page.evaluate(() => {
-          document.documentElement.style.colorScheme = "light dark";
-          document.body.style.margin = "24px";
-          document.querySelector<HTMLElement>(
-            "#panels",
-          )!.style.gridTemplateColumns = "minmax(0, 1fr)";
-          document.querySelector<HTMLElement>("#panels")!.style.maxWidth =
-            "960px";
-          const root = document.querySelector<HTMLElement>(".cdpv-root")!;
-          root.style.height = "600px";
-          root.style.setProperty("--cdpv-radius", "12px");
-        });
+test("keeps tab-action and connection recovery controls usable", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  let holdCreate = false;
+  let failClose = false;
+  let holdClose = false;
+  let holdStream = false;
+  let empty = false;
+  let release: (() => void) | undefined;
+  let disconnect: (() => void) | undefined;
+  let releaseClose: (() => void) | undefined;
+  let releaseStream: (() => void) | undefined;
+  await page.routeWebSocket(backend.endpoint, (socket) => {
+    const upstream = socket.connectToServer();
+    disconnect = () => socket.close();
+    socket.onMessage((message) => {
+      const command = JSON.parse(String(message)) as {
+        id: number;
+        method: string;
       };
-      await arrange();
-      await a.locator(`[data-target-id="${first.targetId}"]`).click();
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      await expect(a.getByRole("tab")).toHaveCount(3);
-      await a.getByRole("button", { name: "New tab", exact: true }).hover();
-      await a.screenshot({ path: info.outputPath("01-normal.png") });
-      failClose = true;
-      holdClose = true;
-      await a
-        .getByRole("button", { name: "Close Weekly report", exact: true })
-        .click();
-      await expect.poll(() => !!releaseClose).toBe(true);
-      await expect(a.getByRole("status")).toContainText("Closing tab");
-      await a.screenshot({ path: info.outputPath("11-closing.png") });
-      holdClose = false;
-      releaseClose!();
-      await expect(a.getByRole("alert")).toContainText("tab operation");
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      await a.screenshot({ path: info.outputPath("02-operation-error.png") });
-      failClose = false;
-      holdCreate = true;
-      await a.getByRole("button", { name: "New tab", exact: true }).click();
-      await expect.poll(() => !!release).toBe(true);
-      await expect(
-        a.getByRole("button", { name: "New tab", exact: true }),
-      ).toBeDisabled();
-      await expect(a.getByRole("status")).toContainText("Creating tab");
-      await a.screenshot({ path: info.outputPath("03-creating.png") });
-      holdCreate = false;
-      release!();
-      await expect(a.getByRole("tab")).toHaveCount(4);
-      await expect(a.getByRole("tab", { selected: true })).not.toHaveAttribute(
-        "data-target-id",
-        first.targetId,
-      );
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      await expect(a.getByLabel("Remote page address")).toHaveValue("");
-      await expect(a.getByLabel("Remote page address")).toBeFocused();
-      await a.screenshot({ path: info.outputPath("12-new-blank.png") });
-      await a.locator(`[data-target-id="${first.targetId}"]`).click();
-      for (let index = 1; index <= 9; index++)
-        await remoteTab(backend, `Project ${index} · Planning and research`);
-      const allTabs = a.getByRole("combobox", { name: "All tabs" });
-      await expect(a.getByRole("tab")).toHaveCount(13);
-      await expect(allTabs).toHaveCount(0);
-      await expect
-        .poll(() =>
-          a
-            .locator(".cdpv-tab-item")
-            .evaluateAll((items) =>
-              items.every((item) => item.getBoundingClientRect().width < 100),
-            ),
-        )
-        .toBe(true);
-      await a.getByRole("tab").last().click();
-      expect(
-        await a.getByRole("tablist").evaluate((list) => list.scrollLeft),
-      ).toBe(0);
-      await expect(a.getByRole("tab").last()).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
-      await expect(
-        a.getByRole("button", { name: "New tab", exact: true }),
-      ).toBeInViewport();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
-      await a.screenshot({ path: info.outputPath("04-compressed.png") });
-      await page.setViewportSize({ width: 390, height: 844 });
-      await expect(await overflowOptions(a)).toHaveCount(13);
-      await page.keyboard.press("Escape");
-      await expect(a.getByLabel("Remote page address")).toBeVisible();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
-      await a.screenshot({ path: info.outputPath("05-narrow.png") });
-      await page.setViewportSize({ width: 1100, height: 850 });
-      const lost = await a
-        .getByRole("tab", { selected: true })
-        .getAttribute("data-target-id");
-      await backend.session.send("Target.closeTarget", { targetId: lost! });
-      await expect(a).toHaveAttribute("data-status", "unavailable");
-      await expect(a.getByRole("tab", { selected: true })).toHaveCount(0);
-      await expect(
-        a.locator(`[data-target-id="${first.targetId}"]`),
-      ).toBeVisible();
-      await expect(
-        a.getByText("Choose a tab to continue", { exact: true }),
-      ).toBeVisible();
-      await a.screenshot({ path: info.outputPath("13-selection-lost.png") });
-      await a.locator(`[data-target-id="${first.targetId}"]`).click();
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      await page.evaluate((settings) => window.configureViewers!(settings), {
-        cdpUrl: backend.endpoint,
-        windowA: first.windowId,
-        second: false,
-        interactive: false,
-      });
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      await expect(
-        a.getByRole("button", { name: "New tab", exact: true }),
-      ).toHaveCount(0);
-      await expect(a.locator(".cdpv-close")).toHaveCount(0);
-      await a.screenshot({ path: info.outputPath("06-view-only.png") });
-      await page.evaluate((settings) => window.configureViewers!(settings), {
-        cdpUrl: backend.endpoint,
-        windowA: first.windowId,
-        second: false,
-        interactive: true,
-        paused: true,
-      });
-      await expect(a).toHaveAttribute("data-status", "paused");
-      await a.screenshot({ path: info.outputPath("07-paused.png") });
-      empty = true;
-      await page.evaluate((settings) => window.configureViewers!(settings), {
-        cdpUrl: backend.endpoint,
-        second: false,
-        interactive: true,
-      });
-      await expect(a.getByText("No tabs open", { exact: true })).toBeVisible();
-      await expect(
-        a.getByRole("button", { name: "Create new tab", exact: true }),
-      ).toBeEnabled();
-      await a.screenshot({ path: info.outputPath("08-empty.png") });
-      empty = false;
-      await a.getByRole("button", { name: "Reconnect viewer" }).click();
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      disconnect!();
-      await expect(a).toHaveAttribute("data-status", "disconnected");
-      await expect(
-        a.getByRole("button", { name: "Reconnect viewer" }),
-      ).toBeVisible();
-      await a.screenshot({ path: info.outputPath("09-disconnected.png") });
-      holdStream = true;
-      await a.getByRole("button", { name: "Reconnect viewer" }).click();
-      await expect.poll(() => !!releaseStream).toBe(true);
-      await expect(a).toHaveAttribute("data-status", "connecting");
-      await a.screenshot({ path: info.outputPath("14-connecting.png") });
-      holdStream = false;
-      releaseStream!();
-      await expect(a).toHaveAttribute("data-status", "streaming");
-      expect(first.remote.isClosed()).toBe(false);
-      await page.evaluate(() =>
-        window.configureViewers!({
-          cdpUrl: "ws://127.0.0.1:9/devtools/browser/unreachable",
-          second: false,
-          interactive: true,
-        }),
-      );
-      await expect(a.getByRole("alert")).toContainText(
-        "WebSocket connection failed",
-      );
-      await a.screenshot({ path: info.outputPath("10-connection-failed.png") });
-      await expect(a.locator(".cdpv-footer")).toHaveCount(0);
-    } finally {
-      await backend.close();
-    }
+      if (holdCreate && command.method === "Page.createIsolatedWorld") {
+        release = () => upstream.send(message);
+        return;
+      }
+      if (failClose && command.method === "Target.closeTarget") {
+        const reject = () =>
+          socket.send(
+            JSON.stringify({
+              id: command.id,
+              error: { code: -32000, message: "Synthetic denial" },
+            }),
+          );
+        if (holdClose) releaseClose = reject;
+        else reject();
+        return;
+      }
+      if (holdStream && command.method === "Page.startScreencast") {
+        releaseStream = () => upstream.send(message);
+        return;
+      }
+      if (empty && command.method === "Target.getTargets") {
+        socket.send(
+          JSON.stringify({ id: command.id, result: { targetInfos: [] } }),
+        );
+        return;
+      }
+      upstream.send(message);
+    });
   });
-}
+  try {
+    const first = await remoteTab(backend, "Workspace", true);
+    await remoteTab(backend, "Product notes");
+    const a = await host(page, {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      second: false,
+      interactive: true,
+    });
+    await a.locator(`[data-target-id="${first.targetId}"]`).click();
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await expect(a.getByRole("tab")).toHaveCount(2);
+    await captureTabScreenshot(a, info, "01-normal.png");
+    failClose = true;
+    holdClose = true;
+    await a
+      .getByRole("button", { name: "Close Product notes", exact: true })
+      .click();
+    await expect.poll(() => !!releaseClose).toBe(true);
+    await expect(a.getByRole("status")).toContainText("Closing tab");
+    await captureTabScreenshot(a, info, "11-closing.png");
+    holdClose = false;
+    releaseClose!();
+    await expect(a.getByRole("alert")).toContainText("tab operation");
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await captureTabScreenshot(a, info, "02-operation-error.png");
+    failClose = false;
+    holdCreate = true;
+    await a.getByRole("button", { name: "New tab", exact: true }).click();
+    await expect.poll(() => !!release).toBe(true);
+    await expect(
+      a.getByRole("button", { name: "New tab", exact: true }),
+    ).toBeDisabled();
+    await expect(a.getByRole("status")).toContainText("Creating tab");
+    await captureTabScreenshot(a, info, "03-creating.png");
+    holdCreate = false;
+    release!();
+    await expect(a.getByRole("tab")).toHaveCount(3);
+    await expect(a.getByRole("tab", { selected: true })).not.toHaveAttribute(
+      "data-target-id",
+      first.targetId,
+    );
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await expect(a.getByLabel("Remote page address")).toHaveValue("");
+    await expect(a.getByLabel("Remote page address")).toBeFocused();
+    await captureTabScreenshot(a, info, "12-new-blank.png");
+    const lost = await a
+      .getByRole("tab", { selected: true })
+      .getAttribute("data-target-id");
+    await backend.session.send("Target.closeTarget", { targetId: lost! });
+    await expect(a).toHaveAttribute("data-status", "unavailable");
+    await expect(a.getByRole("tab", { selected: true })).toHaveCount(0);
+    await expect(
+      a.locator(`[data-target-id="${first.targetId}"]`),
+    ).toBeVisible();
+    await expect(
+      a.getByText("Choose a tab to continue", { exact: true }),
+    ).toBeVisible();
+    await captureTabScreenshot(a, info, "13-selection-lost.png");
+    await a.locator(`[data-target-id="${first.targetId}"]`).click();
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await page.evaluate((settings) => window.configureViewers!(settings), {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      second: false,
+      interactive: false,
+    });
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    await expect(
+      a.getByRole("button", { name: "New tab", exact: true }),
+    ).toHaveCount(0);
+    await expect(a.locator(".cdpv-close")).toHaveCount(0);
+    await captureTabScreenshot(a, info, "06-view-only.png");
+    await page.evaluate((settings) => window.configureViewers!(settings), {
+      cdpUrl: backend.endpoint,
+      windowA: first.windowId,
+      second: false,
+      interactive: true,
+      paused: true,
+    });
+    await expect(a).toHaveAttribute("data-status", "paused");
+    await captureTabScreenshot(a, info, "07-paused.png");
+    empty = true;
+    await page.evaluate((settings) => window.configureViewers!(settings), {
+      cdpUrl: backend.endpoint,
+      second: false,
+      interactive: true,
+    });
+    await expect(a.getByText("No tabs open", { exact: true })).toBeVisible();
+    await expect(
+      a.getByRole("button", { name: "Create new tab", exact: true }),
+    ).toBeEnabled();
+    await captureTabScreenshot(a, info, "08-empty.png");
+    empty = false;
+    await a.getByRole("button", { name: "Reconnect viewer" }).click();
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    disconnect!();
+    await expect(a).toHaveAttribute("data-status", "disconnected");
+    await expect(
+      a.getByRole("button", { name: "Reconnect viewer" }),
+    ).toBeVisible();
+    await captureTabScreenshot(a, info, "09-disconnected.png");
+    holdStream = true;
+    await a.getByRole("button", { name: "Reconnect viewer" }).click();
+    await expect.poll(() => !!releaseStream).toBe(true);
+    await expect(a).toHaveAttribute("data-status", "connecting");
+    await captureTabScreenshot(a, info, "14-connecting.png");
+    holdStream = false;
+    releaseStream!();
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    expect(first.remote.isClosed()).toBe(false);
+    await page.evaluate(() =>
+      window.configureViewers!({
+        cdpUrl: "ws://127.0.0.1:9/devtools/browser/unreachable",
+        second: false,
+        interactive: true,
+      }),
+    );
+    await expect(a.getByRole("alert")).toContainText(
+      "WebSocket connection failed",
+    );
+    await captureTabScreenshot(a, info, "10-connection-failed.png");
+    await expect(a.locator(".cdpv-footer")).toHaveCount(0);
+  } finally {
+    await backend.close();
+  }
+});
 
 test("inherits host appearance and isolates explicit and system overrides without reconnecting", async ({
   page,
@@ -1751,7 +1699,7 @@ for (const colorScheme of ["light", "dark"] as const) {
             ),
         )
         .toEqual([232, 232, 232]);
-      await viewer.screenshot({ path: info.outputPath("comfortable.png") });
+      await captureTabScreenshot(viewer, info, "comfortable.png");
       await viewer.locator(`[data-close-target="${last.targetId}"]`).focus();
       await size(320);
       await expect
@@ -1773,7 +1721,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(
         viewer.locator(`[data-target-id="${last.targetId}"]`),
       ).toHaveAccessibleName("Inbox · Customer conversations");
-      await viewer.screenshot({ path: info.outputPath("compressed.png") });
+      await captureTabScreenshot(viewer, info, "compressed.png");
       const hostScroll = await page.evaluate(() => [scrollX, scrollY]);
       for (const width of [178, 177, 176, 177, 178]) {
         await size(width);
@@ -1822,7 +1770,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await viewer.getByRole("img", { name: "Live browser view" }).click();
       await page.keyboard.press("F8");
       await expect(tabs.first()).toBeFocused();
-      await viewer.screenshot({ path: info.outputPath("narrow.png") });
+      await captureTabScreenshot(viewer, info, "narrow.png");
       const hostInput = page.getByLabel("Host input", { exact: true });
       await hostInput.focus();
       await size(900);
@@ -1922,10 +1870,10 @@ for (const colorScheme of ["light", "dark"] as const) {
             items.map((item) => item.getAttribute("data-target-id")),
           ),
       ).toEqual(ids);
-      await viewer.screenshot({ path: info.outputPath("all-tabs-open.png") });
+      await captureTabScreenshot(viewer, info, "all-tabs-open.png");
       await page.keyboard.press("Escape");
       await expect(allTabs).toBeFocused();
-      await viewer.screenshot({ path: info.outputPath("extreme.png") });
+      await captureTabScreenshot(viewer, info, "extreme.png");
       await viewer
         .getByRole("button", { name: "New tab", exact: true })
         .click();

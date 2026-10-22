@@ -24,6 +24,25 @@ do not replace internal modules merely to make assertions easier. Cleanup must
 release fixture resources even after failure and must not mutate an unowned
 browser or external service.
 
+## Browser captures and durations
+
+Browser tests report individual durations in CI. Compare runs with the same
+toolchain, worker policy and fixture setup, and distinguish test-case durations
+from full job time. A slow case is not redundant when it covers a distinct
+rendering or lifecycle contract.
+
+Tab tests save manual-review PNGs only when explicitly requested:
+
+```sh
+CDP_VIEWER_CAPTURE_TAB_SCREENSHOTS=1 pnpm test:browser tests/browser/tabs.spec.ts
+```
+
+These files are visual review aids, without snapshot comparisons. Screenshots
+used as pixel-assertion inputs remain unconditional. Validate correctness with
+review captures disabled so their painting/font waits cannot supply incidental
+synchronization; retain condition-based assertions for asynchronous behavior.
+Failure traces remain available under the normal Playwright configuration.
+
 ## Concurrent viewers
 
 Use installed public exports with one test-owned browser endpoint and distinct
