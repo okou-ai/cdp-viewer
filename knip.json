@@ -6,6 +6,7 @@
     "tests/browser/**/*.spec.ts",
     "tests/experiments/*.spec.ts",
     "tests/experiments/playwright.config.ts",
+    "tests/experiments/window-isolation.config.ts",
     "tests/consumer/app.tsx",
     "tests/consumer/ssr.tsx",
     "tests/consumer/vite.config.ts",

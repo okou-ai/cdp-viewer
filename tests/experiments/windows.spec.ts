@@ -3,7 +3,7 @@ import type { Page, TestInfo } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { release as osRelease } from "node:os";
 import { CdpClient } from "../../src/cdp/client";
-import { launchNativeBackend, serveBrowserConsumer } from "./backend";
+import { launchNativeBackend, serveBrowserConsumer } from "../browser/backend";
 import type {} from "../consumer/api";
 
 type Backend = Awaited<ReturnType<typeof launchNativeBackend>>;
