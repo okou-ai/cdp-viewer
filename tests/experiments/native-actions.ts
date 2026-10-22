@@ -10,7 +10,14 @@ type Details = Pick<
 export type NativeAction =
   | { kind: "text"; text: string }
   | { kind: "key"; key: Protocol.Input.DispatchKeyEventRequest }
-  | { kind: "pointer"; type: Mouse["type"]; point: Point; details: Details };
+  | { kind: "pointer"; type: Mouse["type"]; point: Point; details: Details }
+  | {
+      kind: "preedit";
+      text: string;
+      selectionStart: number;
+      selectionEnd: number;
+    }
+  | { kind: "commit"; text: string };
 
 function finite(value: unknown, min: number, max: number): value is number {
   return (
@@ -22,8 +29,26 @@ function finite(value: unknown, min: number, max: number): value is number {
 }
 
 /** Construct an allowlisted action; extra client fields never become CDP fields. */
-function action(value: unknown): NativeAction | null {
+function action(value: unknown, composition: boolean): NativeAction | null {
   if (!isRecord(value)) return null;
+  if (composition && (value.kind === "preedit" || value.kind === "commit")) {
+    if (typeof value.text !== "string" || value.text.length > 64 * 1024)
+      return null;
+    if (value.kind === "commit") return { kind: "commit", text: value.text };
+    if (
+      !Number.isInteger(value.selectionStart) ||
+      !finite(value.selectionStart, 0, value.text.length) ||
+      !Number.isInteger(value.selectionEnd) ||
+      !finite(value.selectionEnd, value.selectionStart, value.text.length)
+    )
+      return null;
+    return {
+      kind: "preedit",
+      text: value.text,
+      selectionStart: value.selectionStart,
+      selectionEnd: value.selectionEnd,
+    };
+  }
   if (value.kind === "text")
     return typeof value.text === "string" &&
       value.text.length > 0 &&
@@ -137,9 +162,12 @@ function action(value: unknown): NativeAction | null {
   };
 }
 
-export function nativeActions(value: unknown): NativeAction[] | null {
+export function nativeActions(
+  value: unknown,
+  composition = false,
+): NativeAction[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 16)
     return null;
-  const result = value.map(action);
+  const result = value.map((value) => action(value, composition));
   return result.every((item) => item !== null) ? result : null;
 }

@@ -62,6 +62,10 @@ interface Viewer {
   };
   latestFrame: () => string;
   marker: { x: number; y: number; scroll: number };
+  holdMessage: (
+    direction: "intent" | "reply",
+    kind: "blur" | "ack",
+  ) => { held: Promise<void>; release: () => void };
   close: () => Promise<void>;
 }
 
@@ -71,6 +75,7 @@ async function viewer(
   host: ProbeHost,
   adjacent: boolean,
   oneWayMs = 0,
+  composition = false,
 ): Promise<Viewer> {
   const created = backend.context.waitForEvent("page");
   const { targetId } = await backend.session.send("Target.createTarget", {
@@ -91,6 +96,21 @@ async function viewer(
   let latestFrame = "";
   let closed = false;
   let probe: GuardedProbe | undefined;
+  const holds = new Map<string, { held: () => void; run?: () => void }>();
+  const deliver = (
+    direction: "intent" | "reply",
+    kind: string,
+    run: () => void,
+  ) => {
+    const key = direction + ":" + kind;
+    const hold = holds.get(key);
+    if (!hold) run();
+    else {
+      holds.delete(key);
+      hold.run = run;
+      hold.held();
+    }
+  };
   const transit = (run: () => void) => {
     const timer = setTimeout(() => {
       timers.delete(timer);
@@ -193,17 +213,23 @@ async function viewer(
       probe = await host.admit({
         targetId,
         windowId,
-        mode: "native",
-        reply: (value) => transit(() => reply?.(JSON.stringify(value))),
+        mode: composition ? "composition" : "native",
+        reply: (value) =>
+          deliver("reply", value.type, () =>
+            transit(() => reply?.(JSON.stringify(value))),
+          ),
       });
       const admitted = probe;
       await context.routeWebSocket(endpoint, (socket) => {
         reply = (data) => socket.send(data);
-        socket.onMessage((data) =>
-          transit(() => {
-            admitted.receive(String(data));
-          }),
-        );
+        socket.onMessage((data) => {
+          const value = JSON.parse(String(data)) as { kind: string };
+          deliver("intent", value.kind, () =>
+            transit(() => {
+              admitted.receive(String(data));
+            }),
+          );
+        });
         socket.onClose(() => {
           void host.retire(admitted);
         });
@@ -228,7 +254,11 @@ async function viewer(
       await page.addScriptTag({ content: clientCode });
       await page.evaluate(
         (settings) => window.installNativeExperiment(settings),
-        { endpoint, owner: probe.owner },
+        {
+          endpoint,
+          owner: probe.owner,
+          ...(composition ? { ownership: probe.ownership } : {}),
+        },
       );
     }
     return {
@@ -241,6 +271,24 @@ async function viewer(
       stream,
       latestFrame: () => latestFrame,
       marker,
+      holdMessage: (direction, kind) => {
+        const key = direction + ":" + kind;
+        if (holds.has(key)) throw new Error("Fixture message already held");
+        let held!: () => void;
+        const promise = new Promise<void>((resolve) => {
+          held = resolve;
+        });
+        const hold: { held: () => void; run?: () => void } = { held };
+        holds.set(key, hold);
+        return {
+          held: promise,
+          release: () => {
+            const run = hold.run;
+            delete hold.run;
+            if (!closed) run?.();
+          },
+        };
+      },
       ...(probe ? { probe } : {}),
       close: async () => {
         closed = true;
@@ -525,6 +573,250 @@ test("actual NativeInput orders click/type, Tab and drag while an independent wi
     try {
       for (const value of viewers) await value.close();
     } finally {
+      await backend.close();
+    }
+  }
+});
+
+async function composing(value: Viewer, text: string) {
+  await value.page
+    .getByRole("textbox", { name: "Native executor input" })
+    .evaluate((element: HTMLTextAreaElement, text) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.value = text;
+      element.setSelectionRange(text.length, text.length);
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          isComposing: true,
+          inputType: "insertCompositionText",
+          data: text,
+        }),
+      );
+    }, text);
+}
+
+async function committed(value: Viewer, text: string) {
+  await value.page
+    .getByRole("textbox", { name: "Native executor input" })
+    .evaluate((element: HTMLTextAreaElement, text) => {
+      element.value = text;
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true, data: text }),
+      );
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertFromComposition",
+          data: text,
+        }),
+      );
+    }, text);
+}
+
+async function resumed(value: Viewer) {
+  await value.page.waitForFunction(
+    () =>
+      window.nativeExperiment.stats.ready &&
+      !window.nativeExperiment.stats.revoked,
+  );
+}
+
+test("composition mode commits once and resumes after blur on the same native proxy", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, true);
+    const proxy = a.page.getByRole("textbox", {
+      name: "Native executor input",
+    });
+    const identity = await proxy.elementHandle();
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await composing(a, "ni");
+    await expect(a.remote.locator("#plain")).toHaveValue("ni");
+    await committed(a, "你");
+    await expect(a.remote.locator("#plain")).toHaveValue("你");
+    await painted(a, true);
+    await drained(a);
+    const old = a.probe!.ownership;
+    const acknowledgement = a.holdMessage("reply", "ack");
+    const blur = a.holdMessage("intent", "blur");
+    await composing(a, "hao");
+    await expect(a.remote.locator("#plain")).toHaveValue("你hao");
+    await acknowledgement.held;
+    await proxy.evaluate((element: HTMLTextAreaElement) => element.blur());
+    await blur.held;
+    acknowledgement.release();
+    await expect
+      .poll(() =>
+        a!.page.evaluate(() => window.nativeExperiment.stats.discardedReplies),
+      )
+      .toBe(1);
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.revoked),
+    ).toBe(false);
+    blur.release();
+    await resumed(a);
+    await expect(a.remote.locator("#plain")).toHaveValue("你");
+    expect(a.probe!.ownership.generation).not.toBe(old.generation);
+    expect(a.probe!.ownership.focus).toBeGreaterThan(old.focus);
+    expect(a.probe!.ownership.document).toBe(old.document);
+    expect(
+      await identity!.evaluate(
+        (element) =>
+          element ===
+          document.querySelector('[aria-label="Native executor input"]'),
+      ),
+    ).toBe(true);
+    await a.remote.evaluate(() => {
+      document.querySelector<HTMLInputElement>("#plain")!.value = "";
+    });
+    await a.page.mouse.click(at.x, at.y);
+    await a.page.keyboard.type("resumed");
+    await expect(a.remote.locator("#plain")).toHaveValue("resumed");
+    await drained(a);
+    expect(
+      await a.page.evaluate(() => window.nativeExperiment.stats.unsupported),
+    ).toBe(false);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
+test("composition mode drops old trailing events after a real document replacement", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  let a: Viewer | undefined;
+  try {
+    a = await viewer(browser, backend, host, true, 0, true);
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await drained(a);
+    const old = a.probe!.ownership;
+    const held = a.probe!.holdNext("Input.imeSetComposition");
+    await composing(a, "old");
+    await held.held;
+    await expect(a.remote.locator("#plain")).toHaveValue("old");
+    await a.remote.goto(server.origin + "/fixture/editor?replacement");
+    await expect(a.remote.locator("#plain")).toHaveValue("");
+    await committed(a, "late-before-ready");
+    const beforeRelease = a.probe!.trace.length;
+    held.release();
+    await resumed(a);
+    expect(a.probe!.ownership.document).toBeGreaterThan(old.document);
+    expect(a.probe!.ownership.generation).not.toBe(old.generation);
+    await committed(a, "late-after-ready");
+    await drained(a);
+    await expect(a.remote.locator("#plain")).toHaveValue("");
+    expect(
+      a
+        .probe!.trace.slice(beforeRelease)
+        .filter((c) => c.method === "Input.imeSetComposition"),
+    ).toHaveLength(0);
+    expect(
+      a.probe!.trace.filter((c) => c.method === "Input.insertText"),
+    ).toHaveLength(0);
+    await a.remote.evaluate(() => {
+      const marker = document.createElement("div");
+      marker.id = "native-marker";
+      marker.style.cssText =
+        "position:absolute;left:900px;top:350px;width:48px;height:48px;background:rgb(232,32,48);pointer-events:none";
+      document.body.append(marker);
+      document.addEventListener("input", () => {
+        marker.style.background = "rgb(24,224,80)";
+      });
+    });
+    await painted(a, false);
+    const fresh = await position(a, "#plain");
+    await a.page.mouse.click(fresh.x, fresh.y);
+    await a.page.keyboard.type("fresh");
+    await expect(a.remote.locator("#plain")).toHaveValue("fresh");
+    await painted(a, true);
+    await drained(a);
+  } finally {
+    try {
+      await a?.close();
+    } finally {
+      host.close();
+      await backend.close();
+    }
+  }
+});
+
+test("composition mode retires a held preview while an independent native window keeps editing and streaming", async ({
+  browser,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  const host = new ProbeHost(backend.endpoint);
+  const viewers: Viewer[] = [];
+  try {
+    const a = await viewer(browser, backend, host, true, 0, true);
+    viewers.push(a);
+    const b = await viewer(browser, backend, host, true, 0, true);
+    viewers.push(b);
+    const at = await position(a, "#plain");
+    await a.page.mouse.click(at.x, at.y);
+    await drained(a);
+    const held = a.probe!.holdNext("Input.imeSetComposition");
+    await composing(a, "old");
+    await held.held;
+    const retiring = host.retire(a.probe!, "paused");
+    await expect(
+      host.admit({
+        targetId: a.targetId,
+        windowId: a.windowId,
+        mode: "composition",
+        reply: () => {},
+      }),
+    ).rejects.toThrow("unsettled owner");
+    const independent = await position(b, "#plain");
+    await b.page.mouse.click(independent.x, independent.y);
+    await b.page.keyboard.type("sibling");
+    await expect(b.remote.locator("#plain")).toHaveValue("sibling");
+    await painted(b, true);
+    await b.page.keyboard.down("Shift");
+    await drained(b);
+    held.release();
+    expect(await retiring).toBe(true);
+    await expect(a.remote.locator("#plain")).toHaveValue("");
+    const events = await b.remote.evaluate(
+      () =>
+        (window as unknown as { nativeObserved: { events: string[] } })
+          .nativeObserved.events,
+    );
+    expect(events.filter((event) => event === "keyup:Shift")).toHaveLength(0);
+    expect(a.remote.isClosed()).toBe(false);
+    await b.page.keyboard.up("Shift");
+    await b.page.keyboard.type(" alive");
+    await expect(b.remote.locator("#plain")).toHaveValue("sibling alive");
+    await drained(b);
+  } finally {
+    try {
+      for (const value of viewers) await value.close();
+    } finally {
+      host.close();
       await backend.close();
     }
   }

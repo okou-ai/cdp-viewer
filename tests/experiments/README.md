@@ -2,8 +2,8 @@
 
 This opt-in evaluation compares the independently installed public interactive
 viewer with test-only executors close to an owned Chromium: the narrow
-keys/committed-text comparator and a separate actual NativeInput pointer/keyboard
-experiment. It is outside the normal browser correctness suite. It does not
+keys/committed-text comparator, an actual NativeInput pointer/keyboard experiment,
+and an explicit generation-bound composition/lifetime mode. It is outside the normal browser correctness suite. It does not
 add a public adapter, server dependency, service or deployment to the library.
 
 Run from the repository root using an immutable pushed source revision:
@@ -117,7 +117,7 @@ whole logical batch after an owner-bound cancellable queue fence and actual
 native replies, rather than assigning one native reply to every intent. Fences
 are real candidate overhead; they do not change the normal direct send lane.
 
-The browser fixture verifies click/type ordering, Tab/focus, actual drag selection
+The pointer/keyboard mode verifies click/type ordering, Tab/focus, actual drag selection
 and sibling DOM/canvas progress while actual guard/reply boundaries are held. Retirement still uses
 the original connection's native/release/detach receipts. Local blur closes this
 fixture admission; it does not implement nonterminal focus recovery. Optional
@@ -142,13 +142,56 @@ one-intent/one-write results. Keep raw observations and any regressions or
 variation in the PR. These checks establish this pointer/keyboard increment,
 not complete native-adapter parity or an adoption decision.
 
+## Composition and nonterminal ownership
+
+The same actual NativeInput bundle also supports an explicitly admitted
+composition mode. It carries bounded preedit/commit actions and opaque generation
+tags alongside the original key/text/pointer intents. The server binds each tag
+to the actual immutable InputSession document/focus owner; no client can choose a
+CDP target or session. Each generation has its own contiguous batch/confirmation
+credit. Old-generation effects and replies cannot replenish or acquire a new
+generation's authority.
+
+Local blur immediately discards unsent work and invalidates the client token.
+Remote semantic transitions also suspend admission and reset the same stable
+textarea's local composition. The server uses the existing current-owner queue
+completion fence to join preceding jobs, including late original-document
+preedit cancellation, then waits for original native/release receipts. Only a
+still-current owner with positive completion publishes ready. A reply already
+crossing the link after local blur is discarded without revoking a future owner.
+Missing cleanup replies have a bounded deadline; native rejection, scope loss or
+uncertainty revokes without replay. Only a definite unsupported IME method retains
+the actual session's existing final-text fallback before IME has been accepted.
+A rejected cancellation after an accepted preedit cannot count as successful
+cleanup or fallback.
+
+Composition retirement makes external admission terminal first, while retaining
+the original session and document-event observation through the completion join.
+It then confirms original cleanup, disposes with the requested stop reason and
+confirms detach. An early native-map snapshot is insufficient because an old
+preedit's finally continuation can send a later cancellation. No auxiliary cleanup
+connection or production queue policy is introduced, and unknown retirement
+keeps its reservation unavailable.
+
+The owned-browser cases use synthetic local composition events with actual
+Chromium preedit/commit/cancellation, native focus and streamed pixels. They cover
+commit-once, blur/resume on the same proxy, a real document replacement with stale
+trailing composition, held client intent/reply ordering and original retirement
+while another window edits/streams. Controlled-wire cases separately withhold the
+last late cancellation receipt and verify that ready/detach/readmission cannot
+precede it. Synthetic events do not establish genuine OS IME. This mode still
+has no remote clipboard-selection bridge or navigation integration; the combined
+full interaction failure/reconnect/moved-target matrix and adoption assessment
+remain unproved. Existing pointer/key timing profiles do not measure composition
+latency or production capacity.
+
 ## Limits
 
 The keys/text comparator uses a deliberately smaller local adapter than
 `NativeInput`. Neither increment establishes complete local-adapter parity,
 click/pointer/wheel/navigation/clipboard ordering or genuine OS composition.
-Acknowledged cleanup and controlled tab-move handover cover keys/text only; a full
-interaction and ownership evaluation remains necessary before adopting any public
+Controlled tab-move handover covers keys/text; pointer/key and composition
+retirement cover their exercised fixture cases. A full interaction, recovery and ownership evaluation remains necessary before adopting any public
 adapter. A fresh local check and CDP send are still not atomic against arbitrary
 external tab movement.
 
