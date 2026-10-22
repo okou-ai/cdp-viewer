@@ -54,6 +54,44 @@ windows are supported; simultaneous screencasts of the same tab are not
 guaranteed. The remote page remains shared website state regardless of how many
 viewers display it.
 
+## Explore the props
+
+The preview leads each panel, with its connection bar above and grouped settings
+alongside. Narrow panels put settings below the preview. All controls belong to
+that panel; adding another viewer starts with independent defaults.
+
+| Public prop      | Playground surface                             | When it changes                                                         |
+| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `cdpUrl`         | Masked connection bar                          | Connect or Apply & connect                                              |
+| `windowId`       | Connection options                             | Connect or Apply & connect; blank means omitted                         |
+| `extensions`     | Optional adapter checkboxes                    | Connect or Apply & connect                                              |
+| `paused`         | Pause stream / Resume stream                   | Immediately, without replacing the connection                           |
+| `interactive`    | Control mode                                   | Immediately; restarts this viewer using its applied connection settings |
+| `colorScheme`    | Appearance & layout → Viewer theme             | Immediately; Inherit page omits the prop, while System follows the OS   |
+| `style`          | Height, width, corner radius and custom accent | Immediately; adjusts the local component, not the remote viewport       |
+| `className`      | Framed presentation preset                     | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
+| `onStatusChange` | State & events                                 | Always observed while connected                                         |
+| `onError`        | State & events                                 | Always observed while connected                                         |
+
+The demo initially enables interaction, while the library's default remains
+view-only. Changing control mode creates a fresh viewer generation, using the last
+applied endpoint/window/extensions even when connection fields contain unapplied
+drafts. Pause, theme and styling retain the viewer and its input nodes. Ordinary
+offscreen/document visibility behavior still applies.
+
+State & events retains only semantic summaries: status, tab count, selection
+presence, navigation availability/history capabilities and diagnostic category.
+It omits target IDs/titles and page addresses before storing observations. Error
+events show the public fixed diagnostic. Each panel retains at most twelve events;
+Clear removes activity while retaining its latest state. Connection replacement,
+disconnect and removal retire the old observations and reject late callbacks.
+
+Usage shows the applied window/extensions with the current live controls. The
+endpoint is represented by a host-provided `cdpUrl` variable. Callback handlers
+are also supplied by the integrating application. The framed preset requires
+host-defined CSS; it is an integration example, not an additional library theme.
+The example is selectable text. Neither code nor observations are saved.
+
 ## Tabs and recovery
 
 The page-level **Appearance** setting selects **Light**, **Dark** or **System**.
