@@ -55,6 +55,115 @@ const emulations = (browser: FakeBrowser) =>
       (command) => command.method === "Emulation.setDeviceMetricsOverride",
     );
 
+it.each([
+  ["off", "Page.getLayoutMetrics", "Page.frameResized"],
+  ["initial", "Page.getLayoutMetrics", "Page.frameResized"],
+  ["live", "Page.getLayoutMetrics", "Page.frameResized"],
+  ["off", "Page.stopScreencast", "Page.frameResized"],
+  ["initial", "Page.stopScreencast", "Page.frameResized"],
+  ["live", "Page.stopScreencast", "Page.frameResized"],
+  ["off", "Page.getLayoutMetrics", "Runtime.executionContextsCleared"],
+] as const)(
+  "reprepares %s sync when %s is invalidated by %s before a display write",
+  async (mode, boundary, event) => {
+    const browser = new FakeBrowser();
+    browser.browserZoom = 1.25;
+    const { controller, model } = mount(browser, "off", 0);
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    socket.holdReplyMethod = boundary;
+    if (mode === "off") controller.syncDisplay();
+    else controller.setWindowSizeSync(mode);
+    await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+    browser.browserZoom = 0.8;
+    socket.emit(event, {}, input.sessionId);
+    socket.holdReplyMethod = null;
+    const held = socket.heldReplies.shift()!;
+    socket.reply(held.command, held.result);
+    await vi.waitFor(() => expect(emulations(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    // Retire the stale preparation rather than briefly applying its old units.
+    expect(emulations(browser)[0]!.params).toMatchObject({
+      width: 512,
+      height: 384,
+      deviceScaleFactor: 2.5,
+      scale: 2.5,
+    });
+    expect(resizes(browser)).toHaveLength(1);
+    expect(resizes(browser)[0]!.params).toEqual({
+      windowId: 0,
+      width: 1280,
+      height: 960,
+    });
+    expect(model.getSnapshot().error).toBeNull();
+    input.pointer("mouseMoved", { x: 0.25, y: 0.5 }, {});
+    await input.completion(input.owner!);
+    expect(
+      socket.commands
+        .filter((command) => command.method === "Input.dispatchMouseEvent")
+        .at(-1)?.params,
+    ).toMatchObject({ x: 400, y: 600 });
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Page.getLayoutMetrics",
+      ),
+    ).toHaveLength(3);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      ),
+    ).toHaveLength(2);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+  },
+);
+
+it("retains manual priority over measurements when invalidated preparation waits for a visible surface", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "live", 0);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  socket.holdReplyMethod = "Page.getLayoutMetrics";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+  controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+  controller.measureDisplay(null);
+  browser.browserZoom = 0.8;
+  socket.emit("Page.frameResized", {}, input.sessionId);
+  socket.holdReplyMethod = null;
+  const held = socket.heldReplies.shift()!;
+  socket.reply(held.command, held.result);
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      ready: false,
+      pending: false,
+    }),
+  );
+  controller.setWindowSizeSync("off");
+  controller.measureDisplay({ width: 900, height: 700, dpr: 1.5 });
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  expect(resizes(browser)[1]!.params).toEqual({
+    windowId: 0,
+    width: 1350,
+    height: 1050,
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(model.getSnapshot().error).toBeNull();
+  expect(controller.input).toBe(input);
+});
+
 it("requires compatible painted pixels after native acknowledgements while retaining text and owned release", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "off", 0);

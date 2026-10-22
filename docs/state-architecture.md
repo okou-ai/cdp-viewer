@@ -64,6 +64,9 @@ capture and input; native calibration, acknowledged transforms and painted facts
 retain distinct meanings. Input consumes an immutable mapping rather than
 deriving its own density and zoom formulas. Invalidations retire earlier geometry
 reads and paint callbacks without changing native input ownership.
+Preparation revalidates both intent and native geometry after read/capture
+boundaries. Retired facts cannot authorize a display write; the current request
+is retained for recomputation through the same bounded scheduler.
 The geometry owner distinguishes native calibration, writing, awaiting
 presentation, presented and uncertain adaptation. Starting a write retires its
 pointer mapping. A definite rejection can restore previous acknowledged units;

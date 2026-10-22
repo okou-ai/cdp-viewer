@@ -39,6 +39,10 @@ interface DisplayHost {
 }
 
 type Request = { readonly source: "manual" | "automatic" };
+interface PreparationRevision {
+  readonly intent: number;
+  readonly geometry: number;
+}
 type Operation =
   | { readonly kind: "fit" }
   | { readonly kind: "restore-density"; readonly size: DisplaySize };
@@ -220,18 +224,23 @@ export class DisplaySync {
     });
   }
 
-  /** Revalidate intent after a read boundary without consuming a hidden surface's request. */
+  /** Revalidate intent and native units without consuming a retired preparation's request. */
   private currentSize(
     target: Target,
-    revision: number,
+    revision: PreparationRevision,
     request: Request,
   ): DisplaySize | null {
     if (!this.current(target)) return null;
-    if (revision !== this.revision) {
+    const intentCurrent = revision.intent === this.revision;
+    if (
+      !intentCurrent ||
+      revision.geometry !== target.geometry.revision ||
+      !this.local
+    ) {
       if (request.source === "manual") this.request = request;
+      else if (intentCurrent) this.request ??= request;
       return null;
     }
-    if (!this.local) this.request ??= request;
     return this.local;
   }
 
@@ -242,7 +251,10 @@ export class DisplaySync {
       this.publish();
       return;
     }
-    const revision = this.revision;
+    const revision: PreparationRevision = {
+      intent: this.revision,
+      geometry: target.geometry.revision,
+    };
     const mode = this.mode;
     this.request = null;
     this.phase = "applying";
@@ -409,7 +421,7 @@ export class DisplaySync {
         }
         // A later explicit policy/manual request survives this older failure.
         // Measurements alone do not reopen a failed transaction.
-        this.phase = revision === this.revision ? "failed" : "idle";
+        this.phase = revision.intent === this.revision ? "failed" : "idle";
         this.host.failed(
           !restored
             ? new CdpFault(
