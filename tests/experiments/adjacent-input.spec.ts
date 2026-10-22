@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { BrowserContext, Page } from "@playwright/test";
+import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { prepareConsumer } from "../../scripts/consumer.mjs";
@@ -62,8 +62,11 @@ test.beforeAll(async () => {
   server = await serveConsumer(consumer.dist);
 });
 test.afterAll(async () => {
-  await server?.close();
-  await consumer?.cleanup();
+  try {
+    await server?.close();
+  } finally {
+    await consumer?.cleanup();
+  }
 });
 
 for (const oneWayMs of [0, 50]) {
@@ -74,13 +77,14 @@ for (const oneWayMs of [0, 50]) {
       info.outputPath("backend"),
       server.origin,
     );
-    const client = await playwright.chromium.launch({
-      headless: true,
-      channel: "chromium",
-    });
+    let client: Browser | undefined;
     const rows: object[] = [];
     let heldIsolation = 0;
     try {
+      client = await playwright.chromium.launch({
+        headless: true,
+        channel: "chromium",
+      });
       for (const mode of [
         "direct-unscoped",
         "direct-scoped",
@@ -561,7 +565,7 @@ for (const oneWayMs of [0, 50]) {
       );
     } finally {
       try {
-        await client.close();
+        await client?.close();
       } finally {
         await backend.close();
       }
