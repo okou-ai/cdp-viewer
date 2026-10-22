@@ -219,10 +219,9 @@ commit-once, blur/resume on the same proxy, a real document replacement with sta
 trailing composition, held client intent/reply ordering and original retirement
 while another window edits/streams. Controlled-wire cases separately withhold the
 last late cancellation receipt and verify that ready/detach/readmission cannot
-precede it. Synthetic events do not establish genuine OS IME. The combined
-full interaction failure/reconnect/moved-target matrix and adoption assessment
-remain unproved. Existing pointer/key timing profiles do not measure composition
-latency or production capacity.
+precede it. Synthetic events do not establish genuine OS IME. The full-adapter
+recovery scenarios below combine these boundaries. Existing pointer/key timing
+profiles do not measure composition latency or production capacity.
 
 ## Trusted clipboard and navigation
 
@@ -267,16 +266,53 @@ Navigation buttons preserve input focus through their native press/click so an
 earlier blur cannot disable the gesture or discard its navigation. They move
 focus locally after navigation has flushed and invalidated the old admission.
 
+## Full-adapter recovery and moved-target handover
+
+`native-fixture.ts` shares the actual NativeInput/NativeComposition/NativeClipboard
+bundle, independently installed consumer, owned targets and pixel assertions
+between `native-input.spec.ts` and `recovery.spec.ts`. Select either spec with the
+same explicit source/configuration command. The recovery cases write synthetic
+`recovery.json` receipts with checkout/source/consumer/browser/capture identity.
+They are correctness evidence, separate from the matched timing profiles.
+
+The recovery cases combine pointer, committed text, transient composition,
+trusted local clipboard and navigation with Shift/Control acquisitions in two
+real windows on one browser URL. Blur resumes the same proxy only after original
+cleanup; explicit fixture pause/unmount and private viewer-channel loss retire
+the original executor before a fresh client can be admitted. Sibling input and
+actual newly painted canvas effects must continue while an original native reply
+is held. Host lifecycle reports are fixture commands, not a shipping adapter.
+
+Real selected tabs move through the owned extension while composition or
+navigation receipts and a client selection result are held. Terminal admission
+discards old work before cleanup. The trusted new-owner completion fence is a
+no-op that joins the original lane; it does not require the target to remain in
+its former window. External intent stays denied throughout retirement, and the
+replacement must independently verify its destination before attaching.
+Original native writes, composition cancellations, key/button releases and detach
+must all receive positive replies. Navigation writes participate in the same
+receipt accounting, so losing ownership cannot hide a rejected navigation reply.
+Late old results/releases cannot acquire or clean up a replacement owner.
+
+Controlled-wire mixed-interaction cases complement these real-effect cases with
+partial/rejected/lost replies, discarded queued barriers and the shared 64-action
+unconfirmed ceiling. CDP loss or emergency executor teardown preserves the
+same-host target reservation: opening a fresh connection/host is not a recovery
+receipt. A live independent sibling remains usable. Reconnection of the original
+target is evaluated only after positive original retirement. Missing cleanup
+remains denied; no uncertain input or navigation is replayed.
+
 ## Limits
 
 The keys/text comparator uses a deliberately smaller local adapter than
 `NativeInput`. The actual-adapter modes exercise pointer/key, composition,
 clipboard and navigation in their owned fixture cases. They do not establish
 complete local-adapter parity or genuine OS composition.
-Controlled tab-move handover covers keys/text; pointer/key and composition
-retirement cover their exercised fixture cases. A full interaction, recovery and ownership evaluation remains necessary before adopting any public
-adapter. A fresh local check and CDP send are still not atomic against arbitrary
-external tab movement.
+Controlled-wire and owned-browser recovery cover only the exercised interactions,
+failure boundaries and real-tab handovers. A combined performance, authentication,
+isolation, wire-version, provider and operational-cost assessment remains necessary
+before adopting any public adapter. A fresh local check and CDP send are still not
+atomic against arbitrary external tab movement.
 
 Opaque fixture admission is not production authentication or endpoint access
 control. Public wire versioning, authorization, browser provisioning, recovery,

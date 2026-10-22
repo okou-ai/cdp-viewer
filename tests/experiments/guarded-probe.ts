@@ -157,7 +157,14 @@ export class GuardedProbe {
             }
             this.trace.push(row);
             this.requests.set(command.id, row);
-            if (command.method.startsWith("Input.")) {
+            if (
+              command.method.startsWith("Input.") ||
+              [
+                "Page.navigate",
+                "Page.reload",
+                "Page.navigateToHistoryEntry",
+              ].includes(command.method)
+            ) {
               // Normal in-flight intent is capped at 64; cleanup gets one more
               // bounded window, never an unlimited receipt collection.
               if (this.native.size >= 128) {
@@ -289,16 +296,18 @@ export class GuardedProbe {
         probe.client,
         sessionId,
         async () => {
+          // Terminal admission and blur have discarded every old queued job.
+          // Only the trusted new-owner no-op completion fence can run now.
+          // Original-session cleanup must remain joinable after an external
+          // move; replacement admission performs its own destination check.
+          if (
+            mode === "composition" &&
+            probe.retirement !== undefined &&
+            !probe.closed
+          )
+            return true;
           await directory.assertMember(targetId);
-          // External admission is terminal during retirement, but its trusted
-          // new-owner completion read still needs a fresh membership receipt.
-          // Old queued work was cancelled and cannot own that new generation.
-          return (
-            !probe.stopped ||
-            (mode === "composition" &&
-              probe.retirement !== undefined &&
-              !probe.closed)
-          );
+          return !probe.stopped;
         },
         (value) => {
           probe.currentNavigation = value;

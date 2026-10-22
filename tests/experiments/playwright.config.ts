@@ -7,6 +7,7 @@ export default defineConfig({
     "adjacent-input.spec.ts",
     "handover.spec.ts",
     "native-input.spec.ts",
+    "recovery.spec.ts",
   ],
   outputDir: "../../test-results/adjacent-input",
   workers: 1,
