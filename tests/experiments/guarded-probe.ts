@@ -5,6 +5,7 @@ import type { SocketFactory } from "../../src/cdp/client";
 import { isRecord } from "../../src/cdp/errors";
 import { TargetDirectory } from "../../src/cdp/targets";
 import { InputSession } from "../../src/input/session";
+import type { InputStop } from "../../src/input/lifecycle";
 
 type Key = Protocol.Input.DispatchKeyEventRequest;
 type Intent = { kind: "key"; key: Key } | { kind: "text"; text: string };
@@ -23,6 +24,11 @@ interface Hold {
   id?: number;
   held: () => void;
   release?: () => void;
+}
+
+interface NativeReply {
+  done: Promise<boolean>;
+  settle: (ok: boolean) => void;
 }
 
 function intent(value: Record<string, unknown>): Intent | null {
@@ -72,6 +78,11 @@ export class GuardedProbe {
   private completedThrough = 0;
   private readonly completed = new Set<number>();
   private stopped = false;
+  private closed = false;
+  private writeFailed = false;
+  private retirement: Promise<boolean> | undefined;
+  private retirementFailed: (() => void) | undefined;
+  private readonly native = new Map<number, NativeReply>();
   private ready = false;
   private readonly outstanding = new Set<number>();
   private readonly waiting: number[] = [];
@@ -84,6 +95,7 @@ export class GuardedProbe {
 
   private constructor(
     endpoint: string,
+    readonly targetId: string,
     private readonly reply: (value: ProbeReply) => void,
     factory: SocketFactory,
   ) {
@@ -110,6 +122,20 @@ export class GuardedProbe {
             }
             this.trace.push(row);
             this.requests.set(command.id, row);
+            if (command.method.startsWith("Input.")) {
+              // Normal in-flight intent is capped at 64; cleanup gets one more
+              // bounded window, never an unlimited receipt collection.
+              if (this.native.size >= 128) {
+                this.writeFailed = true;
+                this.shutdown();
+                return;
+              }
+              let settle!: (ok: boolean) => void;
+              const done = new Promise<boolean>((resolve) => {
+                settle = resolve;
+              });
+              this.native.set(command.id, { done, settle });
+            }
             if (
               this.hold?.method === command.method &&
               this.hold.id === undefined
@@ -131,7 +157,7 @@ export class GuardedProbe {
           hold.release = () => {
             if (this.hold !== hold) return;
             this.hold = undefined;
-            if (!this.stopped)
+            if (!this.closed)
               socket.dispatchEvent(new MessageEvent("message", { data }));
           };
           hold.held();
@@ -141,6 +167,17 @@ export class GuardedProbe {
         this.requests.delete(response.id);
         if (!row) return;
         row.response = Date.now();
+        const native = this.native.get(response.id);
+        if (native) {
+          const ok = !isRecord(response.error);
+          if (!ok) this.writeFailed = true;
+          this.native.delete(response.id);
+          native.settle(ok);
+          if (!ok && !this.stopped) {
+            this.revoke();
+            return;
+          }
+        }
         if (row.sequence !== undefined && !this.stopped) {
           this.outstanding.delete(row.sequence);
           this.completed.add(row.sequence);
@@ -163,15 +200,20 @@ export class GuardedProbe {
     windowId,
     reply,
     factory = (url) => new WebSocket(url),
+    signal,
   }: {
     endpoint: string;
     targetId: string;
     windowId: number;
     reply: (value: ProbeReply) => void;
     factory?: SocketFactory;
+    signal?: AbortSignal;
   }): Promise<GuardedProbe> {
-    const probe = new GuardedProbe(endpoint, reply, factory);
+    const probe = new GuardedProbe(endpoint, targetId, reply, factory);
+    const abort = () => probe.close();
+    signal?.addEventListener("abort", abort, { once: true });
     try {
+      if (signal?.aborted) probe.close();
       await probe.client.opened;
       const directory = new TargetDirectory(probe.client, windowId);
       await directory.assertMember(targetId);
@@ -202,7 +244,10 @@ export class GuardedProbe {
       );
       probe.input = input;
       probe.removeEvents = probe.client.onEvent((event) => input.event(event));
-      probe.client.onDisconnected(() => probe.revoke());
+      probe.client.onDisconnected(() => {
+        probe.retirementFailed?.();
+        probe.revoke();
+      });
       await input.start();
       if (probe.stopped) throw new Error("Fixture admission was cancelled");
       probe.ready = true;
@@ -210,6 +255,8 @@ export class GuardedProbe {
     } catch (error) {
       probe.close();
       throw error;
+    } finally {
+      signal?.removeEventListener("abort", abort);
     }
   }
 
@@ -267,7 +314,9 @@ export class GuardedProbe {
     try {
       this.reply(value);
     } catch {
-      this.close();
+      // Viewer loss does not destroy a still-live original cleanup connection.
+      // A revoked notification needs no delivery receipt to that lost viewer.
+      if (!this.stopped) void this.retire();
     }
   }
 
@@ -277,8 +326,50 @@ export class GuardedProbe {
     this.emit({ type: "revoked" });
   }
 
+  /** A positive receipt covers original native effects, releases and detach. */
+  retire(
+    reason: Exclude<InputStop, "disconnected"> = "disposed",
+    deadlineMs = 10_000,
+  ): Promise<boolean> {
+    if (this.retirement) return this.retirement;
+    if (this.closed) return Promise.resolve(false);
+    let finish!: (confirmed: boolean) => void;
+    this.retirement = new Promise<boolean>((resolve) => {
+      finish = resolve;
+    });
+    this.stopped = true;
+    this.ready = false;
+    this.removeEvents?.();
+    // Publish terminal admission before disposal or reentrant reply callbacks.
+    this.input?.dispose(reason);
+    this.emit({ type: "revoked" });
+    const failed = new Promise<boolean>((resolve) => {
+      this.retirementFailed = () => resolve(false);
+    });
+    const deadline = setTimeout(() => this.retirementFailed?.(), deadlineMs);
+    const writes = Promise.all([...this.native.values()].map((v) => v.done));
+    const confirmed = writes
+      .then(async (results) => {
+        if (this.closed || this.writeFailed || results.includes(false))
+          return false;
+        if (this.sessionId)
+          await this.client.request("Target.detachFromTarget", {
+            sessionId: this.sessionId,
+          });
+        return !this.closed && !this.writeFailed;
+      })
+      .catch(() => false);
+    void Promise.race([confirmed, failed]).then((ok) => {
+      clearTimeout(deadline);
+      this.shutdown();
+      finish(ok);
+    });
+    return this.retirement;
+  }
+
+  /** Emergency teardown is not an acknowledged handover. */
   close(): void {
-    if (this.stopped) return;
+    if (this.closed) return;
     this.stopped = true;
     this.ready = false;
     this.removeEvents?.();
@@ -287,7 +378,19 @@ export class GuardedProbe {
       this.client.notify("Target.detachFromTarget", {
         sessionId: this.sessionId,
       });
+    this.shutdown();
+  }
+
+  private shutdown(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.stopped = true;
+    this.ready = false;
+    this.removeEvents?.();
+    this.retirementFailed?.();
     this.client.close();
+    for (const reply of this.native.values()) reply.settle(false);
+    this.native.clear();
     this.waiting.length = 0;
     this.outstanding.clear();
     this.requests.clear();
