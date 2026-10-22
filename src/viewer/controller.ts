@@ -30,6 +30,7 @@ interface Selection {
   input: InputSession | null;
   inputReady: boolean;
   highDensity: boolean;
+  frameTimestamp: number;
 }
 
 interface Retirement {
@@ -128,6 +129,7 @@ export class ViewerController {
       input: null,
       inputReady: !this.options.interactive,
       highDensity: false,
+      frameTimestamp: -Infinity,
     };
     this.selection = selection;
     this.attach(selection).catch((error: unknown) => {
@@ -788,6 +790,14 @@ export class ViewerController {
         typeof params.data !== "string"
       )
         return;
+      // Native resize readbacks can arrive after a newer captured image.
+      const timestamp = isRecord(params.metadata)
+        ? params.metadata.timestamp
+        : null;
+      if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
+        if (timestamp < selection.frameTimestamp) return;
+        selection.frameTimestamp = timestamp;
+      }
       const paintedViewport = selection.input?.frame(params.metadata);
       this.sink.push(
         params.data,

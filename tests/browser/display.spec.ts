@@ -81,7 +81,9 @@ for (const nativeDpr of [1, 2]) {
         .getByRole("textbox", { name: "Remote browser input" })
         .elementHandle();
       const menu = view.getByRole("button", { name: "Browser menu" });
+      const menuPosition = await menu.boundingBox();
       await menu.click();
+      expect(await menu.boundingBox()).toEqual(menuPosition);
       await expect(
         view.getByRole("menuitemradio", { name: "Do not sync automatically" }),
       ).toHaveAttribute("aria-checked", "true");

@@ -34,7 +34,10 @@ export function BrowserMenu() {
         )}
       </Menu.Trigger>
       <div ref={container} className="cdpv-browser-menu-container" />
-      <Menu.Portal container={container}>
+      <Menu.Portal
+        container={container}
+        className="cdpv-browser-menu-container"
+      >
         <Menu.Positioner
           className="cdpv-browser-menu-positioner"
           align="end"

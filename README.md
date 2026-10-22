@@ -177,7 +177,8 @@ The required same-browser/different-window case has independent ownership.
 
 The local image uses contain fitting. By default, the remote viewport is untouched.
 Frames use one active decode and one newest queued frame;
-old-generation images are discarded/closed. `document.hidden`, `paused`, and an
+Old-generation images and older timestamped readbacks are discarded.
+`document.hidden`, `paused`, and an
 offscreen viewer (when IntersectionObserver is available) release stream work;
 resuming revalidates and attaches the selected target. Re-entering the viewport
 does not override explicit pause or whole-document invisibility.
