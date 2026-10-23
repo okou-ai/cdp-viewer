@@ -26,6 +26,20 @@ function connectedModel() {
   return model;
 }
 
+it("reconnects transport changes independently and reflects the applied mode in Usage", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  const [before, sibling] = model.read(model.panels$);
+  model.run(model.configure$, 1, { transport: "split" });
+  const current = model.read(model.panels$)[0]!;
+  expect(current.generation).toBe(before!.generation + 1);
+  expect(current.connection).not.toBe(before!.connection);
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  expect(usageCode(current.options, current.connection)).toContain(
+    'transport="split"',
+  );
+});
+
 it("updates independent capture preferences without replacing a panel connection", () => {
   const model = connectedModel();
   model.run(model.add$);

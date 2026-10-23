@@ -47,6 +47,38 @@ function browser() {
   return fake;
 }
 
+it("reconnects only the owning viewer for transport changes and retains callback stability", async () => {
+  const fake = browser();
+  const view = render(
+    <CdpViewer cdpUrl="wss://fixture.invalid" interactive transport="split" />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  expect(fake.sockets).toHaveLength(2);
+  const sockets = [...fake.sockets];
+  view.rerender(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      transport="split"
+      onError={() => {}}
+      onStatusChange={() => {}}
+    />,
+  );
+  expect(fake.sockets).toEqual(sockets);
+  view.rerender(
+    <CdpViewer cdpUrl="wss://fixture.invalid" interactive transport="shared" />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  expect(fake.sockets).toHaveLength(3);
+  expect(sockets.every((socket) => socket.readyState === 3)).toBe(true);
+  view.unmount();
+  expect(fake.sockets.every((socket) => socket.readyState === 3)).toBe(true);
+});
+
 it("exposes wrapped request context and context-only error changes without replacing input", async () => {
   const fake = browser();
   const onError = vi.fn<(error: ViewerError) => void>();

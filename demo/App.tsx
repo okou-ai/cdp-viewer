@@ -198,6 +198,23 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                   <option value="view-only">View only</option>
                 </select>
               </label>
+              <label className="demo-mode">
+                Transport
+                <select
+                  aria-label="Transport mode"
+                  value={options.transport}
+                  disabled={!options.interactive}
+                  onChange={(event) =>
+                    configure(id, {
+                      transport:
+                        event.target.value === "split" ? "split" : "shared",
+                    })
+                  }
+                >
+                  <option value="shared">Shared (default)</option>
+                  <option value="split">Split frame / control</option>
+                </select>
+              </label>
               <button
                 type="button"
                 className="demo-button demo-small"
@@ -221,6 +238,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 cdpUrl={connection.cdpUrl}
                 extensions={connection.extensions}
                 interactive={options.interactive}
+                transport={options.transport}
                 paused={options.paused}
                 windowSizeSync={options.windowSizeSync}
                 onWindowSizeSyncChange={(mode) =>

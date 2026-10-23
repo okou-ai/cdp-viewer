@@ -177,7 +177,8 @@ function createDemoSignals() {
           const options = { ...item.options, ...patch };
           if (
             item.connection &&
-            options.interactive !== item.options.interactive
+            (options.interactive !== item.options.interactive ||
+              options.transport !== item.options.transport)
           ) {
             const generation = item.generation + 1;
             return {

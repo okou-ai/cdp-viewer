@@ -46,6 +46,7 @@ export function ViewerRuntime({
   windowId,
   paused = false,
   interactive = false,
+  transport = "shared",
   windowSizeSync,
   onWindowSizeSyncChange,
   capture,
@@ -123,6 +124,7 @@ export function ViewerRuntime({
           ...(windowId === undefined ? {} : { windowId }),
           paused: effectivePaused(committed.current.paused, inViewport.current),
           interactive,
+          transport,
           ...(committed.current.capture === undefined
             ? {}
             : { capture: committed.current.capture }),
@@ -189,7 +191,7 @@ export function ViewerRuntime({
       focus.reset();
       if (runtime.current === controller) runtime.current = null;
     };
-  }, [cdpUrl, windowId, revision, model, interactive, focus]);
+  }, [cdpUrl, windowId, revision, model, interactive, transport, focus]);
   useLayoutEffect(() => {
     runtime.current?.setWindowSizeSync(displayMode);
   }, [displayMode]);

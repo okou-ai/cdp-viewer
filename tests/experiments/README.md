@@ -3,6 +3,46 @@
 These opt-in experiments run through explicit configurations, outside the normal
 browser correctness suite and default CI.
 
+## Public-viewer split transport measurement
+
+Compare `transport="shared"` and `transport="split"` on the same immutable public
+consumer, with readable synthetic editor/dashboard pages and native browser
+WebSockets. This uses the shipping component, DOM input adapter and canvas;
+there is no alternative input executor. Run separately from correctness CI:
+
+```sh
+CDP_VIEWER_SOURCE_SHA=<full-40-character-sha> pnpm exec playwright test --config tests/experiments/transport.config.ts
+```
+
+The selected consumer revision must contain the transport API. Before pushing,
+`CDP_VIEWER_CONSUMER_SOURCE=tarball` can supply supplementary local evidence;
+record its source mode and working diff rather than calling it GitHub evidence.
+The report records the independently installed consumer receipt and source SHA.
+
+Each page/link cell runs shared/split and split/shared order, with one excluded
+warmup followed by eight text samples, eight preedit/commit samples and four
+12-event bursts per row. Composition uses synthetic DOM composition events, with
+one animation frame between preedit and commit; it does not emulate a physical
+OS IME. Each burst emits twelve native DOM text events at animation-frame cadence,
+followed by its final marker. Samples wait for matching actual decoded canvas
+pixels and record remote DOM effects using the same machine clock. This is
+native DOM intent to canvas observation, excluding physical keyboard/display time.
+
+Capture remains JPEG70/max1920x1080 and the native viewport is verified at
+1920x1080/DPR1 before and after each row. The natural link has no added bandwidth
+limit or propagation. The shaped link adds one aggregate 1 MiB/s downstream
+budget across all viewer sockets, FIFO within each socket and fair 16 KiB chunks,
+plus 50ms each direction. It models contention; it does not prove TCP fairness,
+provider limits/billing or production-network latency. No artificial reply hold
+is used. The frame lane remains the sole screencasting owner; the split control
+lane must receive zero frame events.
+
+Results and warmups are written to `test-results/transport/**/transport.json`;
+keep dated analysis in PRs/issues. Traces are disabled, fixtures own their browser,
+and cleanup closes client contexts, backend and scheduled link work. Report
+natural regressions, burst behavior and visible medians alongside composition
+benefit; control RTT alone cannot justify adoption or a default change.
+
 ## Window isolation capability probe
 
 Verify one owned browser endpoint with two real windows using direct CDP and

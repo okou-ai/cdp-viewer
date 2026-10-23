@@ -49,6 +49,15 @@ within their owning session while allowing viewers of different windows to make
 independent progress. Future resource and performance changes must preserve this
 independence.
 
+A viewer may own a group of transports. Qualify session identifiers and events
+by their originating connection; identifiers from separate sockets can collide.
+Keep one selection and geometry authority across the group, establish all native
+attachments before calibration, and let only one owner produce its screencast.
+Terminate admission for the whole group if a required transport fails. Preserve
+original control-effect receipts during selection retirement, while obsolete
+frame resources can be released independently. Do not migrate or replay uncertain
+operations into a replacement group.
+
 Pausing, disconnecting or unmounting a viewer releases only that owner's
 applicable resources, preserving sibling streams and input and the remote
 browser and tabs. Window filtering remains presentation scope; the host owns

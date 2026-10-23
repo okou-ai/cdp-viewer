@@ -23,6 +23,7 @@ import type { DisplaySize } from "../display/geometry";
 import type { TabAction, ViewerModel } from "./model";
 import type {
   ViewerCaptureOptions,
+  CdpViewerProps,
   ViewerError,
   WindowSizeSync,
 } from "./types";
@@ -32,6 +33,7 @@ import { Screencast } from "./screencast";
 interface Selection {
   targetId: string;
   sessionId: string | null;
+  frameSessionId: string | null;
   painted: boolean;
   stream: Screencast | null;
   input: InputSession | null;
@@ -52,6 +54,7 @@ interface ControllerOptions {
   socketFactory?: SocketFactory;
   requestTimeout?: number;
   interactive?: boolean;
+  transport?: CdpViewerProps["transport"];
   capture?: ViewerCaptureOptions;
   onInputReset?: (reason: InputTransition) => void;
   onClipboardReset?: () => void;
@@ -64,8 +67,10 @@ interface ControllerOptions {
 export class ViewerController {
   private readonly lifetime = new AbortController();
   private readonly ownedSessions = new Set<string>();
+  private readonly ownedFrameSessions = new Set<string>();
   private readonly retirements = new Map<string, Retirement>();
   private client: CdpClient | null = null;
+  private frames: CdpClient | null = null;
   private directory: TargetDirectory | null = null;
   private selection: Selection | null = null;
   private disposed = false;
@@ -124,6 +129,7 @@ export class ViewerController {
     this.extensionRequest++;
     this.selectionRevision++;
     this.stopSelection();
+    if (this.disposed || !this.connected) return;
     this.model.transition({
       type: "select",
       targetId,
@@ -133,6 +139,7 @@ export class ViewerController {
     const selection: Selection = {
       targetId,
       sessionId: null,
+      frameSessionId: null,
       painted: false,
       stream: null,
       input: null,
@@ -152,6 +159,7 @@ export class ViewerController {
     if (!this.connected) return;
     if (paused) {
       this.stopSelection("paused");
+      if (!this.connected) return;
       this.model.transition({ type: "paused" });
     } else {
       const id = this.model.getSnapshot().selectedTargetId;
@@ -425,37 +433,49 @@ export class ViewerController {
     this.stopSelection("disposed");
     this.display?.close();
     this.sink.dispose();
+    this.frames?.close();
     this.client?.close();
     this.ownedSessions.clear();
+    this.ownedFrameSessions.clear();
     this.retirements.clear();
   }
 
   private async connect(): Promise<void> {
     validateConfiguration(this.options.url, this.options.windowId);
+    const transport = this.options.transport ?? "shared";
+    if (transport !== "shared" && transport !== "split")
+      throw new CdpFault("configuration", "The transport mode is invalid.");
     const client = new CdpClient(
       this.options.url,
       this.options.socketFactory,
       this.options.requestTimeout,
     );
     this.client = client;
+    this.frames = client;
     this.directory = new TargetDirectory(client, this.options.windowId);
-    client.onEvent(this.onEvent);
-    client.onDisconnected((error) => {
-      if (this.disposed) return;
-      const established = this.connected;
-      this.connected = false;
-      this.lifetime.abort();
-      this.stopSelection("disconnected");
-      this.model.transition({
-        type: "disconnected",
-        established,
-        error: diagnostic(error),
-      });
-    });
-    await client.opened;
-    if (this.disposed) return;
+    client.onEvent((event) => this.onEvent(event, client));
+    client.onDisconnected((error) => this.disconnected(error, client));
+    if (this.options.interactive && transport === "split") {
+      try {
+        const frames = new CdpClient(
+          this.options.url,
+          this.options.socketFactory,
+          this.options.requestTimeout,
+        );
+        this.frames = frames;
+        frames.onEvent((event) => this.onEvent(event, frames));
+        frames.onDisconnected((error) => this.disconnected(error, frames));
+      } catch (error) {
+        client.close();
+        // Closing rejects opening; observe it even if the second socket cannot exist.
+        await Promise.allSettled([client.opened]);
+        throw error;
+      }
+    }
+    await Promise.all([client.opened, this.frames.opened]);
+    if (this.disposed || this.lifetime.signal.aborted) return;
     await client.request("Target.setDiscoverTargets", { discover: true });
-    if (this.disposed) return;
+    if (this.disposed || this.lifetime.signal.aborted) return;
     this.connected = true;
     this.model.run(this.model.setConnected$, true);
     let displayError: ViewerError | null = null;
@@ -516,6 +536,35 @@ export class ViewerController {
       interval(() => this.refresh(), 2_000, { signal: this.lifetime.signal });
     }
     this.refresh();
+  }
+
+  private disconnected(error: CdpFault, source: CdpClient): void {
+    if (this.disposed || this.lifetime.signal.aborted) return;
+    const established = this.connected;
+    const drainControl = source !== this.client;
+    this.connected = false;
+    this.lifetime.abort();
+    this.stopSelection("disconnected", drainControl);
+    this.display?.close();
+    this.frames?.close();
+    this.ownedFrameSessions.clear();
+    const closeControl = () => {
+      this.client?.close();
+      this.ownedSessions.clear();
+      this.retirements.clear();
+    };
+    // Video loss revokes admission immediately, but a live control socket can
+    // still acknowledge its original pressed/composing cleanup. Never replay it.
+    if (drainControl && this.retirements.size)
+      Promise.allSettled(
+        [...this.retirements.values()].map((value) => value.complete),
+      ).then(closeControl, closeControl);
+    else closeControl();
+    this.model.transition({
+      type: "disconnected",
+      established,
+      error: diagnostic(error),
+    });
   }
 
   private refresh(): void {
@@ -583,6 +632,7 @@ export class ViewerController {
             continue;
           }
           this.stopSelection();
+          if (this.disposed || !this.connected) break;
           this.model.transition({
             type: "discovery-failed",
             error: diagnostic(error),
@@ -606,39 +656,39 @@ export class ViewerController {
     if (!this.isCurrent(selection)) return;
     await this.directory!.assertMember(selection.targetId);
     if (!this.isCurrent(selection)) return;
-    const attached: unknown = await client.request(
-      "Target.attachToTarget",
-      { targetId: selection.targetId, flatten: true },
-      undefined,
-      (late) => {
-        if (isRecord(late) && typeof late.sessionId === "string") {
-          client.notify("Target.detachFromTarget", {
-            sessionId: late.sessionId,
-          });
-        }
-      },
-    );
-    if (!isRecord(attached) || typeof attached.sessionId !== "string") {
-      throw new CdpFault(
-        "protocol",
-        "The browser returned an invalid target session.",
-      );
-    }
-    selection.sessionId = attached.sessionId;
-    this.ownedSessions.add(attached.sessionId);
+    const sessionId = await this.attachSession(client, selection.targetId);
+    selection.sessionId = sessionId;
+    this.ownedSessions.add(sessionId);
     if (!this.isCurrent(selection)) {
       this.release(selection);
       return;
     }
+    const frames = this.frames!;
+    if (frames === client) selection.frameSessionId = sessionId;
+    else {
+      await this.directory!.assertMember(selection.targetId);
+      if (!this.isCurrent(selection)) return;
+      const frameSessionId = await this.attachSession(
+        frames,
+        selection.targetId,
+      );
+      selection.frameSessionId = frameSessionId;
+      this.ownedFrameSessions.add(frameSessionId);
+      if (!this.isCurrent(selection)) {
+        this.releaseFrames(selection);
+        return;
+      }
+    }
     await this.directory!.assertMember(selection.targetId);
     if (!this.isCurrent(selection)) return;
-    await client.request("Page.enable", undefined, attached.sessionId);
+    // Attach both owners before input/display calibrate native emulation.
+    await client.request("Page.enable", undefined, sessionId);
     if (!this.isCurrent(selection)) return;
     let inputReady: Promise<void> = Promise.resolve();
     if (this.options.interactive) {
       const input = new InputSession(
         client,
-        attached.sessionId,
+        sessionId,
         // Discovery invalidates moved targets; stable input uses the selected session.
         async () => this.isCurrent(selection),
         (navigation) => {
@@ -673,8 +723,8 @@ export class ViewerController {
     selection.highDensity = this.displayMode !== "off";
     const stream = new Screencast(
       {
-        client,
-        sessionId: attached.sessionId,
+        client: frames,
+        sessionId: selection.frameSessionId!,
         sink: this.sink,
         current: () => this.isCurrent(selection),
         failed: (error) => {
@@ -693,10 +743,35 @@ export class ViewerController {
     if (!this.isCurrent(selection)) return;
     this.display?.setTarget({
       targetId: selection.targetId,
-      sessionId: attached.sessionId,
+      sessionId,
       current: () => this.isCurrent(selection),
       geometry: selection.geometry,
     });
+  }
+
+  private async attachSession(
+    client: CdpClient,
+    targetId: string,
+  ): Promise<string> {
+    const attached: unknown = await client.request(
+      "Target.attachToTarget",
+      { targetId, flatten: true },
+      undefined,
+      (late) => {
+        if (isRecord(late) && typeof late.sessionId === "string") {
+          client.notify("Target.detachFromTarget", {
+            sessionId: late.sessionId,
+          });
+        }
+      },
+    );
+    if (!isRecord(attached) || typeof attached.sessionId !== "string") {
+      throw new CdpFault(
+        "protocol",
+        "The browser returned an invalid target session.",
+      );
+    }
+    return attached.sessionId;
   }
 
   private isCurrent(selection: Selection): boolean {
@@ -777,21 +852,28 @@ export class ViewerController {
 
   private loseSelection(error: ViewerError | null): void {
     this.stopSelection();
+    if (this.lifetime.signal.aborted) return;
     this.model.transition({ type: "target-lost", error });
   }
 
-  private stopSelection(reason: InputStop = "target-replaced"): void {
+  private stopSelection(
+    reason: InputStop = "target-replaced",
+    drainControl = false,
+  ): void {
     const old = this.selection;
     this.selection = null;
     this.display?.setTarget(null);
     this.sink.reset();
     this.model.transition({ type: "stopped" });
     if (old) {
-      this.stopStream(old);
       const input = old.input;
-      if (input && reason !== "disconnected" && !this.disposed) {
+      const retire =
+        input && (reason !== "disconnected" || drainControl) && !this.disposed;
+      if (retire) {
         // Cancel old admission synchronously, then publish the fence before local reset.
-        const complete = input.retire(reason);
+        const complete = input.retire(
+          reason === "disconnected" ? "disposed" : reason,
+        );
         const retirement = { input, complete };
         this.retirements.set(old.targetId, retirement);
         complete.then(
@@ -807,8 +889,11 @@ export class ViewerController {
         );
       } else {
         input?.dispose(reason);
-        this.release(old);
       }
+      // Publish original control retirement before frame cleanup can synchronously fail.
+      this.stopStream(old);
+      this.releaseFrames(old);
+      if (!retire) this.release(old);
       if (input) {
         this.options.onClipboardReset?.();
         this.options.onInputReset?.(reason);
@@ -817,11 +902,21 @@ export class ViewerController {
   }
 
   private release(selection: Selection): void {
+    this.releaseFrames(selection);
     const id = selection.sessionId;
     if (!id || !this.ownedSessions.has(id)) return;
     this.stopStream(selection);
     this.ownedSessions.delete(id);
     this.client?.notify("Target.detachFromTarget", { sessionId: id });
+  }
+
+  private releaseFrames(selection: Selection): void {
+    const id = selection.frameSessionId;
+    if (this.frames === this.client || !id || !this.ownedFrameSessions.has(id))
+      return;
+    this.stopStream(selection);
+    this.ownedFrameSessions.delete(id);
+    this.frames?.notify("Target.detachFromTarget", { sessionId: id });
   }
 
   private stopStream(selection: Selection): void {
@@ -830,26 +925,32 @@ export class ViewerController {
 
   private fail(error: unknown): void {
     this.stopSelection();
+    if (this.lifetime.signal.aborted) return;
     this.model.transition({ type: "failed", error: diagnostic(error) });
   }
 
-  private readonly onEvent = (event: CdpEvent): void => {
+  private onEvent(event: CdpEvent, client: CdpClient): void {
     if (this.disposed) return;
-    if (event.sessionId === this.selection?.sessionId)
-      this.selection?.geometry.event(event.method);
-    this.selection?.input?.event(event);
-    for (const retirement of this.retirements.values())
-      retirement.input.event(event);
+    if (client === this.client) {
+      if (event.sessionId === this.selection?.sessionId)
+        this.selection?.geometry.event(event.method);
+      this.selection?.input?.event(event);
+      for (const retirement of this.retirements.values())
+        retirement.input.event(event);
+    }
     const params = event.params;
     if (event.method === "Page.screencastFrame") {
       const id = event.sessionId;
       if (
         !id ||
-        !this.ownedSessions.has(id) ||
+        client !== this.frames ||
+        !(
+          client === this.client ? this.ownedSessions : this.ownedFrameSessions
+        ).has(id) ||
         !Number.isSafeInteger(params.sessionId)
       )
         return;
-      this.client?.notify(
+      client.notify(
         "Page.screencastFrameAck",
         { sessionId: params.sessionId as number },
         id,
@@ -857,7 +958,7 @@ export class ViewerController {
       const selection = this.selection;
       if (
         !selection ||
-        selection.sessionId !== id ||
+        selection.frameSessionId !== id ||
         !this.isCurrent(selection) ||
         typeof params.data !== "string"
       )
@@ -878,8 +979,13 @@ export class ViewerController {
     } else if (event.method === "Target.detachedFromTarget") {
       const id = params.sessionId;
       if (typeof id !== "string") return;
-      this.ownedSessions.delete(id);
-      if (this.selection?.sessionId === id) {
+      const control = client === this.client;
+      (control ? this.ownedSessions : this.ownedFrameSessions).delete(id);
+      if (
+        this.selection &&
+        (control ? this.selection.sessionId : this.selection.frameSessionId) ===
+          id
+      ) {
         this.loseSelection(
           diagnostic(
             new CdpFault("target-unavailable", "The selected target detached."),
@@ -887,6 +993,7 @@ export class ViewerController {
         );
       }
     } else if (
+      client === this.client &&
       [
         "Target.targetCreated",
         "Target.targetInfoChanged",
@@ -911,5 +1018,5 @@ export class ViewerController {
         this.retirements.delete(params.targetId);
       this.refresh();
     }
-  };
+  }
 }

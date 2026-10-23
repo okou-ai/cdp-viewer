@@ -1,4 +1,8 @@
-import type { ViewerCaptureOptions, WindowSizeSync } from "cdp-viewer";
+import type {
+  CdpViewerProps,
+  ViewerCaptureOptions,
+  WindowSizeSync,
+} from "cdp-viewer";
 
 export interface FixtureSettings {
   cdpUrl: string;
@@ -6,6 +10,7 @@ export interface FixtureSettings {
   windowB?: number;
   second?: boolean;
   interactive?: boolean;
+  transport?: CdpViewerProps["transport"];
   paused?: boolean;
   hostForm?: boolean;
   windowSizeSync?: WindowSizeSync;
