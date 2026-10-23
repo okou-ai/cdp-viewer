@@ -13,9 +13,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm css:check
+      - run: pnpm build
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm check-types
+      - run: pnpm knip
+      - run: pnpm test:unit
+
+  browser:
+    name: browser (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      # Keep the image version aligned with @playwright/test in package.json.
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --init --ipc=host
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       CDP_VIEWER_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CDP_VIEWER_SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
@@ -27,25 +55,33 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm css:check
-      - run: pnpm build
       - run: pnpm build:demo
-      - run: pnpm format:check
-      - run: pnpm lint
-      - run: pnpm check-types
-      - run: pnpm knip
-      - run: pnpm test:unit
-      - run: pnpm exec playwright install --with-deps chromium
       - name: Run browser tests
         id: browser_tests
-        run: pnpm test:browser
+        run: pnpm test:browser --shard=${{ matrix.shard }}/3
       - name: Save browser failure diagnostics
         if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
-          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: |
             test-results/**/trace.zip
             test-results/**/error-context.md
           if-no-files-found: warn
           retention-days: 7
+
+  verify:
+    if: ${{ always() }}
+    needs: [checks, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require all CI jobs to succeed
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          if [ "$CHECKS_RESULT" != success ] || [ "$BROWSER_RESULT" != success ]; then
+            echo "::error::CI jobs did not all succeed (checks: $CHECKS_RESULT, browser: $BROWSER_RESULT)"
+            exit 1
+          fi
