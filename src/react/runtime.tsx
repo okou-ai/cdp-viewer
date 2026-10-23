@@ -48,6 +48,7 @@ export function ViewerRuntime({
   interactive = false,
   windowSizeSync,
   onWindowSizeSyncChange,
+  capture,
   extensions,
   onStatusChange,
   onError,
@@ -78,6 +79,7 @@ export function ViewerRuntime({
   const inViewport = useRef(true);
   const committed = useRef({
     paused,
+    capture,
     onStatusChange,
     onError,
     onWindowSizeSyncChange,
@@ -86,12 +88,20 @@ export function ViewerRuntime({
   useLayoutEffect(() => {
     committed.current = {
       paused,
+      capture,
       onStatusChange,
       onError,
       onWindowSizeSyncChange,
       displayMode,
     };
-  }, [paused, onStatusChange, onError, onWindowSizeSyncChange, displayMode]);
+  }, [
+    paused,
+    capture,
+    onStatusChange,
+    onError,
+    onWindowSizeSyncChange,
+    displayMode,
+  ]);
   useLayoutEffect(() => {
     model.run(model.configureDisplay$, {
       controlled: windowSizeSync ?? null,
@@ -113,6 +123,9 @@ export function ViewerRuntime({
           ...(windowId === undefined ? {} : { windowId }),
           paused: effectivePaused(committed.current.paused, inViewport.current),
           interactive,
+          ...(committed.current.capture === undefined
+            ? {}
+            : { capture: committed.current.capture }),
           onInputReset: (reason) => native.current?.reset(reason),
           onClipboardReset: () => native.current?.clearClipboard(),
           onCaret: (point) => native.current?.place(point),
@@ -182,6 +195,7 @@ export function ViewerRuntime({
   }, [displayMode]);
   // Configuration reconciliation does not own or recreate the transport.
   useLayoutEffect(() => {
+    runtime.current?.setCapture(capture);
     runtime.current?.setExtensions(extensions ?? []);
   });
   useLayoutEffect(() => focus.listen(), [focus]);

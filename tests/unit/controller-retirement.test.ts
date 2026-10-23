@@ -26,6 +26,7 @@ async function mount(
     model,
     {
       push: (_data, paint) => paint({ width: 800, height: 600 }),
+      invalidate() {},
       reset() {},
       dispose() {},
     },

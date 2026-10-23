@@ -28,6 +28,7 @@ function mount(
         }
       },
       reset() {},
+      invalidate() {},
       dispose() {},
     },
     {

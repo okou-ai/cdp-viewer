@@ -20,6 +20,7 @@ export function renderViewer() {
         cdpUrl="wss://fixture.invalid/"
         interactive
         windowSizeSync="initial"
+        capture={{ quality: 0, maxWidth: 1280, maxHeight: 720 }}
         extensions={[browserUse(), custom]}
       />
     </>,

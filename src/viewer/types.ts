@@ -45,6 +45,15 @@ export interface ViewerNavigation {
   readonly canGoForward: boolean;
 }
 
+export interface ViewerCaptureOptions {
+  /** JPEG compression quality, integer 0..100. Default: 70. */
+  readonly quality?: number;
+  /** Maximum image width, integer 1..4096. Omit for the current capture profile. */
+  readonly maxWidth?: number;
+  /** Maximum image height, integer 1..4096. Omit for the current capture profile. */
+  readonly maxHeight?: number;
+}
+
 export interface CdpViewerProps {
   /** Resolved browser-level ws:// or wss:// debugger URL. */
   readonly cdpUrl: string;
@@ -57,6 +66,8 @@ export interface CdpViewerProps {
   readonly windowSizeSync?: WindowSizeSync;
   /** Requests a controlled update, or reports a menu-owned mode change. */
   readonly onWindowSizeSyncChange?: (mode: WindowSizeSync) => void;
+  /** Live image-detail settings; independent of the remote page's viewport. */
+  readonly capture?: ViewerCaptureOptions;
   /** Optional adapters, reconciled by ID and key independently of transport. */
   readonly extensions?: readonly ViewerExtension[];
   /** Omit to inherit the host's CSS color-scheme. System follows OS preference. */

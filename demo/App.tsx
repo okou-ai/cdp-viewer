@@ -225,6 +225,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 onWindowSizeSyncChange={(mode) =>
                   observeWindowSizeSync(id, connection.generation, mode)
                 }
+                capture={options.capture}
                 className={viewerClassName(options)}
                 style={viewerStyle(options)}
                 {...(connection.windowId === undefined

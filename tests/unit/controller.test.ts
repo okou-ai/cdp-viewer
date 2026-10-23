@@ -26,6 +26,7 @@ function mount(
       ) => paint({ width: 800, height: 600 }),
     ),
     reset: vi.fn(),
+    invalidate: vi.fn(),
     dispose: vi.fn(),
   };
   const controller = new ViewerController(model, sink, {

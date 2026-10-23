@@ -97,6 +97,10 @@ export class FakeBrowser {
     { width: number; height: number; dpr: number }
   >();
   private readonly streams = new Set<string>();
+  private readonly captureBounds = new Map<
+    string,
+    { width: number; height: number }
+  >();
   private nativeClock = 1_800_000_000;
   private readonly clocks = new Set<string>();
   holdAttach = false;
@@ -140,10 +144,14 @@ export class FakeBrowser {
     );
     const native = target ? this.windowSizes.get(target.windowId) : undefined;
     const size = native ?? { width: 800, height: 600 };
+    const bounds = this.captureBounds.get(sessionId) ?? {
+      width: 4096,
+      height: 4096,
+    };
     const scale = Math.min(
       this.nativeDpr,
-      4096 / size.width,
-      4096 / size.height,
+      bounds.width / size.width,
+      bounds.height / size.height,
     );
     const timestamp = this.clocks.has(sessionId)
       ? (this.nativeClock += 0.002)
@@ -400,10 +408,12 @@ export class FakeBrowser {
         case "Target.detachFromTarget":
           this.emulation.delete(String(command.params?.sessionId));
           this.streams.delete(String(command.params?.sessionId));
+          this.captureBounds.delete(String(command.params?.sessionId));
           socket.reply(command);
           break;
         case "Page.stopScreencast":
           this.streams.delete(command.sessionId!);
+          this.captureBounds.delete(command.sessionId!);
           socket.reply(command);
           break;
         case "Target.attachToTarget": {
@@ -442,6 +452,16 @@ export class FakeBrowser {
             break;
           }
           this.streams.add(command.sessionId!);
+          this.captureBounds.set(command.sessionId!, {
+            width:
+              typeof command.params?.maxWidth === "number"
+                ? command.params.maxWidth
+                : 4096,
+            height:
+              typeof command.params?.maxHeight === "number"
+                ? command.params.maxHeight
+                : 4096,
+          });
           socket.reply(command);
           // Deliver before the awaiting startup continuation: frames may race
           // the start response, and must not become a cancelled-timer error.

@@ -74,6 +74,59 @@ async function expectColor(viewer: Locator, color: [number, number, number]) {
     .toBeLessThanOrEqual(4);
 }
 
+test("demo exposes independent live capture quality and resolution controls", async ({
+  page,
+}, info) => {
+  await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const remote = backend.context.pages()[0]!;
+    await remote.setViewportSize({ width: 1920, height: 1080 });
+    await remote.goto(server.origin + "/fixture/editor");
+    const first = panel(page, 1);
+    await configure(first, backend.endpoint);
+    const view = first.getByRole("region", { name: "Remote browser viewer" });
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    const proxy = await view.getByLabel("Remote browser input").elementHandle();
+    await first.locator("summary").filter({ hasText: "Image detail" }).click();
+    await first.getByLabel(/^Capture resolution/).selectOption("1280x720");
+    await expect
+      .poll(() =>
+        view
+          .locator("canvas")
+          .evaluate((canvas: HTMLCanvasElement) => canvas.width),
+      )
+      .toBe(1280);
+    const quality = first.getByRole("slider", { name: /^JPEG quality/ });
+    await quality.press("Home");
+    await expect(quality).toHaveValue("0");
+    await first.getByText("Usage", { exact: true }).click();
+    for (const field of ['"quality":0', '"maxWidth":1280', '"maxHeight":720'])
+      await expect(first.getByLabel("Component code")).toContainText(field);
+    expect(
+      await view
+        .getByLabel("Remote browser input")
+        .evaluate((element, previous) => element === previous, proxy),
+    ).toBe(true);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await page.screenshot({
+      path: info.outputPath("capture-controls-desktop.png"),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(first.getByLabel(/^Capture resolution/)).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath("capture-controls-mobile.png"),
+      fullPage: true,
+    });
+  } finally {
+    await backend.close();
+  }
+});
+
 test("demo routes native input and navigation to independent windows", async ({
   page,
   browser,

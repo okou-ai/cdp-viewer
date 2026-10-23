@@ -14,6 +14,8 @@ import type { DisplayEvent } from "./policy";
 import { DisplayTransaction } from "./transaction";
 import type { DisplayEffects, DisplayTarget } from "./transaction";
 
+const minimumSyncIntervalMs = 150;
+
 export interface DisplayState {
   readonly ready: boolean;
   readonly pending: boolean;
@@ -120,7 +122,7 @@ export class DisplaySync {
             );
         });
       },
-      Math.max(0, 150 - (performance.now() - this.started)),
+      Math.max(0, minimumSyncIntervalMs - (performance.now() - this.started)),
       { signal: this.host.signal },
     );
   }

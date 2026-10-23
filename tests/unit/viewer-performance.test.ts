@@ -22,6 +22,7 @@ async function mount(windowId?: number, holdPaint = false) {
         if (!holdPaint) done();
       },
       reset() {},
+      invalidate() {},
       dispose() {},
     },
     {
@@ -380,7 +381,7 @@ it("starts frames during input initialization without enabling input early", asy
   );
   const controller = new ViewerController(
     model,
-    { push: paint, reset() {}, dispose() {} },
+    { push: paint, invalidate() {}, reset() {}, dispose() {} },
     {
       url: "wss://fixture.invalid/",
       socketFactory: browser.factory,
