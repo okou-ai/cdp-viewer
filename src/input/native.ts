@@ -2,10 +2,19 @@ import type { Protocol } from "devtools-protocol";
 import { NativeComposition } from "./composition";
 import { NativeClipboard } from "./clipboard";
 import type { ClipboardRecovery } from "./clipboard";
-import type { InputTransition } from "./lifecycle";
+import type { InputOwner, InputTransition } from "./lifecycle";
 import { imagePoint, localPoint } from "./geometry";
 import type { Point } from "./geometry";
 import type { NativeInputPort } from "./port";
+import { sameDirection, samePointerState } from "./coalescing";
+
+interface ContinuousPointer {
+  input: NativeInputPort;
+  owner: InputOwner;
+  type: "mouseMoved" | "mouseWheel";
+  point: Point;
+  details: Parameters<NativeInputPort["pointer"]>[2];
+}
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
 const buttonMasks = [1, 4, 2, 8, 16] as const;
@@ -26,8 +35,8 @@ export class NativeInput {
   private readonly clipboardKeys = new Set<string>();
   private pointerId: number | null = null;
   private readonly pressedButtons = new Set<number>();
-  private moveFrame: number | null = null;
-  private latestMove: PointerEvent | null = null;
+  private pointerFrame: number | null = null;
+  private continuous: ContinuousPointer | null = null;
   private readonly lifetime = new AbortController();
   private readonly clipboard: NativeClipboard;
 
@@ -39,6 +48,11 @@ export class NativeInput {
     clipboardChanged: (value: ClipboardRecovery | null) => void = () => {},
   ) {
     const signal = this.lifetime.signal;
+    for (const type of ["copy", "paste", "cut"])
+      proxy.addEventListener(type, this.flushContinuous, {
+        signal,
+        capture: true,
+      });
     this.clipboard = new NativeClipboard(
       proxy,
       input,
@@ -65,7 +79,10 @@ export class NativeInput {
       () => {
         // A pointer gesture establishes remote focus after its release. Avoid
         // querying the previous control before that click has reached Chrome.
-        if (this.pointerId === null) this.input()?.focus();
+        if (this.pointerId === null) {
+          this.flushContinuous();
+          this.input()?.focus();
+        }
       },
       { signal },
     );
@@ -75,6 +92,7 @@ export class NativeInput {
     proxy.addEventListener(
       "compositionstart",
       () => {
+        this.flushContinuous();
         this.composition.start(
           document.activeElement === this.proxy
             ? (this.input()?.owner ?? null)
@@ -105,7 +123,7 @@ export class NativeInput {
       this.proxy.value = "";
       this.forwarded.clear();
       this.clipboardKeys.clear();
-      this.clearMove();
+      this.clearContinuous();
       const pointer = this.pointerId;
       this.pointerId = null;
       this.pressedButtons.clear();
@@ -171,11 +189,14 @@ export class NativeInput {
     // between its press/release; held-button drag movement must still flush.
     if (
       !this.pressedButtons.size &&
-      this.latestMove?.buttons === 0 &&
-      this.latestMove.clientX === event.clientX &&
-      this.latestMove.clientY === event.clientY
+      this.continuous?.type === "mouseMoved" &&
+      this.continuous.details.buttons === 0 &&
+      this.continuous.details.modifiers === modifiers(event) &&
+      this.continuous.point.x === point.x &&
+      this.continuous.point.y === point.y
     )
-      this.clearMove();
+      this.clearContinuous();
+    this.flushContinuous();
     // Preserve queued gestures, held modifiers and the consumed composition
     // boundary for another click in the same viewer. The ordered press follows
     // preceding committed input on the same CDP session.
@@ -192,6 +213,7 @@ export class NativeInput {
     // PointerEvent.detail is zero. The compatibility mouse event supplies the
     // browser/OS click count, including native double/triple-click settings.
     event.preventDefault();
+    this.flushContinuous();
     this.pressedButtons.add(event.button);
     this.input()?.pointer("mousePressed", point, {
       button: buttons[event.button] ?? "left",
@@ -203,15 +225,6 @@ export class NativeInput {
 
   private readonly pointerMove = (event: PointerEvent) => {
     if (event.pointerType !== "mouse") return;
-    this.latestMove = event;
-    if (this.moveFrame === null)
-      this.moveFrame = requestAnimationFrame(this.flushMove);
-  };
-
-  private readonly flushMove = () => {
-    const event = this.latestMove;
-    this.clearMove();
-    if (!event) return;
     const held = this.ownedButtons(event.buttons);
     const point = imagePoint(
       this.canvas,
@@ -220,7 +233,7 @@ export class NativeInput {
       this.pointerId !== null,
     );
     if (point)
-      this.input()?.pointer("mouseMoved", point, {
+      this.bufferContinuous("mouseMoved", point, {
         button:
           held & 1 ? "left" : held & 2 ? "right" : held & 4 ? "middle" : "none",
         buttons: held,
@@ -228,15 +241,74 @@ export class NativeInput {
       });
   };
 
-  private clearMove(): void {
-    this.latestMove = null;
-    if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
-    this.moveFrame = null;
+  private bufferContinuous(
+    type: ContinuousPointer["type"],
+    point: Point,
+    details: ContinuousPointer["details"],
+  ): void {
+    const input = this.input();
+    const owner = input?.owner;
+    if (!input || !owner) return;
+    const previous = this.continuous;
+    if (
+      previous?.input === input &&
+      previous.owner === owner &&
+      previous.type === type &&
+      samePointerState(previous.details, details)
+    ) {
+      if (type === "mouseMoved") {
+        previous.point = point;
+        previous.details = details;
+        return;
+      }
+      const deltaX = details.deltaX ?? 0;
+      const deltaY = details.deltaY ?? 0;
+      const previousX = previous.details.deltaX ?? 0;
+      const previousY = previous.details.deltaY ?? 0;
+      const combinedX = previousX + deltaX;
+      const combinedY = previousY + deltaY;
+      if (
+        previous.point.x === point.x &&
+        previous.point.y === point.y &&
+        sameDirection(previousX, deltaX) &&
+        sameDirection(previousY, deltaY) &&
+        [combinedX, combinedY].every(Number.isFinite)
+      ) {
+        previous.details.deltaX = combinedX;
+        previous.details.deltaY = combinedY;
+        return;
+      }
+    }
+    this.flushContinuous();
+    // Flushing may synchronously fail and replace the current input owner.
+    if (this.input() !== input || input.owner !== owner) return;
+    const pending = { input, owner, type, point, details };
+    this.continuous = pending;
+    this.pointerFrame = requestAnimationFrame(() => {
+      if (this.continuous === pending) this.flushContinuous();
+    });
+  }
+
+  private readonly flushContinuous = () => {
+    const pending = this.continuous;
+    this.clearContinuous();
+    if (
+      pending &&
+      this.input() === pending.input &&
+      pending.input.owner === pending.owner
+    )
+      pending.input.pointer(pending.type, pending.point, pending.details);
+  };
+
+  private clearContinuous(): void {
+    this.continuous = null;
+    if (this.pointerFrame !== null) cancelAnimationFrame(this.pointerFrame);
+    this.pointerFrame = null;
   }
 
   private readonly pointerUp = (event: PointerEvent) => {
     if (event.pointerId !== this.pointerId) return;
-    this.flushMove();
+    this.flushContinuous();
     this.pointerId = null;
     if (this.canvas.parentElement?.hasPointerCapture(event.pointerId)) {
       this.canvas.parentElement.releasePointerCapture(event.pointerId);
@@ -254,7 +326,7 @@ export class NativeInput {
     // button. The window listener also owns release outside the captured stage.
     if (!this.pressedButtons.has(event.button)) return;
     event.preventDefault();
-    this.flushMove();
+    this.flushContinuous();
     this.pressedButtons.delete(event.button);
     const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     if (point)
@@ -277,7 +349,8 @@ export class NativeInput {
         : event.deltaMode === 2
           ? this.canvas.clientHeight
           : 1;
-    this.input()?.pointer("mouseWheel", point, {
+    this.bufferContinuous("mouseWheel", point, {
+      buttons: this.ownedButtons(event.buttons),
       modifiers: modifiers(event),
       deltaX: event.deltaX * unit,
       deltaY: event.deltaY * unit,
@@ -285,6 +358,7 @@ export class NativeInput {
   };
 
   private readonly compositionUpdate = (event: CompositionEvent) => {
+    this.flushContinuous();
     const input = this.input();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
@@ -299,6 +373,7 @@ export class NativeInput {
   };
 
   private readonly compositionEnd = (event: CompositionEvent) => {
+    this.flushContinuous();
     const input = this.input();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
@@ -311,6 +386,7 @@ export class NativeInput {
   };
 
   private readonly text = (event: Event) => {
+    this.flushContinuous();
     const input = this.input();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
@@ -356,6 +432,7 @@ export class NativeInput {
       this.releaseFocus();
       return;
     }
+    this.flushContinuous();
     const shortcut =
       (event.ctrlKey || event.metaKey) && !event.getModifierState("AltGraph");
     const printable = Array.from(event.key).length === 1;
@@ -402,6 +479,7 @@ export class NativeInput {
     }
     event.preventDefault();
     event.stopPropagation();
+    this.flushContinuous();
     this.input()?.key({
       type: "keyUp",
       key: event.key,

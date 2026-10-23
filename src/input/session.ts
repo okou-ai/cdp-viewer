@@ -338,6 +338,8 @@ export class InputSession {
       this.queue.wheel(
         {
           point,
+          button: details.button ?? "none",
+          buttons: details.buttons ?? 0,
           modifiers: details.modifiers ?? 0,
           deltaX: details.deltaX ?? 0,
           deltaY: details.deltaY ?? 0,
@@ -345,7 +347,12 @@ export class InputSession {
         run,
         prepare,
       );
-    else this.queue.enqueue(run, type === "mouseMoved", prepare);
+    else
+      this.queue.enqueue(
+        run,
+        type === "mouseMoved" ? details : undefined,
+        prepare,
+      );
   }
 
   text(text: string, owner: InputOwner = this.lifecycle.owner): void {

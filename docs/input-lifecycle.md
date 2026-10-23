@@ -56,6 +56,13 @@ Coalescing must preserve ordering and observable intent. A dispatched payload is
 immutable; later work must not change a request that is already awaiting
 acknowledgement.
 
+The native adapter owns continuous-event frame scheduling before protocol
+admission. Bind its buffer to the captured input port and immutable owner, flush
+before a later discrete action or selection read, and discard it on reset.
+Clear buffered state before invoking external effects so reentrant cleanup
+cannot transfer old work to a replacement. The protocol executor retains the
+same compatibility boundaries when coalescing under reply pressure.
+
 Remote composition is transient owned editing state. Keep preedit updates,
 final commits and cancellation ordered, and retain cleanup ownership until the
 matching acknowledgement. A late acknowledgement cannot clear a later composing

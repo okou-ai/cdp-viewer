@@ -119,6 +119,135 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
+test("batches wheel tasks before a frame and flushes before a later key", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.evaluate(() => {
+      document.body.dataset.wheel = "0";
+      document.body.dataset.order = "";
+      document.addEventListener(
+        "wheel",
+        (event) => {
+          event.preventDefault();
+          document.body.dataset.wheel = String(
+            Number(document.body.dataset.wheel) + event.deltaY,
+          );
+          document.body.dataset.order += "wheel,";
+        },
+        { passive: false },
+      );
+      document.addEventListener("keydown", (event) => {
+        event.preventDefault();
+        document.body.dataset.order += "key,";
+      });
+    });
+    const commands: {
+      method?: string;
+      params?: { type?: string; deltaY?: number };
+    }[] = [];
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(
+          String(message),
+        ) as (typeof commands)[number];
+        if (command.method?.startsWith("Input.")) commands.push(command);
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => socket.send(message));
+    });
+    const view = await host(page, backend, windowId);
+    await view.getByRole("textbox", { name: "Remote browser input" }).focus();
+    const position = await imagePosition(view, 500, 300, remote);
+    const before = await view
+      .locator("canvas")
+      .evaluate(async (canvas, point) => {
+        const request = window.requestAnimationFrame;
+        const cancel = window.cancelAnimationFrame;
+        const callbacks = new Map<number, FrameRequestCallback>();
+        let next = 0;
+        window.requestAnimationFrame = (callback) => {
+          callbacks.set(++next, callback);
+          return next;
+        };
+        window.cancelAnimationFrame = (id) => {
+          callbacks.delete(id);
+        };
+        try {
+          const task = () =>
+            new Promise<void>((resolve) => {
+              const channel = new MessageChannel();
+              channel.port1.onmessage = () => {
+                channel.port1.close();
+                channel.port2.close();
+                resolve();
+              };
+              channel.port2.postMessage(null);
+            });
+          for (let index = 0; index < 8; index++) {
+            canvas.dispatchEvent(
+              new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                clientX: point.x,
+                clientY: point.y,
+                deltaY: 12,
+              }),
+            );
+            await task();
+          }
+          const pending = callbacks.size;
+          const proxy = canvas.parentElement!.querySelector("textarea")!;
+          proxy.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              bubbles: true,
+              cancelable: true,
+              key: "ArrowLeft",
+              code: "ArrowLeft",
+            }),
+          );
+          proxy.dispatchEvent(
+            new KeyboardEvent("keyup", {
+              bubbles: true,
+              cancelable: true,
+              key: "ArrowLeft",
+              code: "ArrowLeft",
+            }),
+          );
+          return pending;
+        } finally {
+          window.requestAnimationFrame = request;
+          window.cancelAnimationFrame = cancel;
+          for (const callback of callbacks.values())
+            callback(performance.now());
+        }
+      }, position);
+    expect(before).toBeGreaterThanOrEqual(1);
+    await expect(remote.locator("body")).toHaveAttribute("data-wheel", "96");
+    await expect(remote.locator("body")).toHaveAttribute(
+      "data-order",
+      "wheel,key,",
+    );
+    expect(
+      commands.map((command) => [command.method, command.params?.type]),
+    ).toEqual([
+      ["Input.dispatchMouseEvent", "mouseWheel"],
+      ["Input.dispatchKeyEvent", "rawKeyDown"],
+      ["Input.dispatchKeyEvent", "keyUp"],
+    ]);
+    expect(commands[0]?.params?.deltaY).toBe(96);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+  } finally {
+    await backend.close();
+  }
+});
+
 test("forwards new wheel distance while an earlier dispatch response is held", async ({
   page,
 }, info) => {
