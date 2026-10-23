@@ -166,6 +166,14 @@ async function session(browserZoom = 1) {
   return { input, browser, socket: browser.sockets[0]!, reset };
 }
 
+async function fillQueue(first: Awaited<ReturnType<typeof session>>) {
+  first.browser.holdMethod = "Page.getLayoutMetrics";
+  first.input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, {});
+  await vi.waitFor(() => expect(first.browser.heldCommands).toHaveLength(1));
+  for (let index = 0; index < 63; index++)
+    first.input.key({ type: "rawKeyDown", key: "a", code: "KeyA" });
+}
+
 it("batches separate wheel admissions before a frame and conserves normalized distance", async () => {
   const frames = clock();
   const { input, socket } = await session();
@@ -550,3 +558,133 @@ it("rejects a finite batch that overflows after native wheel scaling", async () 
     socket.commands.filter((c) => c.method === "Input.dispatchMouseEvent"),
   ).toHaveLength(0);
 });
+
+it.each(["keydown", "keyup", "press", "release", "focus", "composition"])(
+  "does not transfer %s to a replacement when flushing exhausts the old queue",
+  async (action) => {
+    const frames = clock();
+    const first = await session();
+    const next = await session();
+    const native = surface(first.input);
+    if (action === "keyup")
+      native.proxy.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "ArrowLeft",
+          code: "ArrowLeft",
+        }),
+      );
+    if (action === "release") native.press();
+    if (action === "focus") native.proxy.blur();
+    await first.input.completion(first.input.owner!);
+    await fillQueue(first);
+    first.reset.mockImplementation((reason) => {
+      native.adapter.reset(reason);
+      native.replace(next.input);
+    });
+    native.wheel();
+    if (action === "press") native.press();
+    else if (action === "release")
+      native.canvas.dispatchEvent(
+        new MouseEvent("mouseup", {
+          bubbles: true,
+          button: 0,
+          clientX: 400,
+          clientY: 300,
+        }),
+      );
+    else if (action === "focus") native.proxy.focus();
+    else if (action === "composition") {
+      native.proxy.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      const end = new CompositionEvent("compositionend", { bubbles: true });
+      // Happy DOM omits CompositionEvent.data, as it does WheelEvent fields.
+      Object.defineProperty(end, "data", { value: "owned draft" });
+      native.proxy.dispatchEvent(end);
+    } else
+      native.proxy.dispatchEvent(
+        new KeyboardEvent(action, {
+          bubbles: true,
+          cancelable: true,
+          key: "ArrowLeft",
+          code: "ArrowLeft",
+        }),
+      );
+    expect(first.reset).toHaveBeenCalledWith("failed");
+    await next.input.completion(next.input.owner!);
+    expect(
+      next.socket.commands.filter(
+        (c) => c.method.startsWith("Input.") || c.method === "Runtime.evaluate",
+      ),
+    ).toHaveLength(0);
+    expect(frames.frames.size).toBe(0);
+    // The canceled event must not disable fresh input for the replacement.
+    native.proxy.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "ArrowRight",
+        code: "ArrowRight",
+      }),
+    );
+    await next.input.completion(next.input.owner!);
+    expect(
+      next.socket.commands
+        .filter((c) => c.method === "Input.dispatchKeyEvent")
+        .map((c) => c.params?.key),
+    ).toEqual(["ArrowRight"]);
+  },
+);
+
+it("discards a key when its flush retires only the current owner", async () => {
+  clock();
+  const first = await session();
+  const native = surface(first.input);
+  await fillQueue(first);
+  const owner = first.input.owner;
+  first.reset.mockImplementation((reason) => native.adapter.reset(reason));
+  native.wheel();
+  native.proxy.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "ArrowLeft",
+      code: "ArrowLeft",
+    }),
+  );
+  expect(first.reset).toHaveBeenCalledWith("failed");
+  expect(first.input.owner).not.toBe(owner);
+  await first.input.completion(first.input.owner!);
+  expect(
+    first.socket.commands.filter((c) => c.method === "Input.dispatchKeyEvent"),
+  ).toHaveLength(0);
+});
+
+it.each(["copy", "paste", "cut"])(
+  "cancels %s admission when its capture-phase flush replaces input",
+  async (action) => {
+    const frames = clock();
+    const first = await session();
+    const next = await session();
+    const native = surface(first.input);
+    await fillQueue(first);
+    first.reset.mockImplementation((reason) => {
+      native.adapter.reset(reason);
+      native.replace(next.input);
+    });
+    const admitted = vi.fn();
+    native.proxy.addEventListener(action, admitted);
+    native.wheel();
+    const event = new Event(action, {
+      bubbles: true,
+      cancelable: true,
+    });
+    native.proxy.dispatchEvent(event);
+    expect(first.reset).toHaveBeenCalledWith("failed");
+    expect(event.defaultPrevented).toBe(true);
+    expect(admitted).not.toHaveBeenCalled();
+    await next.input.completion(next.input.owner!);
+    expect(frames.frames.size).toBe(0);
+  },
+);

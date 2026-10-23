@@ -58,7 +58,7 @@ export class NativeInput {
   ) {
     const signal = this.lifetime.signal;
     for (const type of ["copy", "paste", "cut"])
-      proxy.addEventListener(type, this.flushContinuous, {
+      proxy.addEventListener(type, this.clipboardBoundary, {
         signal,
         capture: true,
       });
@@ -89,8 +89,7 @@ export class NativeInput {
         // A pointer gesture establishes remote focus after its release. Avoid
         // querying the previous control before that click has reached Chrome.
         if (this.pointerId === null) {
-          this.flushContinuous();
-          this.input()?.focus();
+          this.flushContinuous()?.focus();
         }
       },
       { signal },
@@ -101,11 +100,9 @@ export class NativeInput {
     proxy.addEventListener(
       "compositionstart",
       () => {
-        this.flushContinuous();
+        const input = this.flushContinuous();
         this.composition.start(
-          document.activeElement === this.proxy
-            ? (this.input()?.owner ?? null)
-            : null,
+          document.activeElement === this.proxy ? (input?.owner ?? null) : null,
           this.proxy.value,
           this.proxy.selectionStart,
           this.proxy.selectionEnd,
@@ -205,7 +202,7 @@ export class NativeInput {
       this.continuous.clientY === event.clientY
     )
       this.clearContinuous();
-    this.flushContinuous();
+    if (!this.flushContinuous()) return;
     // Preserve queued gestures, held modifiers and the consumed composition
     // boundary for another click in the same viewer. The ordered press follows
     // preceding committed input on the same CDP session.
@@ -222,9 +219,10 @@ export class NativeInput {
     // PointerEvent.detail is zero. The compatibility mouse event supplies the
     // browser/OS click count, including native double/triple-click settings.
     event.preventDefault();
-    this.flushContinuous();
+    const input = this.flushContinuous();
+    if (!input) return;
     this.pressedButtons.add(event.button);
-    this.input()?.pointer("mousePressed", point, {
+    input.pointer("mousePressed", point, {
       button: buttons[event.button] ?? "left",
       buttons: this.ownedButtons(event.buttons),
       modifiers: modifiers(event),
@@ -297,25 +295,34 @@ export class NativeInput {
     });
   }
 
-  private readonly flushContinuous = () => {
+  private readonly flushContinuous = (): NativeInputPort | null => {
+    const input = this.input();
+    const owner = input?.owner;
     const pending = this.continuous;
     this.clearContinuous();
-    if (
-      !pending ||
-      this.input() !== pending.input ||
-      pending.input.owner !== pending.owner
-    )
-      return;
-    const point =
-      pending.type === "mouseMoved"
-        ? imagePoint(
-            this.canvas,
-            pending.clientX,
-            pending.clientY,
-            pending.captured,
-          )
-        : pending.point;
-    if (point) pending.input.pointer(pending.type, point, pending.details);
+    if (pending && input === pending.input && owner === pending.owner) {
+      const point =
+        pending.type === "mouseMoved"
+          ? imagePoint(
+              this.canvas,
+              pending.clientX,
+              pending.clientY,
+              pending.captured,
+            )
+          : pending.point;
+      if (point) pending.input.pointer(pending.type, point, pending.details);
+    }
+    // A synchronous failure may retire ownership or replace the port. The
+    // following action must not acquire that replacement's authority.
+    return input && owner && this.input() === input && input.owner === owner
+      ? input
+      : null;
+  };
+
+  private readonly clipboardBoundary = (event: Event) => {
+    if (this.flushContinuous()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
   };
 
   private clearContinuous(): void {
@@ -344,11 +351,12 @@ export class NativeInput {
     // button. The window listener also owns release outside the captured stage.
     if (!this.pressedButtons.has(event.button)) return;
     event.preventDefault();
-    this.flushContinuous();
+    const input = this.flushContinuous();
+    if (!input) return;
     this.pressedButtons.delete(event.button);
     const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     if (point)
-      this.input()?.pointer("mouseReleased", point, {
+      input.pointer("mouseReleased", point, {
         button: buttons[event.button] ?? "left",
         buttons: this.ownedButtons(event.buttons),
         modifiers: modifiers(event),
@@ -380,8 +388,7 @@ export class NativeInput {
   };
 
   private readonly compositionUpdate = (event: CompositionEvent) => {
-    this.flushContinuous();
-    const input = this.input();
+    const input = this.flushContinuous();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const preedit = this.composition.update(event.data, owner);
@@ -395,8 +402,7 @@ export class NativeInput {
   };
 
   private readonly compositionEnd = (event: CompositionEvent) => {
-    this.flushContinuous();
-    const input = this.input();
+    const input = this.flushContinuous();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const composed = this.composition.owns(owner);
@@ -408,8 +414,7 @@ export class NativeInput {
   };
 
   private readonly text = (event: Event) => {
-    this.flushContinuous();
-    const input = this.input();
+    const input = this.flushContinuous();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const result = this.composition.input(
@@ -454,7 +459,11 @@ export class NativeInput {
       this.releaseFocus();
       return;
     }
-    this.flushContinuous();
+    const input = this.flushContinuous();
+    if (!input) {
+      event.preventDefault();
+      return;
+    }
     const shortcut =
       (event.ctrlKey || event.metaKey) && !event.getModifierState("AltGraph");
     const printable = Array.from(event.key).length === 1;
@@ -489,7 +498,7 @@ export class NativeInput {
       else if (letter === "y") key.commands = ["redo"];
     }
     this.forwarded.add(event.code || event.key);
-    this.input()?.key(key);
+    input.key(key);
   };
 
   private readonly keyUp = (event: KeyboardEvent) => {
@@ -501,8 +510,7 @@ export class NativeInput {
     }
     event.preventDefault();
     event.stopPropagation();
-    this.flushContinuous();
-    this.input()?.key({
+    this.flushContinuous()?.key({
       type: "keyUp",
       key: event.key,
       code: event.code,

@@ -62,6 +62,10 @@ before a later discrete action or selection read, and discard it on reset.
 Clear buffered state before invoking external effects so reentrant cleanup
 cannot transfer old work to a replacement. The protocol executor retains the
 same compatibility boundaries when coalescing under reply pressure.
+Revalidate the captured port and owner after flushing before admitting the
+following action: a synchronous failure can retire them during that flush.
+Clipboard capture listeners must cancel the event before later handlers can
+acquire replacement input authority.
 
 Remote composition is transient owned editing state. Keep preedit updates,
 final commits and cancellation ordered, and retain cleanup ownership until the
