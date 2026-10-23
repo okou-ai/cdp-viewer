@@ -103,6 +103,28 @@ it.each(["select", "pause"] as const)(
   },
 );
 
+it("preserves terminal frame failure during discovery-error cleanup", async () => {
+  const { browser, model, controller } = mount();
+  await streaming(model);
+  const [control, frames] = browser.sockets as [FakeSocket, FakeSocket];
+  browser.holdMethod = "Target.getTargets";
+  control.emit("Target.targetInfoChanged", {});
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  frames.bufferedAmount = 5 * 1024 * 1024;
+  const lookup = browser.heldCommands[0]!;
+  control.reject(lookup.command, -32000);
+  await vi.waitFor(() =>
+    expect(browser.sockets.every((socket) => socket.readyState === 3)).toBe(
+      true,
+    ),
+  );
+  expect(controller.input).toBeNull();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "disconnected",
+    error: { kind: "connection" },
+  });
+});
+
 it.each([{ transport: "shared" as const }, { interactive: false }])(
   "retains a single socket for %j",
   async (options) => {

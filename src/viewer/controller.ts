@@ -632,6 +632,7 @@ export class ViewerController {
             continue;
           }
           this.stopSelection();
+          if (this.disposed || !this.connected) break;
           this.model.transition({
             type: "discovery-failed",
             error: diagnostic(error),
