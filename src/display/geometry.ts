@@ -29,8 +29,16 @@ export interface PresentationGeometry {
   readonly nativeDpr: number;
 }
 
-export function captureRaster(device: Viewport, nativeDpr: number): Viewport {
-  const scale = Math.min(nativeDpr, 4096 / device.width, 4096 / device.height);
+export function captureRaster(
+  device: Viewport,
+  nativeDpr: number,
+  bounds: Viewport = { width: 4096, height: 4096 },
+): Viewport {
+  const scale = Math.min(
+    nativeDpr,
+    bounds.width / device.width,
+    bounds.height / device.height,
+  );
   return {
     width: Math.round(device.width * scale),
     height: Math.round(device.height * scale),

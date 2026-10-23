@@ -101,6 +101,9 @@ function App() {
                 <div id="viewer-a">
                   <CdpViewer
                     {...props}
+                    {...(settings.captureA === undefined
+                      ? {}
+                      : { capture: settings.captureA })}
                     {...(settings.colorSchemeA === undefined
                       ? {}
                       : { colorScheme: settings.colorSchemeA })}
@@ -115,6 +118,9 @@ function App() {
                 <div id="viewer-b">
                   <CdpViewer
                     {...props}
+                    {...(settings.captureB === undefined
+                      ? {}
+                      : { capture: settings.captureB })}
                     {...(settings.colorSchemeB === undefined
                       ? {}
                       : { colorScheme: settings.colorSchemeB })}

@@ -8,7 +8,12 @@ import {
 } from "lucide-react";
 import { demoScope } from "./context";
 import type { Panel } from "./model";
-import { propGuide, sizeLimits, usageCode } from "./playground";
+import {
+  captureResolutions,
+  propGuide,
+  sizeLimits,
+  usageCode,
+} from "./playground";
 
 const extensionOptions = [
   { label: "Browser Use", extension: browserUse() },
@@ -101,6 +106,7 @@ export function Settings({
         </div>
       </details>
       <AppearanceSettings panel={panel} identity={identity} />
+      <CaptureSettings panel={panel} identity={identity} />
       <CallbackInspector panel={panel} />
       <details className="demo-group">
         <summary>
@@ -133,6 +139,99 @@ export function Settings({
         </div>
       </details>
     </aside>
+  );
+}
+
+function CaptureSettings({
+  panel,
+  identity,
+}: {
+  panel: Panel;
+  identity: string;
+}) {
+  const model = demoScope.useModel();
+  const configure = demoScope.useCommand(model.configure$);
+  const { capture } = panel.options;
+  return (
+    <details className="demo-group">
+      <summary>
+        <span>
+          <SlidersHorizontal size={15} aria-hidden="true" /> Image detail
+        </span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </summary>
+      <div className="demo-group-content">
+        <div className="demo-field demo-range">
+          <label htmlFor={`${identity}-quality`}>
+            JPEG quality{" "}
+            <output htmlFor={`${identity}-quality`}>
+              {capture.quality ?? 70}
+            </output>
+          </label>
+          <input
+            id={`${identity}-quality`}
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={capture.quality ?? 70}
+            onChange={(event) =>
+              configure(panel.id, {
+                capture: { ...capture, quality: Number(event.target.value) },
+              })
+            }
+          />
+        </div>
+        <div className="demo-field">
+          <label htmlFor={`${identity}-resolution`}>
+            Capture resolution <span>maximum</span>
+          </label>
+          <select
+            id={`${identity}-resolution`}
+            value={
+              capture.maxWidth === undefined
+                ? "default"
+                : `${capture.maxWidth}x${capture.maxHeight}`
+            }
+            onChange={(event) => {
+              if (event.target.value === "default") {
+                configure(panel.id, {
+                  capture:
+                    capture.quality === undefined
+                      ? {}
+                      : { quality: capture.quality },
+                });
+                return;
+              }
+              const resolution = captureResolutions.find(
+                (value) =>
+                  `${value.width}x${value.height}` === event.target.value,
+              );
+              if (resolution)
+                configure(panel.id, {
+                  capture: {
+                    ...capture,
+                    maxWidth: resolution.width,
+                    maxHeight: resolution.height,
+                  },
+                });
+            }}
+          >
+            <option value="default">Default for viewing mode</option>
+            {captureResolutions.map(({ width, height }) => (
+              <option key={width} value={`${width}x${height}`}>
+                {width} × {height}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="demo-hint">
+          Lower settings use less bandwidth and may soften text. Changes apply
+          live and keep the remote page size. Quality defaults to 70. Default
+          resolution preserves the viewing mode's capture limits.
+        </p>
+      </div>
+    </details>
   );
 }
 

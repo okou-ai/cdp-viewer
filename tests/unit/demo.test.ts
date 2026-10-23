@@ -26,6 +26,22 @@ function connectedModel() {
   return model;
 }
 
+it("updates independent capture preferences without replacing a panel connection", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  const [initial, sibling] = model.read(model.panels$);
+  model.run(model.configure$, 1, {
+    capture: { quality: 50, maxWidth: 1280, maxHeight: 720 },
+  });
+  const current = model.read(model.panels$)[0]!;
+  expect(current.connection).toBe(initial!.connection);
+  expect(current.generation).toBe(initial!.generation);
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  expect(usageCode(current.options, current.connection)).toContain(
+    'capture={{"quality":50,"maxWidth":1280,"maxHeight":720}}',
+  );
+});
+
 it("owns bounded resize gestures without replacing live connections or siblings", () => {
   const model = connectedModel();
   model.run(model.add$);

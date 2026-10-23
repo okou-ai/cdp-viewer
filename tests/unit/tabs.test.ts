@@ -22,6 +22,7 @@ async function mount(
     {
       push: (_data, paint) => paint({ width: 800, height: 600 }),
       reset: vi.fn(),
+      invalidate: vi.fn(),
       dispose: vi.fn(),
     },
     {

@@ -217,6 +217,98 @@ it("recovers view-only adaptation through a mode update without requiring an inp
   expect(fake.sockets).toHaveLength(1);
 });
 
+it("keeps native composition, focus and the connection through live capture updates", async () => {
+  const fake = browser();
+  const view = (quality: number) => (
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      capture={{ quality }}
+    />
+  );
+  const mounted = render(view(70));
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  const proxy = screen.getByLabelText("Remote browser input");
+  act(() => proxy.focus());
+  const socket = fake.sockets[0]!;
+  fireEvent.compositionStart(proxy);
+  const update = new Event("compositionupdate", { bubbles: true });
+  Object.defineProperty(update, "data", { value: "ni" });
+  fireEvent(proxy, update);
+  await waitFor(() =>
+    expect(
+      socket.commands.some(
+        (c) =>
+          c.method === "Input.imeSetComposition" && c.params?.text === "ni",
+      ),
+    ).toBe(true),
+  );
+  const before = socket.commands.length;
+  mounted.rerender(view(50));
+  await waitFor(() =>
+    expect(
+      socket.commands.filter((c) => c.method === "Page.startScreencast"),
+    ).toHaveLength(2),
+  );
+  expect(screen.getByLabelText("Remote browser input")).toBe(proxy);
+  expect(proxy).toHaveFocus();
+  expect(fake.sockets).toHaveLength(1);
+  expect(
+    socket.commands
+      .slice(before)
+      .filter(
+        (c) =>
+          c.method === "Input.imeSetComposition" ||
+          c.method === "Target.detachFromTarget",
+      ),
+  ).toHaveLength(0);
+  const ended = new Event("compositionend", { bubbles: true });
+  Object.defineProperty(ended, "data", { value: "你" });
+  fireEvent(proxy, ended);
+  await waitFor(() =>
+    expect(
+      socket.commands.some(
+        (c) => c.method === "Input.insertText" && c.params?.text === "你",
+      ),
+    ).toBe(true),
+  );
+});
+
+it("recovers corrected initial capture settings and rejects a repeated invalid live value without reconnecting", async () => {
+  const fake = browser();
+  const onError = vi.fn();
+  const view = (quality: number) => (
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      capture={{ quality }}
+      onError={onError}
+    />
+  );
+  const mounted = render(view(-1));
+  await waitFor(() => expect(onError).toHaveBeenCalledOnce());
+  expect(fake.sockets).toHaveLength(0);
+  mounted.rerender(view(70));
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  mounted.rerender(view(101));
+  await waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+  mounted.rerender(view(101));
+  expect(onError).toHaveBeenCalledTimes(2);
+  expect(fake.sockets).toHaveLength(1);
+  expect(
+    fake.sockets[0]!.commands.filter(
+      (c) => c.method === "Page.startScreencast",
+    ),
+  ).toHaveLength(1);
+});
+
 it("reconciles inline adapter configuration while preserving the connection and input", async () => {
   const fake = browser();
   const setup = vi.fn<ViewerExtension["setup"]>();

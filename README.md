@@ -116,6 +116,7 @@ and connection without closing the remote browser or its tabs.
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
 | `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
+| `capture?: ViewerCaptureOptions`              | Live JPEG quality and maximum capture dimensions; preserves existing profiles    |
 | `extensions?: readonly ViewerExtension[]`     | Optional per-connection adapters, reconciled by ID and configuration key         |
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
@@ -124,10 +125,47 @@ and connection without closing the remote browser or its tabs.
 
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
-`ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
+`ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
 Snapshots may include `navigation` (current remote address and available back/forward
 actions), or `null` when unavailable. Remote page addresses can contain sensitive
 data; do not log or persist snapshots indiscriminately.
+
+### Image detail
+
+Choose JPEG compression quality and maximum capture dimensions independently:
+
+```tsx
+<CdpViewer
+  cdpUrl={cdpUrl}
+  capture={{ quality: 70, maxWidth: 1280, maxHeight: 720 }}
+/>
+```
+
+All three `ViewerCaptureOptions` fields are optional. Quality defaults to 70.
+Each omitted dimension retains the current capture profile: maximum 1920×1080
+for ordinary viewing, or 4096×4096 after explicit display adaptation. Supplied
+fields override independently, including during display synchronization. Quality must be
+an integer from 0 to 100; each dimension must be an integer from 1 to 4096.
+These are capture ceilings: Chrome preserves the source aspect ratio and may
+produce a smaller image. Higher settings can increase bandwidth and decoding
+work; lower resolution can soften small text, especially when enlarged or on a
+dense display. Encoded-frame resource limits still apply.
+
+Changing these values restarts only this viewer's selected-session screencast.
+The connection, selected page and native input/composition remain owned. The last
+displayed image stays visible during the frame gap. In-flight same-page frames
+may briefly reflect the previous setting; obsolete decode callbacks cannot
+replace the current capture generation. Capture settings never resize/emulate the
+remote page, automatically follow panel size/DPR, or change another viewer's
+settings. Changes while paused apply on resume. Equal values do not restart.
+
+Invalid settings report a `configuration` error. Invalid initial settings open
+no connection; correcting them starts viewing. An invalid runtime update retains
+the last valid capture, and correcting it clears its configuration diagnostic.
+An actual stream failure uses normal viewer recovery. The library does not
+persist capture preferences; hosts can provide their own controls.
+
+### Interaction
 
 ```tsx
 <CdpViewer cdpUrl={cdpUrl} interactive />

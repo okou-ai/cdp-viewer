@@ -32,6 +32,7 @@ type Adaptation =
 function compatible(
   frame: PaintedFrame,
   expected: PresentationGeometry,
+  capture: Viewport,
 ): boolean {
   // Allow native DIP rounding, then validate pixels against the frame's actual
   // metadata and native density. Projected rounding cannot excuse a stale JPEG.
@@ -42,7 +43,11 @@ function compatible(
     !!frame.viewport &&
     !!frame.device &&
     same(frame.device, expected.device, 1) &&
-    same(frame.raster, captureRaster(frame.device, expected.nativeDpr), 1)
+    same(
+      frame.raster,
+      captureRaster(frame.device, expected.nativeDpr, capture),
+      1,
+    )
   );
 }
 
@@ -55,6 +60,11 @@ export class DisplayViewport {
   private adaptation: Adaptation = { kind: "native", scale: 1 };
   private transform: DisplayTransform | null = null;
   private waiting: { finish: (error?: CdpFault) => void } | null = null;
+  private capture: Viewport = { width: 4096, height: 4096 };
+
+  setCapture(bounds: Viewport): void {
+    this.capture = bounds;
+  }
 
   get revision(): number {
     return this.version;
@@ -88,7 +98,7 @@ export class DisplayViewport {
     return (
       this.adaptation.kind === "presented" &&
       !!this.painted &&
-      compatible(this.painted, expected) &&
+      compatible(this.painted, expected, this.capture) &&
       !!this.transform &&
       close(this.transform.viewportScale, transform.viewportScale) &&
       close(this.transform.frameScale, transform.frameScale) &&
@@ -189,7 +199,7 @@ export class DisplayViewport {
     if (
       state.kind !== "presenting" ||
       !this.painted ||
-      !compatible(this.painted, state.expected)
+      !compatible(this.painted, state.expected, this.capture)
     )
       return;
     this.adaptation = { ...state, kind: "presented" };
@@ -295,7 +305,11 @@ export class DisplayViewport {
       return (
         version === this.version &&
         ((state.kind !== "presenting" && state.kind !== "presented") ||
-          compatible({ viewport, device, raster }, state.expected))
+          compatible(
+            { viewport, device, raster },
+            state.expected,
+            this.capture,
+          ))
       );
     };
     return {

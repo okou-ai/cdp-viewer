@@ -1,4 +1,4 @@
-import { interval, timeout } from "signal-timers";
+import { interval } from "signal-timers";
 import { CdpClient } from "../cdp/client";
 import type { CdpEvent, SocketFactory } from "../cdp/client";
 import {
@@ -20,14 +20,19 @@ import { DisplaySync } from "../display/sync";
 import { DisplayViewport } from "../display/viewport";
 import type { DisplaySize } from "../display/geometry";
 import type { TabAction, ViewerModel } from "./model";
-import type { ViewerError, WindowSizeSync } from "./types";
+import type {
+  ViewerCaptureOptions,
+  ViewerError,
+  WindowSizeSync,
+} from "./types";
+import { captureSettings, capturePreferences } from "./capture";
+import { Screencast } from "./screencast";
 
 interface Selection {
   targetId: string;
   sessionId: string | null;
-  deadline: AbortController;
   painted: boolean;
-  streamStopped: boolean;
+  stream: Screencast | null;
   input: InputSession | null;
   inputReady: boolean;
   highDensity: boolean;
@@ -46,6 +51,7 @@ interface ControllerOptions {
   socketFactory?: SocketFactory;
   requestTimeout?: number;
   interactive?: boolean;
+  capture?: ViewerCaptureOptions;
   onInputReset?: (reason: InputTransition) => void;
   onClipboardReset?: () => void;
   onCaret?: (point: Point) => void;
@@ -75,6 +81,9 @@ export class ViewerController {
   private display: DisplaySync | null = null;
   private displayMode: WindowSizeSync = "off";
   private displaySize: DisplaySize | null = null;
+  private capture: ViewerCaptureOptions = Object.freeze({});
+  private captureError: ViewerError | null = null;
+  private waitingForCapture = false;
 
   constructor(
     private readonly model: ViewerModel,
@@ -89,9 +98,8 @@ export class ViewerController {
       interactive: this.options.interactive ?? false,
       scoped: this.options.windowId !== undefined,
     });
-    this.connect().catch((error: unknown) => {
-      if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
-    });
+    this.waitingForCapture = true;
+    this.setCapture(this.options.capture);
   }
 
   get input(): InputSession | null {
@@ -124,9 +132,8 @@ export class ViewerController {
     const selection: Selection = {
       targetId,
       sessionId: null,
-      deadline: new AbortController(),
       painted: false,
-      streamStopped: false,
+      stream: null,
       input: null,
       inputReady: !this.options.interactive,
       highDensity: false,
@@ -170,6 +177,39 @@ export class ViewerController {
 
   syncDisplay(): void {
     this.display?.sync();
+  }
+
+  setCapture(options?: ViewerCaptureOptions): void {
+    if (this.disposed) return;
+    let settings: ViewerCaptureOptions;
+    try {
+      settings = capturePreferences(options);
+    } catch (error) {
+      const next = diagnostic(error);
+      if (this.captureError?.message === next.message) return;
+      this.captureError = next;
+      if (this.waitingForCapture)
+        this.model.transition({ type: "failed", error: next });
+      else this.model.update({ error: next });
+      return;
+    }
+    this.capture = settings;
+    if (
+      this.captureError &&
+      this.model.getSnapshot().error === this.captureError
+    )
+      this.model.update({ error: null });
+    this.captureError = null;
+    if (this.waitingForCapture) {
+      this.waitingForCapture = false;
+      this.model.transition({ type: "reset" });
+      this.connect().catch((error: unknown) => {
+        if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
+      });
+    } else if (this.selection)
+      this.selection.stream?.configure(
+        captureSettings(settings, this.selection.highDensity),
+      );
   }
 
   private async requestExtensionSelection(
@@ -628,10 +668,25 @@ export class ViewerController {
       });
     }
     selection.highDensity = this.displayMode !== "off";
-    await Promise.all([
-      inputReady,
-      this.startScreencast(attached.sessionId, selection.highDensity),
-    ]);
+    const stream = new Screencast(
+      {
+        client,
+        sessionId: attached.sessionId,
+        sink: this.sink,
+        current: () => this.isCurrent(selection),
+        failed: (error) => {
+          if (this.isCurrent(selection)) this.fail(error);
+        },
+        starting: (settings) =>
+          selection.geometry.setCapture({
+            width: settings.maxWidth,
+            height: settings.maxHeight,
+          }),
+      },
+      captureSettings(this.capture, selection.highDensity),
+    );
+    selection.stream = stream;
+    await Promise.all([inputReady, stream.start()]);
     if (!this.isCurrent(selection)) return;
     this.display?.setTarget({
       targetId: selection.targetId,
@@ -639,22 +694,6 @@ export class ViewerController {
       current: () => this.isCurrent(selection),
       geometry: selection.geometry,
     });
-    if (selection.painted) return;
-    timeout(
-      () => {
-        if (this.isCurrent(selection) && !selection.painted)
-          this.fail(
-            new CdpFault("frame", "The browser did not produce a live frame."),
-          );
-      },
-      10_000,
-      {
-        signal: AbortSignal.any([
-          this.lifetime.signal,
-          selection.deadline.signal,
-        ]),
-      },
-    );
   }
 
   private isCurrent(selection: Selection): boolean {
@@ -671,62 +710,66 @@ export class ViewerController {
     await this.restartCapture(selection);
   }
 
-  private startScreencast(sessionId: string, highDensity: boolean) {
-    return this.client!.request(
-      "Page.startScreencast",
-      {
-        format: "jpeg",
-        quality: 70,
-        maxWidth: highDensity ? 4096 : 1920,
-        maxHeight: highDensity ? 4096 : 1080,
-      },
-      sessionId,
-    );
-  }
-
   private async restartCapture(
     selection: Selection,
     prepare?: () => Promise<void>,
   ): Promise<void> {
-    if (!selection.sessionId) return;
-    const client = this.client!;
-    const session = selection.sessionId;
-    const previousDensity = selection.highDensity;
-    let phase: "stopping" | "stopped" | "starting" = "stopping";
-    try {
-      await client.request("Page.stopScreencast", undefined, session);
-      phase = "stopped";
-      if (!this.isCurrent(selection)) return;
-      await prepare?.();
-      if (!this.isCurrent(selection)) return;
-      phase = "starting";
-      await this.startScreencast(session, true);
-      if (this.isCurrent(selection)) selection.highDensity = true;
-    } catch (error) {
-      // A definite stop rejection leaves the original stream running. Otherwise
-      // restore once; an unconfirmed start may already be active and cannot be
-      // repeated until a stop is acknowledged by the same selected session.
-      const stopRejected =
-        phase === "stopping" &&
-        error instanceof CdpFault &&
-        error.code !== undefined;
-      if (this.isCurrent(selection) && !stopRejected) {
-        try {
-          if (phase !== "stopped")
-            await client.request("Page.stopScreencast", undefined, session);
-          if (!this.isCurrent(selection)) return;
-          await this.startScreencast(session, previousDensity);
-        } catch (restoreError) {
-          if (this.isCurrent(selection)) this.fail(restoreError);
+    const stream = selection.stream;
+    if (!stream) return;
+    await stream.exclusive(async () => {
+      const previousDensity = selection.highDensity;
+      let phase: "stopping" | "stopped" | "starting" = "stopping";
+      try {
+        await stream.stop();
+        phase = "stopped";
+        if (!this.isCurrent(selection)) return;
+        await prepare?.();
+        if (!this.isCurrent(selection)) return;
+        phase = "starting";
+        await stream.begin(
+          captureSettings(this.capture, true),
+          !selection.painted,
+        );
+        if (this.isCurrent(selection)) selection.highDensity = true;
+      } catch (error) {
+        // Retain the original session's positive-stop restoration contract.
+        const stopRejected =
+          phase === "stopping" &&
+          error instanceof CdpFault &&
+          error.code !== undefined;
+        if (this.isCurrent(selection)) {
+          if (stopRejected) stream.resume();
+          else
+            try {
+              if (phase !== "stopped") await stream.stop();
+              if (!this.isCurrent(selection)) return;
+              await stream.begin(
+                captureSettings(this.capture, previousDensity),
+                !selection.painted,
+              );
+            } catch (restoreError) {
+              if (this.isCurrent(selection)) this.fail(restoreError);
+            }
         }
+        throw error;
+      } finally {
+        if (this.isCurrent(selection))
+          stream.configure(
+            captureSettings(this.capture, selection.highDensity),
+          );
       }
-      throw error;
-    }
+    });
   }
 
   private streaming(selection: Selection): void {
-    if (this.isCurrent(selection) && selection.painted && selection.inputReady)
+    if (
+      this.isCurrent(selection) &&
+      selection.painted &&
+      selection.inputReady
+    ) {
       this.model.transition({ type: "streaming" });
+      if (this.captureError) this.model.update({ error: this.captureError });
+    }
   }
 
   private loseSelection(error: ViewerError | null): void {
@@ -741,7 +784,6 @@ export class ViewerController {
     this.sink.reset();
     this.model.transition({ type: "stopped" });
     if (old) {
-      old.deadline.abort();
       this.stopStream(old);
       const input = old.input;
       if (input && reason !== "disconnected" && !this.disposed) {
@@ -780,10 +822,7 @@ export class ViewerController {
   }
 
   private stopStream(selection: Selection): void {
-    const id = selection.sessionId;
-    if (!id || selection.streamStopped || !this.ownedSessions.has(id)) return;
-    selection.streamStopped = true;
-    this.client?.notify("Page.stopScreencast", undefined, id);
+    selection.stream?.dispose();
   }
 
   private fail(error: unknown): void {
@@ -822,18 +861,14 @@ export class ViewerController {
         return;
       const paintedViewport = selection.geometry.frame(params.metadata);
       if (!paintedViewport) return;
-      this.sink.push(
+      selection.stream?.push(
         params.data,
         (raster) => {
           if (!this.isCurrent(selection)) return;
           paintedViewport.painted(raster);
           if (selection.painted) return;
           selection.painted = true;
-          selection.deadline.abort();
           this.streaming(selection);
-        },
-        (error) => {
-          if (this.isCurrent(selection)) this.fail(error);
         },
         paintedViewport.accept,
       );

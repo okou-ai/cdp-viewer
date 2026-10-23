@@ -40,6 +40,7 @@ async function mount(windowId?: number) {
     model,
     {
       push: (_data, painted) => painted({ width: 800, height: 600 }),
+      invalidate() {},
       reset() {},
       dispose() {},
     },

@@ -129,6 +129,28 @@ it("checks actual decoded dimensions before drawing and commits only after draw"
   renderer.dispose();
 });
 
+it("invalidates decode work while retaining the displayed image during capture updates", async () => {
+  const drawing = context();
+  const wait = deferred();
+  const old = bitmap(8);
+  const renderer = new CanvasRenderer(
+    document.createElement("canvas"),
+    (data) => (data === "pending" ? wait.promise : Promise.resolve(bitmap())),
+  );
+  renderer.push("visible", vi.fn(), vi.fn());
+  await vi.waitFor(() => expect(drawing.drawImage).toHaveBeenCalledOnce());
+  const painted = vi.fn();
+  renderer.push("pending", painted, vi.fn());
+  renderer.invalidate();
+  expect(drawing.clearRect).not.toHaveBeenCalled();
+  renderer.push("replacement", painted, vi.fn());
+  wait.resolve(old);
+  await vi.waitFor(() => expect(drawing.drawImage).toHaveBeenCalledTimes(2));
+  expect(old.close).toHaveBeenCalledOnce();
+  expect(painted).toHaveBeenCalledOnce();
+  renderer.dispose();
+});
+
 it.each([true, false])(
   "decodes JPEG bytes with native base64 available: %s",
   async (native) => {

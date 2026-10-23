@@ -1,6 +1,8 @@
 import { CdpFault } from "../cdp/errors";
 import type { Viewport } from "../display/geometry";
 
+export const maximumFrameDimension = 4096;
+
 export interface FrameSink {
   push(
     data: string,
@@ -8,6 +10,7 @@ export interface FrameSink {
     failed: (error: CdpFault) => void,
     accept?: (raster: Viewport) => boolean,
   ): void;
+  invalidate(): void;
   reset(): void;
   dispose(): void;
 }
@@ -103,9 +106,13 @@ export class CanvasRenderer implements FrameSink {
     }
   }
 
-  reset(): void {
+  invalidate(): void {
     this.generation++;
     this.queued = null;
+  }
+
+  reset(): void {
+    this.invalidate();
     this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
@@ -126,8 +133,8 @@ export class CanvasRenderer implements FrameSink {
         if (
           decoded.width < 1 ||
           decoded.height < 1 ||
-          decoded.width > 4096 ||
-          decoded.height > 4096
+          decoded.width > maximumFrameDimension ||
+          decoded.height > maximumFrameDimension
         ) {
           throw new CdpFault(
             "frame",

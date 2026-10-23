@@ -1,4 +1,4 @@
-import type { WindowSizeSync } from "cdp-viewer";
+import type { ViewerCaptureOptions, WindowSizeSync } from "cdp-viewer";
 
 export interface FixtureSettings {
   cdpUrl: string;
@@ -11,6 +11,8 @@ export interface FixtureSettings {
   windowSizeSync?: WindowSizeSync;
   colorSchemeA?: "light" | "dark" | "system";
   colorSchemeB?: "light" | "dark" | "system";
+  captureA?: ViewerCaptureOptions;
+  captureB?: ViewerCaptureOptions;
 }
 
 declare global {
