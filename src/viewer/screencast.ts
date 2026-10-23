@@ -1,5 +1,6 @@
 import type { CdpClient } from "../cdp/client";
 import { CdpFault } from "../cdp/errors";
+import { frameTimeoutMs } from "../display/limits";
 import type { FrameSink } from "../render/canvas";
 import type { Viewport } from "../display/geometry";
 import { sameCapture } from "./capture";
@@ -155,7 +156,7 @@ export class Screencast {
           this.fail(
             new CdpFault("frame", "The browser did not produce a live frame."),
           );
-      }, 10_000);
+      }, frameTimeoutMs);
   }
 
   private fail(error: unknown): void {

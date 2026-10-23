@@ -1,5 +1,10 @@
 import type { Protocol } from "devtools-protocol";
 import { CdpFault, isRecord } from "../cdp/errors";
+import {
+  maximumDisplayArea,
+  maximumDisplayDimension,
+  maximumFrameDimension,
+} from "./limits";
 
 export interface Point {
   readonly x: number;
@@ -32,7 +37,10 @@ export interface PresentationGeometry {
 export function captureRaster(
   device: Viewport,
   nativeDpr: number,
-  bounds: Viewport = { width: 4096, height: 4096 },
+  bounds: Viewport = {
+    width: maximumFrameDimension,
+    height: maximumFrameDimension,
+  },
 ): Viewport {
   const scale = Math.min(
     nativeDpr,
@@ -133,18 +141,18 @@ export function constrainDisplay(
 ): DisplaySize & { constrained: boolean } {
   const scale = Math.min(
     1,
-    4096 / size.width,
-    4096 / size.height,
-    4096 / (size.width * size.dpr),
-    4096 / (size.height * size.dpr),
-    Math.sqrt((3840 * 2160) / size.width / size.height) / size.dpr,
+    maximumDisplayDimension / size.width,
+    maximumDisplayDimension / size.height,
+    maximumDisplayDimension / (size.width * size.dpr),
+    maximumDisplayDimension / (size.height * size.dpr),
+    Math.sqrt(maximumDisplayArea / size.width / size.height) / size.dpr,
   );
   const width = Math.max(1, Math.floor(size.width * scale));
   const height = Math.max(1, Math.floor(size.height * scale));
   if (
-    width * size.dpr > 4096 ||
-    height * size.dpr > 4096 ||
-    width * height * size.dpr * size.dpr > 3840 * 2160
+    width * size.dpr > maximumDisplayDimension ||
+    height * size.dpr > maximumDisplayDimension ||
+    width * height * size.dpr * size.dpr > maximumDisplayArea
   )
     throw new CdpFault(
       "display",

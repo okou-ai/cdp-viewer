@@ -1,5 +1,5 @@
 import { CdpFault, isRecord } from "../cdp/errors";
-import { maximumFrameDimension } from "../render/canvas";
+import { maximumFrameDimension } from "../display/limits";
 import type { ViewerCaptureOptions } from "./types";
 
 export type CaptureSettings = Readonly<Required<ViewerCaptureOptions>>;

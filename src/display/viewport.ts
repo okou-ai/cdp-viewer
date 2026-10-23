@@ -1,6 +1,7 @@
 import type { Protocol } from "devtools-protocol";
 import { timeout } from "signal-timers";
 import { CdpFault, isRecord } from "../cdp/errors";
+import { frameTimeoutMs, maximumFrameDimension } from "./limits";
 import {
   frameViewport,
   captureRaster,
@@ -60,7 +61,10 @@ export class DisplayViewport {
   private adaptation: Adaptation = { kind: "native", scale: 1 };
   private transform: DisplayTransform | null = null;
   private waiting: { finish: (error?: CdpFault) => void } | null = null;
-  private capture: Viewport = { width: 4096, height: 4096 };
+  private capture: Viewport = {
+    width: maximumFrameDimension,
+    height: maximumFrameDimension,
+  };
 
   setCapture(bounds: Viewport): void {
     this.capture = bounds;
@@ -207,7 +211,10 @@ export class DisplayViewport {
   }
 
   /** The same bounded stream budget applies when a resize stops producing images. */
-  waitForPresentation(signal: AbortSignal, budget = 10_000): Promise<void> {
+  waitForPresentation(
+    signal: AbortSignal,
+    budget = frameTimeoutMs,
+  ): Promise<void> {
     if (this.available) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const deadline = new AbortController();

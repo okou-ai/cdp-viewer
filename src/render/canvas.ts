@@ -1,7 +1,9 @@
 import { CdpFault } from "../cdp/errors";
+import {
+  maximumEncodedFrameLength,
+  maximumFrameDimension,
+} from "../display/limits";
 import type { Viewport } from "../display/geometry";
-
-export const maximumFrameDimension = 4096;
 
 export interface FrameSink {
   push(
@@ -84,7 +86,7 @@ export class CanvasRenderer implements FrameSink {
     accept?: (raster: Viewport) => boolean,
   ): void {
     if (this.disposed) return;
-    if (data.length > 12 * 1024 * 1024) {
+    if (data.length > maximumEncodedFrameLength) {
       failed(new CdpFault("frame", "The browser sent an oversized frame."));
       return;
     }
