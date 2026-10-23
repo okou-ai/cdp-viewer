@@ -294,7 +294,7 @@ for (const nativeDpr of [1, 2]) {
           commands.push(command.method);
           if (
             command.method === "Runtime.evaluate" &&
-            command.params?.expression === "Date.now()"
+            String(command.params?.expression).includes("Date.now()")
           )
             captureFences++;
           upstream.send(message);

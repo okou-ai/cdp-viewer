@@ -354,6 +354,77 @@ it("retires an awaiting-presentation transaction when its target is replaced", a
   expect(model.getSnapshot().error).toBeNull();
 });
 
+it.each(["same-raster", "clipped", "rollback"] as const)(
+  "presents the first sub-millisecond fresh image after a %s clock boundary",
+  async (boundary) => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser, "initial", 0);
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    const starts = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      );
+    const before = starts().length;
+    // Reproduce the native first image at clock+0.992ms. There is no second
+    // static image to rescue an unelapsed rounded-up fence.
+    browser.frameClockStep = 0.000992;
+    if (boundary === "clipped") browser.holdFrames = true;
+    if (boundary === "rollback") browser.unsupportedContentsSize = true;
+    controller.measureDisplay(
+      boundary === "same-raster"
+        ? { width: 320, height: 240, dpr: 4 }
+        : { width: 800, height: 600, dpr: 2 },
+    );
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+    if (boundary === "clipped") {
+      socket.emit(
+        "Page.screencastFrame",
+        {
+          sessionId: 888,
+          data: btoa(JSON.stringify({ width: 1600, height: 960 })),
+          metadata: {
+            deviceWidth: 1600,
+            deviceHeight: 1200,
+            pageScaleFactor: 1,
+          },
+        },
+        input.sessionId,
+      );
+      browser.holdFrames = false;
+    }
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(starts()).toHaveLength(before + 1);
+    expect(controller.input).toBe(input);
+    expect(browser.sockets).toHaveLength(1);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+    if (boundary === "rollback")
+      expect(model.getSnapshot().error?.kind).toBe("unsupported-capability");
+    else expect(model.getSnapshot().error).toBeNull();
+    input.text("after the first complete frame");
+    await input.completion(input.owner!);
+    expect(
+      socket.commands.find((command) => command.method === "Input.insertText")
+        ?.params,
+    ).toEqual({ text: "after the first complete frame" });
+  },
+);
+
 it.each(["before", "after"] as const)(
   "refreshes a clipped static image observed %s the final acknowledgement and drains the latest live size",
   async (timing) => {
@@ -442,6 +513,134 @@ it.each(["before", "after"] as const)(
       ),
     ).toHaveLength(1);
     expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
+it.each(["replace", "pause", "close"] as const)(
+  "retires an awaited capture clock on selection %s without restarting its stream",
+  async (action) => {
+    vi.useFakeTimers();
+    const browser = new FakeBrowser();
+    browser.targets.push({ id: "page-c", windowId: 0, title: "Replacement" });
+    const { controller, model } = mount(browser, "initial", 0);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(model.read(model.display$).pending).toBe(false);
+      const input = controller.input!,
+        socket = browser.sockets[0]!;
+      const starts = () =>
+        socket.commands.filter(
+          (command) =>
+            command.method === "Page.startScreencast" &&
+            command.sessionId === input.sessionId,
+        );
+      const before = starts().length;
+      browser.holdCommand = (command) =>
+        command.method === "Runtime.evaluate" &&
+        command.params?.awaitPromise === true;
+      controller.measureDisplay({ width: 320, height: 240, dpr: 4 });
+      controller.syncDisplay();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(browser.heldCommands).toHaveLength(1);
+      expect(starts()).toHaveLength(before);
+      expect(model.read(model.display$)).toMatchObject({
+        pending: true,
+        pointerBlocked: true,
+      });
+      const held = browser.heldCommands.shift()!;
+      expect(held.command.params).toMatchObject({
+        contextId: 42,
+        returnByValue: true,
+        awaitPromise: true,
+      });
+      input.text("while the native clock is pending");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        socket.commands.find((command) => command.method === "Input.insertText")
+          ?.params,
+      ).toEqual({ text: "while the native clock is pending" });
+      browser.holdCommand = null;
+      if (action === "replace") controller.select("page-c");
+      else if (action === "pause") controller.setPaused(true);
+      else controller.close();
+      held.socket.reply(held.command, {
+        result: {
+          type: "object",
+          objectId: "retired-clock",
+          value: { fence: 1_800_000_100_000, now: 1_800_000_100_000 },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(starts()).toHaveLength(before);
+      if (action !== "close")
+        expect(
+          socket.commands.find(
+            (command) =>
+              command.method === "Runtime.releaseObject" &&
+              command.params?.objectId === "retired-clock",
+          )?.sessionId,
+        ).toBe(input.sessionId);
+      if (action === "replace")
+        expect(model.getSnapshot().selectedTargetId).toBe("page-c");
+    } finally {
+      controller.close();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it.each([null, { fence: 1_800_000_000_001, now: 1_800_000_000_000 }])(
+  "keeps an unconfirmed native clock boundary %j blocked through rollback",
+  async (value) => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser, "initial", 0);
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    const socket = browser.sockets[0]!;
+    const before = socket.commands.length;
+    browser.holdCommand = (command) =>
+      command.method === "Runtime.evaluate" &&
+      command.params?.awaitPromise === true;
+    controller.measureDisplay({ width: 320, height: 240, dpr: 4 });
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const held = browser.heldCommands.shift()!;
+    held.socket.reply(held.command, { result: { type: "object", value } });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const recovery = browser.heldCommands.shift()!;
+    // A positive-stop failure retains the previous capture profile, but cannot
+    // authorize adapted pointer geometry before rollback obtains a valid clock.
+    expect(model.read(model.display$)).toMatchObject({
+      pending: true,
+      pointerBlocked: true,
+    });
+    browser.holdCommand = null;
+    browser.resume(recovery.command, recovery.socket);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(model.getSnapshot().error?.message).toBe(
+      "A fresh browser image could not be confirmed. Try synchronizing again.",
+    );
+    const after = socket.commands.slice(before);
+    const rollback = after.findIndex(
+      (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+    );
+    const restart = after
+      .map((command) => command.method)
+      .lastIndexOf("Page.startScreencast");
+    expect(rollback).toBeGreaterThanOrEqual(0);
+    expect(restart).toBeGreaterThan(rollback);
+    expect(
+      after.filter((command) => command.method === "Page.startScreencast"),
+    ).toHaveLength(2);
+    expect(
+      after.filter(
+        (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+      ),
+    ).toHaveLength(1);
   },
 );
 
@@ -1021,9 +1220,14 @@ it("requires a post-write native capture when size and DPR change without changi
   const clock = socket.commands.find(
     (command) =>
       command.method === "Runtime.evaluate" &&
-      command.params?.expression === "Date.now()",
+      command.params?.awaitPromise === true &&
+      String(command.params.expression).includes("Date.now()"),
   );
-  expect(clock?.params).toMatchObject({ contextId: 42, returnByValue: true });
+  expect(clock?.params).toMatchObject({
+    contextId: 42,
+    returnByValue: true,
+    awaitPromise: true,
+  });
   expect(
     socket.commands.some(
       (command) =>
@@ -1096,7 +1300,8 @@ it("keeps viewing and text available when capture freshness cannot be confirmed"
     socket.commands.filter(
       (command) =>
         command.method === "Runtime.evaluate" &&
-        command.params?.expression === "Date.now()",
+        command.params?.awaitPromise === true &&
+        String(command.params.expression).includes("Date.now()"),
     ),
   ).toHaveLength(1);
   browser.unsupportedContentsSize = false;

@@ -239,7 +239,7 @@ test("retains a held manual fit through mode-off and a zero-area surface", async
         if (command.method === "Page.stopScreencast") stops++;
         if (
           command.method === "Runtime.evaluate" &&
-          command.params?.expression === "Date.now()"
+          String(command.params?.expression).includes("Date.now()")
         )
           captureFences++;
         if (

@@ -310,7 +310,10 @@ export class DisplayTransaction {
     }
   }
 
-  private async evaluate(expression: string, contextId?: number) {
+  private async evaluate(
+    expression: string,
+    options: { contextId?: number; awaitPromise?: boolean } = {},
+  ) {
     const { client, target } = this;
     const release = (result: unknown) =>
       releaseRuntimeObjects(client, target.sessionId, result);
@@ -319,7 +322,7 @@ export class DisplayTransaction {
       {
         expression,
         returnByValue: true,
-        ...(contextId === undefined ? {} : { contextId }),
+        ...options,
       },
       target.sessionId,
       release,
@@ -344,16 +347,31 @@ export class DisplayTransaction {
         target.sessionId,
       );
       if (!this.current()) return;
-      const clock = await this.evaluate("Date.now()", world.executionContextId);
+      // An integer clock read cannot make a future millisecond a capture fence.
+      // Confirm that exact boundary elapsed before restarting the static stream.
+      const clock = await this.evaluate(
+        `new Promise((resolve) => {
+          const fence = Date.now() + 1;
+          setTimeout(() => resolve({ fence, now: Date.now() }), 1);
+        })`,
+        { contextId: world.executionContextId, awaitPromise: true },
+      );
       if (!this.current()) return;
       const value: unknown = clock.result.value;
-      if (clock.exceptionDetails || !positive(value))
+      if (
+        clock.exceptionDetails ||
+        !isRecord(value) ||
+        !Number.isSafeInteger(value.fence) ||
+        !positive(value.fence) ||
+        !Number.isSafeInteger(value.now) ||
+        !positive(value.now) ||
+        value.now < value.fence
+      )
         throw new CdpFault(
           "display",
           "A fresh browser image could not be confirmed. Try synchronizing again.",
         );
-      // Native millisecond precision requires the next millisecond, not local time.
-      target.geometry.fence((value + 1) / 1000);
+      target.geometry.fence(value.fence / 1000);
     });
   }
 

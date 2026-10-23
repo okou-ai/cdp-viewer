@@ -103,10 +103,12 @@ export class FakeBrowser {
   >();
   private nativeClock = 1_800_000_000;
   private readonly clocks = new Set<string>();
+  frameClockStep = 0.002;
   holdAttach = false;
   holdFrames = false;
   readonly heldFrames: (() => void)[] = [];
   holdMethod: string | null = null;
+  holdCommand: ((command: WireCommand) => boolean) | null = null;
   blockOpen = false;
   readonly heldCommands: { command: WireCommand; socket: FakeSocket }[] = [];
   readonly held: {
@@ -128,7 +130,7 @@ export class FakeBrowser {
   };
 
   resume(command: WireCommand, socket: FakeSocket): void {
-    if (this.holdMethod === command.method)
+    if (this.holdMethod === command.method || this.holdCommand?.(command))
       throw new Error("Clear the held method before resuming it.");
     this.respond(command, socket);
   }
@@ -154,7 +156,7 @@ export class FakeBrowser {
       bounds.height / size.height,
     );
     const timestamp = this.clocks.has(sessionId)
-      ? (this.nativeClock += 0.002)
+      ? (this.nativeClock += this.frameClockStep)
       : undefined;
     const emit = () =>
       socket.emit(
@@ -186,7 +188,7 @@ export class FakeBrowser {
 
   private respond(command: WireCommand, socket: FakeSocket): void {
     queueMicrotask(() => {
-      if (command.method === this.holdMethod) {
+      if (command.method === this.holdMethod || this.holdCommand?.(command)) {
         this.heldCommands.push({ command, socket });
         return;
       }
@@ -198,15 +200,30 @@ export class FakeBrowser {
           socket.reply(command, { frameTree: { frame: { id: "main" } } });
           break;
         case "Runtime.evaluate":
-          if (command.params?.expression === "Date.now()") {
+          if (
+            command.params?.expression === "Date.now()" ||
+            (command.params?.awaitPromise === true &&
+              String(command.params.expression).includes("Date.now()"))
+          ) {
             if (this.unsupportedClock) {
               socket.reply(command, { result: { type: "undefined" } });
               break;
             }
             this.clocks.add(command.sessionId!);
             this.nativeClock += 0.01;
+            const sampled = Math.floor(this.nativeClock * 1000);
+            this.nativeClock = sampled / 1000;
+            if (command.params?.awaitPromise === true) {
+              // Model the renderer clock after the requested native timer turn.
+              const fence = sampled + 1;
+              this.nativeClock = fence / 1000;
+              socket.reply(command, {
+                result: { type: "object", value: { fence, now: fence } },
+              });
+              break;
+            }
             socket.reply(command, {
-              result: { type: "number", value: this.nativeClock * 1000 },
+              result: { type: "number", value: sampled },
             });
             break;
           }
