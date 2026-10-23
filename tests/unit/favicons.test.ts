@@ -373,6 +373,18 @@ it.each([
   },
 );
 
+it("rejects a favicon whose canonical URL exceeds the metadata bound", async () => {
+  const browser = new FakeBrowser();
+  browser.favicon = "https://fixture.invalid/" + "🚀".repeat(1000);
+  const { model, socket } = await mount(browser);
+  expect(model.read(model.favicons$).size).toBe(0);
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    error: null,
+  });
+  expect(reads(socket)).toHaveLength(1);
+});
+
 it("keeps URL outcomes private, cached, instance-owned and pruned to current scope", () => {
   const model = createViewerModel();
   const sibling = createViewerModel();

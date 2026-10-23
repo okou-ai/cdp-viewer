@@ -31,10 +31,12 @@ export async function readFavicon(
   if (typeof value !== "string" || value.length > maxUrlLength) return null;
   try {
     const url = new URL(value);
+    const href = url.href;
+    if (href.length > maxUrlLength) return null;
     return url.protocol === "https:" ||
       url.protocol === "http:" ||
       (url.protocol === "data:" && value.startsWith("data:image/"))
-      ? url.href
+      ? href
       : null;
   } catch {
     return null;
