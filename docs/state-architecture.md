@@ -111,7 +111,10 @@ Presentation waits share the bounded request/stream budget and retire with their
 selected session. A same-geometry density change or rollback also needs causal
 capture evidence: the native executor reads a clock in a private isolated world
 after acknowledged writes while the controller stops/starts the same bounded
-stream. The geometry owner rejects pre-fence timestamps and decodes. This adds
+stream. The isolated clock operation awaits its next millisecond boundary and
+confirms that it has elapsed before capture restarts. A rounded-up integer read
+alone can reject the first valid static image while its fence is still in the
+future. The geometry owner rejects pre-fence timestamps and decodes. This adds
 no per-frame reads, React updates or refreshes during ordinary distinct-size
 updates. Target-size metadata with an incompatible decoded raster can request
 that same fenced refresh once during presentation. Decoded facts can diagnose
