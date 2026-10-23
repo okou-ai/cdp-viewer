@@ -1035,6 +1035,7 @@ it("retains capture preferences and zoom while a sibling progresses through a cl
     quality: 31,
     maxWidth: 650,
     maxHeight: 400,
+    sendLastFrame: true,
   });
   expect(
     emulations(browser).find((command) => command.sessionId === input.sessionId)
