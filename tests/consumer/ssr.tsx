@@ -19,6 +19,7 @@ export function renderViewer() {
       <CdpViewer
         cdpUrl="wss://fixture.invalid/"
         interactive
+        transport="split"
         windowSizeSync="initial"
         capture={{ quality: 0, maxWidth: 1280, maxHeight: 720 }}
         extensions={[browserUse(), custom]}

@@ -114,6 +114,7 @@ and connection without closing the remote browser or its tabs.
 | `windowId?: number`                           | Optional presentation/selection scope                                            |
 | `paused?: boolean`                            | Release this viewer's current stream while retaining connection/selection        |
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
+| `transport?: "shared" \| "split"`             | Optional frame/control separation for interactive viewers; defaults to shared    |
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
 | `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
 | `capture?: ViewerCaptureOptions`              | Live JPEG quality and maximum capture dimensions; preserves existing profiles    |
@@ -126,6 +127,22 @@ and connection without closing the remote browser or its tabs.
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
 `ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
+
+For constrained links, interactive hosts may opt into `transport="split"`.
+Each viewer then opens two native WebSockets to the same `cdpUrl`, with separate
+target sessions: one for control, input, navigation and sizing, and one for the
+only screencast and its acknowledgements. View-only viewers always use one socket.
+Capture quality, dimensions and native frame-credit defaults are unchanged.
+This can reduce control-reply waiting behind large images; benefits depend on
+the workload and connection, and it does not add downstream bandwidth.
+
+The endpoint must permit both browser-Origin connections and simultaneous sessions;
+check the provider's connection limits and billing. Generic provider compatibility
+and physical OS IME are not implied. Losing either socket stops the whole viewer
+and discards unsent input. Recovery is explicit through Reconnect or a host
+configuration change, without automatic fallback or replay of uncertain actions.
+Changing `transport` reconnects the viewer; callbacks and live capture changes do
+not. Keep `shared` for the lowest connection cost or unsupported endpoints.
 
 Errors in `onError` and `ViewerSnapshot.error` include `kind` and a fixed `message`.
 When a failed CDP request is known, optional `request` context identifies its

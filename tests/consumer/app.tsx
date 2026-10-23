@@ -55,6 +55,9 @@ function App() {
     ? {
         cdpUrl: settings.cdpUrl,
         interactive: settings.interactive ?? false,
+        ...(settings.transport === undefined
+          ? {}
+          : { transport: settings.transport }),
         paused: settings.paused ?? false,
         ...(settings.windowSizeSync === undefined
           ? {}

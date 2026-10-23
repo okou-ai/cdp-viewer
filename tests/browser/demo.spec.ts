@@ -74,6 +74,57 @@ async function expectColor(viewer: Locator, color: [number, number, number]) {
     .toBeLessThanOrEqual(4);
 }
 
+test("demo applies transport changes explicitly and keeps narrow controls usable", async ({
+  page,
+}, info) => {
+  await openDemo(page);
+  const backend = await launchNativeBackend(server.origin);
+  try {
+    const opened = backend.context.waitForEvent("page");
+    await backend.session.send("Target.createTarget", {
+      url: "about:blank",
+      newWindow: true,
+    });
+    const remote = await opened;
+    await remote.goto(server.origin + "/fixture/editor");
+    let sockets = 0;
+    page.on("websocket", (socket) => {
+      if (socket.url() === backend.endpoint) sockets++;
+    });
+    const first = panel(page, 1);
+    await configure(first, backend.endpoint);
+    const view = first.getByRole("region", { name: "Remote browser viewer" });
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    expect(sockets).toBe(1);
+    await first.getByLabel("Transport mode").selectOption("split");
+    await expect.poll(() => sockets).toBe(3);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await first.locator("summary").filter({ hasText: "Usage" }).click();
+    await expect(first.getByLabel("Component code")).toContainText(
+      'transport="split"',
+    );
+    await first.getByLabel("Control mode").selectOption("view-only");
+    await expect.poll(() => sockets).toBe(4);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect(first.getByLabel("Transport mode")).toBeDisabled();
+    await first.getByLabel("Control mode").selectOption("interactive");
+    await expect.poll(() => sockets).toBe(6);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(first.getByLabel("Transport mode")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await page.screenshot({
+      path: info.outputPath("split-transport-mobile.png"),
+    });
+  } finally {
+    await backend.close();
+  }
+});
+
 test("demo exposes independent live capture quality and resolution controls", async ({
   page,
 }, info) => {

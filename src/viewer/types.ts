@@ -67,6 +67,8 @@ export interface CdpViewerProps {
   readonly paused?: boolean;
   /** Enable remote input, navigation and tab creation/closure. Default: false. */
   readonly interactive?: boolean;
+  /** Opt-in separate frame socket in interactive mode. Default: shared. Changes reconnect. */
+  readonly transport?: "shared" | "split";
   /** Controlled size/DPR adaptation. Omit for menu-owned mode, initially off. */
   readonly windowSizeSync?: WindowSizeSync;
   /** Requests a controlled update, or reports a menu-owned mode change. */

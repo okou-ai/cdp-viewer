@@ -56,6 +56,14 @@ viewers display it.
 
 ## Explore the props
 
+The preview's **Transport** selector defaults to **Shared**. Interactive panels
+can choose **Split frame / control**, opening two connections to the same endpoint
+with one screencast. Changing transport reconnects that panel and discards unsent
+input. View-only mode always uses one connection. Split can help replies on
+constrained links; it preserves image detail and does not add bandwidth. Check
+provider connection limits, Origin policy and billing before enabling it. Either
+connection failing stops the panel; use **Reconnect** or choose **Shared** explicitly.
+
 The preview leads each panel, with its connection bar above and grouped settings
 alongside. Expanding groups leaves the preview height unchanged; overflowing
 settings scroll within that height. Narrow panels put settings below the preview,
