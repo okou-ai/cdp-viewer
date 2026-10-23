@@ -24,7 +24,11 @@ async function mount(
   const model = createViewerModel();
   const controller = new ViewerController(
     model,
-    { push: (_data, paint) => paint(), reset() {}, dispose() {} },
+    {
+      push: (_data, paint) => paint({ width: 800, height: 600 }),
+      reset() {},
+      dispose() {},
+    },
     {
       url: "wss://fixture.invalid/",
       windowId: 0,

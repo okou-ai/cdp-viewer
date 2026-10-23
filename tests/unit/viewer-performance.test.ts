@@ -250,14 +250,17 @@ it("revalidates geometry invalidated while layout preparation is pending", async
 it("discards an invalidated fallback mapping without blocking current text or later pointer input", async () => {
   const { browser, input, socket, frame, sessionId, model } = await mount(0);
   frame(metadata);
-  browser.holdMethod = "Browser.getWindowForTarget";
+  socket.emit("Page.frameResized", {}, sessionId);
+  browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseWheel", point, { deltaY: 120 });
   input.text("current document text");
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   socket.emit("Page.frameResized", {}, sessionId);
-  browser.holdMethod = "Page.getLayoutMetrics";
-  const guard = browser.heldCommands[0]!;
-  guard.socket.reply(guard.command, { windowId: 0 });
+  const preparation = browser.heldCommands[0]!;
+  expect(preparation.command.method).toBe("Page.getLayoutMetrics");
+  preparation.socket.reply(preparation.command, {
+    cssVisualViewport: { clientWidth: 1000, clientHeight: 700 },
+  });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
   const layout = browser.heldCommands[1]!;
   expect(layout.command.method).toBe("Page.getLayoutMetrics");
