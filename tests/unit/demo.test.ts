@@ -236,93 +236,45 @@ it("retains current request diagnostics after clearing or evicting safe callback
   expect(model.read(model.panels$)).toBe(replacement);
 });
 
-it("combines viewer callbacks in observation order and clears logs while retaining current diagnostics", () => {
+it("clears only its owning console while preserving both current diagnostics and sibling history", () => {
   const model = connectedModel();
   model.run(model.add$);
   model.run(model.edit$, 2, "endpoint", "wss://sibling.invalid/");
   model.run(model.connect$, 2);
-  const error = {
+  const firstError = {
     kind: "protocol" as const,
     message: "CDP request failed.",
     request: { method: "Target.getTargets", code: -32000 },
   };
-  model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
-  model.run(model.observeStatus$, 2, 1, snapshot);
-  model.run(model.observeError$, 1, 1, error);
-  model.run(model.observeWindowSizeSync$, 2, 1, "initial");
-  const before = model.read(model.panels$);
-  const logs = model.read(model.console$);
-  expect(
-    logs.events.map(({ viewerId, sequence, name }) => [
-      viewerId,
-      sequence,
-      name,
-    ]),
-  ).toEqual([
-    [2, 2, "onWindowSizeSyncChange"],
-    [1, 2, "onError"],
-    [2, 1, "onStatusChange"],
-    [1, 1, "onStatusChange"],
-  ]);
-  expect(logs.errorCount).toBe(1);
-  expect(logs.viewers[0]?.snapshot?.error).toEqual(error);
-  expect(JSON.stringify(logs)).not.toMatch(/private|token|endpoint/);
-  model.run(model.clearActivity$);
-  expect(model.read(model.console$).events).toEqual([]);
-  expect(model.read(model.console$).errorCount).toBe(1);
-  for (const [index, current] of model.read(model.panels$).entries()) {
-    expect(current.connection).toBe(before[index]?.connection);
-    expect(current.snapshot).toBe(before[index]?.snapshot);
-    expect(current.activity).toEqual([]);
-  }
-  model.run(model.observeStatus$, 2, 1, snapshot);
-  expect(model.read(model.console$).events[0]).toMatchObject({
-    viewerId: 2,
-    sequence: 3,
-    order: 5,
-  });
-  const independent = connectedModel();
-  independent.run(independent.observeStatus$, 1, 1, snapshot);
-  expect(independent.read(independent.console$).events[0]?.order).toBe(1);
-});
-
-it("derives bounded console history from current owners and removes only retired viewer entries", () => {
-  const model = connectedModel();
-  model.run(model.add$);
-  model.run(model.edit$, 2, "endpoint", "wss://sibling.invalid/");
-  model.run(model.connect$, 2);
-  for (let index = 0; index < callbackLimit + 3; index++) {
-    model.run(model.observeStatus$, 1, 1, snapshot);
-    model.run(model.observeStatus$, 2, 1, snapshot);
-  }
-  expect(model.read(model.console$).events).toHaveLength(callbackLimit * 2);
-  const sibling = model.read(model.panels$)[1];
-  const siblingEvents = model
-    .read(model.console$)
-    .events.filter((event) => event.viewerId === 2);
-  model.run(model.reconnect$, 1);
-  expect(model.read(model.console$).events).toEqual(siblingEvents);
-  expect(model.read(model.panels$)[1]).toBe(sibling);
-  const replacement = model.read(model.console$);
-  model.run(model.observeError$, 1, 1, {
-    kind: "connection",
-    message: "Old owner",
-  });
-  model.run(model.observeWindowSizeSync$, 1, 1, "off");
-  expect(model.read(model.console$)).toBe(replacement);
-  model.run(model.observeStatus$, 1, 2, snapshot);
-  expect(model.read(model.console$).events[0]?.viewerId).toBe(1);
+  const secondError = {
+    kind: "tab" as const,
+    message: "The tab operation failed.",
+    request: { method: "Page.reload", code: -32001 },
+  };
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error: firstError });
+  model.run(model.observeError$, 1, 1, firstError);
+  model.run(model.observeStatus$, 2, 1, { ...snapshot, error: secondError });
+  model.run(model.observeError$, 2, 1, secondError);
+  const [first, sibling] = model.read(model.panels$);
   model.run(model.clearActivity$, 1);
-  expect(model.read(model.console$).events).toEqual(siblingEvents);
-  model.run(model.observeStatus$, 1, 2, snapshot);
-  model.run(model.disconnect$, 1);
-  expect(model.read(model.console$).events).toEqual(siblingEvents);
-  model.run(model.remove$, 2);
-  expect(model.read(model.console$)).toMatchObject({
-    events: [],
-    errorCount: 0,
-  });
-  expect(model.read(model.console$).viewers.map(({ id }) => id)).toEqual([1]);
+  const [cleared, unchangedSibling] = model.read(model.panels$);
+  expect(cleared?.activity).toEqual([]);
+  expect(cleared?.snapshot).toBe(first?.snapshot);
+  expect(cleared?.snapshot?.error).toEqual(firstError);
+  expect(cleared?.connection).toBe(first?.connection);
+  expect(unchangedSibling).toBe(sibling);
+  expect(unchangedSibling?.activity.at(-1)?.value).toEqual(secondError);
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error: firstError });
+  expect(model.read(model.panels$)[0]?.activity).toMatchObject([
+    { sequence: 3, name: "onStatusChange", value: { error: firstError } },
+  ]);
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  const owner = model.read(model.panels$)[0];
+  model.run(model.clearActivity$, 2);
+  expect(model.read(model.panels$)[0]).toBe(owner);
+  expect(model.read(model.panels$)[1]?.activity).toEqual([]);
+  expect(model.read(model.panels$)[1]?.snapshot).toBe(sibling?.snapshot);
+  expect(model.read(model.panels$)[1]?.snapshot?.error).toEqual(secondError);
 });
 
 it("shares a controlled sync mode without replacing live ownership or sibling options", () => {
@@ -350,7 +302,6 @@ it("shares a controlled sync mode without replacing live ownership or sibling op
   expect(current.activity).toHaveLength(callbackLimit);
   expect(current.activity.at(-1)).toEqual({
     sequence: callbackLimit + 6,
-    order: callbackLimit + 6,
     name: "onWindowSizeSyncChange",
     value: "initial",
   });

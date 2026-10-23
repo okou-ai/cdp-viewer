@@ -128,7 +128,6 @@ function DemoView() {
             <p>Add a viewer to connect to a browser.</p>
           </div>
         )}
-        <Console />
         <footer className="demo-footer">
           <span>
             <span className="demo-dot" /> Built with the public React component
@@ -302,6 +301,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
         </div>
         <Settings panel={panel} identity={identity} />
       </div>
+      <Console panel={panel} />
     </section>
   );
 }

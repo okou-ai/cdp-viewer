@@ -6,83 +6,76 @@ import {
   Trash2,
 } from "lucide-react";
 import { demoScope } from "./context";
+import type { Panel } from "./model";
 
-export function Console() {
+export function Console({ panel }: { panel: Panel }) {
   const model = demoScope.useModel();
-  const { events, viewers, errorCount } = demoScope.useValue(model.console$);
   const clear = demoScope.useCommand(model.clearActivity$);
+  const { id, snapshot, activity } = panel;
   return (
-    <details className="demo-console">
+    <details className="demo-console" aria-label={`Viewer ${id} console`}>
       <summary>
         <span className="demo-console-title">
           <TerminalSquare size={16} aria-hidden="true" />
           Console
-          <span className="demo-count" aria-label={`${events.length} events`}>
-            {events.length}
+          <span className="demo-count" aria-label={`${activity.length} events`}>
+            {activity.length}
           </span>
-          {errorCount > 0 && (
-            <span className="demo-console-error-count">
-              {errorCount} {errorCount === 1 ? "error" : "errors"}
-            </span>
+          {snapshot?.error && (
+            <span className="demo-console-error-count">1 error</span>
           )}
         </span>
         <ChevronDown size={15} aria-hidden="true" />
       </summary>
       <div className="demo-console-content">
         <div className="demo-console-toolbar">
-          <span>Viewer callbacks · newest first</span>
+          <span>Viewer {id} callbacks · newest first</span>
           <button
             type="button"
             className="demo-button demo-small"
             aria-label="Clear console"
-            disabled={!events.length}
-            onClick={() => clear()}
+            disabled={!activity.length}
+            onClick={() => clear(id)}
           >
             <Trash2 size={12} aria-hidden="true" /> Clear
           </button>
         </div>
         <div className="demo-console-body">
-          {errorCount > 0 && (
+          {snapshot?.error && (
             <div className="demo-console-errors">
-              {viewers.map(({ id, snapshot }) =>
-                snapshot?.error ? (
-                  <CurrentError key={id} viewerId={id} error={snapshot.error} />
-                ) : null,
-              )}
+              <CurrentError viewerId={id} error={snapshot.error} />
             </div>
           )}
-          <div className="demo-console-states">
-            {viewers.map(({ id, snapshot }) =>
-              snapshot ? (
-                <details key={id} className="demo-console-state">
-                  <summary>
-                    <ChevronRight size={12} aria-hidden="true" />
-                    <span>Viewer {id} current state</span>
-                    <code>{snapshot.status}</code>
-                  </summary>
-                  <pre
-                    className="demo-snapshot"
-                    aria-label={`Viewer ${id} current status summary`}
-                  >
-                    {JSON.stringify(snapshot, null, 2)}
-                  </pre>
-                </details>
-              ) : null,
-            )}
-          </div>
-          {events.length ? (
-            <ol className="demo-console-log" aria-label="Console logs">
-              {events.map((event) => (
-                <li key={event.order}>
+          {snapshot && (
+            <div className="demo-console-states">
+              <details className="demo-console-state">
+                <summary>
+                  <ChevronRight size={12} aria-hidden="true" />
+                  <span>Viewer {id} current state</span>
+                  <code>{snapshot.status}</code>
+                </summary>
+                <pre
+                  className="demo-snapshot"
+                  aria-label={`Viewer ${id} current status summary`}
+                >
+                  {JSON.stringify(snapshot, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
+          {activity.length ? (
+            <ol
+              className="demo-console-log"
+              aria-label={`Viewer ${id} console logs`}
+            >
+              {[...activity].reverse().map((event) => (
+                <li key={event.sequence}>
                   <details
                     className="demo-console-entry"
                     data-level={event.name === "onError" ? "error" : "info"}
                   >
                     <summary>
                       <ChevronRight size={12} aria-hidden="true" />
-                      <span className="demo-console-source">
-                        Viewer {event.viewerId}
-                      </span>
                       <code>{event.name}</code>
                       <span className="demo-console-message">
                         {event.name === "onStatusChange"
@@ -97,7 +90,7 @@ export function Console() {
                     </summary>
                     <pre
                       className="demo-snapshot"
-                      aria-label={`Viewer ${event.viewerId} ${event.name} event details`}
+                      aria-label={`Viewer ${id} ${event.name} event details`}
                     >
                       {JSON.stringify(event.value, null, 2)}
                     </pre>

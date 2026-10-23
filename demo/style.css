@@ -859,9 +859,7 @@ body {
 }
 .demo-console {
   min-width: 0;
-  margin-top: 24px;
-  border: 1px solid var(--demo-border);
-  border-radius: 12px;
+  border-top: 1px solid var(--demo-border);
   background: var(--demo-panel);
   overflow: clip;
 }
@@ -911,18 +909,10 @@ body {
   overscroll-behavior: contain;
 }
 .demo-console-errors {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 10px;
   margin: 14px 18px;
 }
 .demo-console-states {
-  display: grid;
-  gap: 6px;
   margin: 12px 18px;
-}
-.demo-console-states:empty {
-  display: none;
 }
 .demo-console-state > summary {
   display: flex;
@@ -948,7 +938,7 @@ body {
 }
 .demo-console-entry > summary {
   display: grid;
-  grid-template-columns: 12px 64px 152px minmax(0, 1fr) auto;
+  grid-template-columns: 12px 152px minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 10px;
   padding: 11px 18px;
@@ -961,7 +951,6 @@ body {
 .demo-console-entry > summary > svg {
   align-self: center;
 }
-.demo-console-source,
 .demo-console-sequence {
   color: var(--demo-muted);
   font-size: 10px;
@@ -995,7 +984,7 @@ body {
 }
 @media (max-width: 640px) {
   .demo-console-entry > summary {
-    grid-template-columns: 12px 64px minmax(0, 1fr) auto;
+    grid-template-columns: 12px minmax(0, 1fr) auto;
     gap: 6px;
     padding: 10px 14px;
   }

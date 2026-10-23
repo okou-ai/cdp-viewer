@@ -85,20 +85,7 @@ function createDemoSignals() {
   });
   const internalPanels$ = state<readonly Panel[]>([panel(1)]);
   const nextId$ = state(2);
-  const nextObservation$ = state(1);
   const panels$ = computed((get) => get(internalPanels$));
-  const console$ = computed((get) => {
-    const panels = get(internalPanels$);
-    return {
-      events: panels
-        .flatMap((panel) =>
-          panel.activity.map((event) => ({ ...event, viewerId: panel.id })),
-        )
-        .sort((a, b) => b.order - a.order),
-      viewers: panels.map(({ id, snapshot }) => ({ id, snapshot })),
-      errorCount: panels.filter((panel) => panel.snapshot?.error).length,
-    };
-  });
   const add$ = command(({ get, set }) => {
     const id = get(nextId$);
     set(nextId$, id + 1);
@@ -300,11 +287,9 @@ function createDemoSignals() {
       return owner.resize?.pointerId ?? null;
     },
   );
-  const clearActivity$ = command(({ set }, id?: number) => {
+  const clearActivity$ = command(({ set }, id: number) => {
     set(internalPanels$, (values) =>
-      values.map((item) =>
-        id === undefined || item.id === id ? { ...item, activity: [] } : item,
-      ),
+      values.map((item) => (item.id === id ? { ...item, activity: [] } : item)),
     );
   });
   const observeStatus$ = command(
@@ -319,11 +304,8 @@ function createDemoSignals() {
         return;
       const value = summarizeSnapshot(snapshot);
       const sequence = owner.sequence + 1;
-      const order = get(nextObservation$);
-      set(nextObservation$, order + 1);
       const event: CallbackEvent = {
         sequence,
-        order,
         name: "onStatusChange",
         value,
       };
@@ -347,11 +329,8 @@ function createDemoSignals() {
       if (!owner?.connection || owner.connection.generation !== generation)
         return;
       const sequence = owner.sequence + 1;
-      const order = get(nextObservation$);
-      set(nextObservation$, order + 1);
       const event: CallbackEvent = {
         sequence,
-        order,
         name: "onWindowSizeSyncChange",
         value: mode,
       };
@@ -375,11 +354,8 @@ function createDemoSignals() {
       if (!owner?.connection || owner.connection.generation !== generation)
         return;
       const sequence = owner.sequence + 1;
-      const order = get(nextObservation$);
-      set(nextObservation$, order + 1);
       const event: CallbackEvent = {
         sequence,
-        order,
         name: "onError",
         value: summarizeError(error),
       };
@@ -400,7 +376,6 @@ function createDemoSignals() {
     appearance$,
     setAppearance$,
     panels$,
-    console$,
     add$,
     remove$,
     edit$,

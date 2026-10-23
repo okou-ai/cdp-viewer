@@ -111,10 +111,7 @@ export function summarizeSnapshot(snapshot: ViewerSnapshot) {
 }
 
 export type SnapshotSummary = ReturnType<typeof summarizeSnapshot>;
-export type CallbackEvent = {
-  readonly sequence: number;
-  readonly order: number;
-} & (
+export type CallbackEvent = { readonly sequence: number } & (
   | { readonly name: "onStatusChange"; readonly value: SnapshotSummary }
   | { readonly name: "onError"; readonly value: ViewerError }
   | { readonly name: "onWindowSizeSyncChange"; readonly value: WindowSizeSync }

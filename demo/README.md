@@ -125,21 +125,22 @@ preview dimensions keeps the selected capture limits. Window-size synchronizatio
 can still change the remote viewport and actual image dimensions. Preferences
 remain in this panel's memory and are cleared on refresh.
 
-The **Console** sits below all viewers and starts collapsed. Its header shows the
-retained event count and current errors. Click it or use Enter/Space to expand or
-collapse it; this does not resize or reconnect viewers. Logs from all viewers are
-combined newest first and labelled with their viewer and callback. Expand a log
-row for its JSON, or a viewer's **current state** for its latest safe snapshot.
-New callbacks preserve your disclosure choices. The expanded body scrolls within
-a bounded height on desktop and mobile.
+Each viewer has its own **Console** at the bottom of its panel, initially
+collapsed. Its header shows that viewer's retained event count and current error.
+Click it or use Enter/Space to expand or collapse it; this does not resize the
+preview or change another viewer's console. Logs show only that viewer's
+callbacks, newest first. Expand a row for its JSON, or **current state** for its
+latest safe snapshot. New callbacks preserve each console's disclosure choices.
+The expanded body scrolls within a bounded height on desktop and mobile.
 
 Only semantic summaries are retained: status, tab count, selection presence,
 navigation availability/history capabilities and the current public diagnostic.
 Target IDs/titles and page addresses are omitted before storing observations.
 Errors show the public fixed diagnostic, including the original CDP command and
 response error code when available. Request timeouts have a command but no
-response code. **Clear** removes logs from all viewers while retaining their
-current state and **Current error** details, including after older logs are
+response code. **Clear** removes only that console's logs while retaining its
+current state and **Current error** details. Other viewers' logs and disclosure
+choices remain unchanged. Current errors also remain after older logs are
 evicted. Command parameters, raw provider payloads, endpoint credentials and
 session IDs are excluded. This console shows viewer callbacks; it does not collect
 the remote page's JavaScript console.
