@@ -454,7 +454,7 @@ export class ViewerController {
     this.frames = client;
     this.directory = new TargetDirectory(client, this.options.windowId);
     client.onEvent((event) => this.onEvent(event, client));
-    client.onDisconnected((error) => this.disconnected(error));
+    client.onDisconnected((error) => this.disconnected(error, client));
     if (this.options.interactive && transport === "split") {
       try {
         const frames = new CdpClient(
@@ -464,7 +464,7 @@ export class ViewerController {
         );
         this.frames = frames;
         frames.onEvent((event) => this.onEvent(event, frames));
-        frames.onDisconnected((error) => this.disconnected(error));
+        frames.onDisconnected((error) => this.disconnected(error, frames));
       } catch (error) {
         client.close();
         // Closing rejects opening; observe it even if the second socket cannot exist.
@@ -538,17 +538,28 @@ export class ViewerController {
     this.refresh();
   }
 
-  private disconnected(error: CdpFault): void {
+  private disconnected(error: CdpFault, source: CdpClient): void {
     if (this.disposed || this.lifetime.signal.aborted) return;
     const established = this.connected;
+    const drainControl = source !== this.client;
     this.connected = false;
     this.lifetime.abort();
-    this.stopSelection("disconnected");
+    this.stopSelection("disconnected", drainControl);
     this.display?.close();
     this.frames?.close();
-    this.client?.close();
-    this.ownedSessions.clear();
     this.ownedFrameSessions.clear();
+    const closeControl = () => {
+      this.client?.close();
+      this.ownedSessions.clear();
+      this.retirements.clear();
+    };
+    // Video loss revokes admission immediately, but a live control socket can
+    // still acknowledge its original pressed/composing cleanup. Never replay it.
+    if (drainControl && this.retirements.size)
+      Promise.allSettled(
+        [...this.retirements.values()].map((value) => value.complete),
+      ).then(closeControl, closeControl);
+    else closeControl();
     this.model.transition({
       type: "disconnected",
       established,
@@ -844,19 +855,24 @@ export class ViewerController {
     this.model.transition({ type: "target-lost", error });
   }
 
-  private stopSelection(reason: InputStop = "target-replaced"): void {
+  private stopSelection(
+    reason: InputStop = "target-replaced",
+    drainControl = false,
+  ): void {
     const old = this.selection;
     this.selection = null;
     this.display?.setTarget(null);
     this.sink.reset();
     this.model.transition({ type: "stopped" });
     if (old) {
-      this.stopStream(old);
-      this.releaseFrames(old);
       const input = old.input;
-      if (input && reason !== "disconnected" && !this.disposed) {
+      const retire =
+        input && (reason !== "disconnected" || drainControl) && !this.disposed;
+      if (retire) {
         // Cancel old admission synchronously, then publish the fence before local reset.
-        const complete = input.retire(reason);
+        const complete = input.retire(
+          reason === "disconnected" ? "disposed" : reason,
+        );
         const retirement = { input, complete };
         this.retirements.set(old.targetId, retirement);
         complete.then(
@@ -872,8 +888,11 @@ export class ViewerController {
         );
       } else {
         input?.dispose(reason);
-        this.release(old);
       }
+      // Publish original control retirement before frame cleanup can synchronously fail.
+      this.stopStream(old);
+      this.releaseFrames(old);
+      if (!retire) this.release(old);
       if (input) {
         this.options.onClipboardReset?.();
         this.options.onInputReset?.(reason);

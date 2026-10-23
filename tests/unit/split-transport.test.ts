@@ -95,8 +95,10 @@ it.each(["select", "pause"] as const)(
       status: "disconnected",
       error: { kind: "connection" },
     });
-    expect(browser.sockets.every((socket) => socket.readyState === 3)).toBe(
-      true,
+    await vi.waitFor(() =>
+      expect(browser.sockets.every((socket) => socket.readyState === 3)).toBe(
+        true,
+      ),
     );
   },
 );
@@ -211,11 +213,15 @@ it.each([0, 1])(
       status: "disconnected",
       error: { kind: "connection" },
     });
-    expect(browser.sockets.every((socket) => socket.readyState === 3)).toBe(
-      true,
-    );
+    expect(browser.sockets[1]!.readyState).toBe(3);
+    expect(browser.sockets[0]!.readyState).toBe(lane === 0 ? 3 : 1);
     const held = browser.heldCommands[0]!;
     held.socket.reply(held.command);
+    await vi.waitFor(() =>
+      expect(browser.sockets.every((socket) => socket.readyState === 3)).toBe(
+        true,
+      ),
+    );
     controller.setPaused(true);
     controller.setPaused(false);
     controller.select("page-b");
@@ -224,6 +230,47 @@ it.each([0, 1])(
     expect(browser.sockets).toHaveLength(2);
     expect(commands(browser.sockets[0]!, "Input.insertText")).toHaveLength(1);
     expect(sink.reset).toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])(
+  "joins original key/composition cleanup after frame loss (rejected: %s)",
+  async (rejected) => {
+    const { browser, controller, model } = mount();
+    await streaming(model);
+    const input = controller.input!;
+    const [control, frames] = browser.sockets as [FakeSocket, FakeSocket];
+    input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+    input.preedit("ni", input.owner!);
+    await input.completion(input.owner!);
+    browser.holdMethod = "Input.dispatchKeyEvent";
+    frames.close();
+    expect(controller.input).toBeNull();
+    expect(model.getSnapshot().status).toBe("disconnected");
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const release = browser.heldCommands[0]!;
+    expect(release.command).toMatchObject({
+      method: "Input.dispatchKeyEvent",
+      sessionId: input.sessionId,
+      params: { type: "keyUp", key: "Shift" },
+    });
+    expect(
+      commands(control, "Input.imeSetComposition").some(
+        (command) =>
+          command.sessionId === input.sessionId && command.params?.text === "",
+      ),
+    ).toBe(true);
+    expect(control.readyState).toBe(1);
+    expect(commands(control, "Target.detachFromTarget")).toHaveLength(0);
+    if (rejected) control.reject(release.command, -32000);
+    else control.reply(release.command);
+    await vi.waitFor(() => expect(control.readyState).toBe(3));
+    expect(
+      commands(control, "Input.dispatchKeyEvent").filter(
+        (command) => command.params?.type === "keyUp",
+      ),
+    ).toHaveLength(1);
+    expect(model.getSnapshot().status).toBe("disconnected");
   },
 );
 

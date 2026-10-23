@@ -288,6 +288,8 @@ for (const lane of ["control", "frames"] as const) {
     try {
       const a = await editor(backend);
       const b = await editor(backend);
+      let holdCleanup = false;
+      const cleanupReplies: (() => void)[] = [];
       const routes: {
         socket: WebSocketRoute;
         methods: string[];
@@ -302,11 +304,27 @@ for (const lane of ["control", "frames"] as const) {
         };
         routes.push(record);
         const upstream = socket.connectToServer();
+        const cleanupIds = new Set<number>();
         socket.onMessage((raw) => {
           const command = JSON.parse(String(raw)) as {
+            id: number;
             method: string;
-            params?: { targetId?: string };
+            params?: {
+              targetId?: string;
+              type?: string;
+              key?: string;
+              text?: string;
+            };
           };
+          if (
+            holdCleanup &&
+            ((command.method === "Input.dispatchKeyEvent" &&
+              command.params?.type === "keyUp" &&
+              command.params.key === "Shift") ||
+              (command.method === "Input.imeSetComposition" &&
+                command.params?.text === ""))
+          )
+            cleanupIds.add(command.id);
           record.methods.push(command.method);
           if (
             command.method === "Target.attachToTarget" &&
@@ -316,11 +334,19 @@ for (const lane of ["control", "frames"] as const) {
           upstream.send(raw);
         });
         upstream.onMessage((raw) => {
+          const response = JSON.parse(String(raw)) as {
+            id?: number;
+            method?: string;
+          };
           if (
-            (JSON.parse(String(raw)) as { method?: string }).method ===
-            "Page.screencastFrame"
-          )
-            record.frames++;
+            holdCleanup &&
+            response.id !== undefined &&
+            cleanupIds.delete(response.id)
+          ) {
+            cleanupReplies.push(() => socket.send(raw));
+            return;
+          }
+          if (response.method === "Page.screencastFrame") record.frames++;
           socket.send(raw);
         });
       });
@@ -351,9 +377,49 @@ for (const lane of ["control", "frames"] as const) {
       expect(frames.methods.some((method) => method.startsWith("Input."))).toBe(
         false,
       );
+      if (lane === "frames") {
+        await a.remote.evaluate(() => {
+          for (const type of ["keydown", "keyup"])
+            document.addEventListener(type, (event) => {
+              if ((event as KeyboardEvent).key === "Shift")
+                document.body.dataset.shift = type;
+            });
+        });
+        await page.keyboard.down("Shift");
+        await expect(a.remote.locator("body")).toHaveAttribute(
+          "data-shift",
+          "keydown",
+        );
+        await first.getByLabel("Remote browser input").evaluate((element) => {
+          element.dispatchEvent(
+            new CompositionEvent("compositionstart", { bubbles: true }),
+          );
+          element.dispatchEvent(
+            new CompositionEvent("compositionupdate", {
+              bubbles: true,
+              data: "ni",
+            }),
+          );
+        });
+        await expect(a.remote.locator("#plain")).toHaveValue("onceni");
+        holdCleanup = true;
+      }
       await (lane === "control" ? control : frames).socket.close();
       await expect(first).toHaveAttribute("data-status", "disconnected");
       await expect(first.getByLabel("Remote browser input")).toBeDisabled();
+      if (lane === "frames") {
+        await expect(a.remote.locator("body")).toHaveAttribute(
+          "data-shift",
+          "keyup",
+        );
+        await expect(a.remote.locator("#plain")).toHaveValue("once");
+        await expect
+          .poll(() => cleanupReplies.length)
+          .toBeGreaterThanOrEqual(2);
+        holdCleanup = false;
+        for (const reply of cleanupReplies) reply();
+        await page.keyboard.up("Shift");
+      }
       await expect(second).toHaveAttribute("data-status", "streaming");
       await clickInput(page, second, b.remote);
       await page.keyboard.insertText("sibling");

@@ -46,7 +46,6 @@ for (const dashboard of [false, true])
     test(`${dashboard ? "dashboard" : "editor"}, ${shaped ? "aggregate shaped" : "natural"}`, async ({
       browser,
     }, info) => {
-      const backend = await launchNativeBackend(server.origin, true, 1);
       const samples: Sample[] = [];
       const rows: object[] = [];
       const source = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -62,6 +61,7 @@ for (const dashboard of [false, true])
         expect(consumer.specifier.endsWith("#" + source)).toBe(true);
         execFileSync("git", ["diff", "--exit-code", "HEAD"]);
       }
+      const backend = await launchNativeBackend(server.origin, true, 1);
       let id = 0;
       try {
         const created = backend.context.waitForEvent("page");

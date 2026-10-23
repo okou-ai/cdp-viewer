@@ -141,6 +141,8 @@ check the provider's connection limits and billing. Generic provider compatibili
 and physical OS IME are not implied. Losing either socket stops the whole viewer
 and discards unsent input. Recovery is explicit through Reconnect or a host
 configuration change, without automatic fallback or replay of uncertain actions.
+If control is still available after frame loss, its original input cleanup is
+allowed to settle before that socket closes; input admission stops immediately.
 Changing `transport` reconnects the viewer; callbacks and live capture changes do
 not. Keep `shared` for the lowest connection cost or unsupported endpoints.
 
