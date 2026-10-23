@@ -22,7 +22,6 @@ const completed = (proof: "reused" | "painted") =>
     proof,
     windowId: 0,
     dpr: 2,
-    constrained: false,
   }) as const;
 
 function apply(policy: DisplayPolicy, ...events: DisplayEvent[]) {
@@ -220,7 +219,6 @@ it.each(stages)("rejects old-owner outcomes and progress while %s", (stage) => {
   expect(replaced.selection).toEqual({
     owner,
     completed: false,
-    constrained: false,
   });
   const next = begin(replaced);
   expect(next.intent.owner).toBe(owner);

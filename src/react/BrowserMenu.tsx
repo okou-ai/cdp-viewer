@@ -20,9 +20,7 @@ export function BrowserMenu() {
         title={
           display.pointerBlocked && !display.pending
             ? "Browser menu — display recovery required"
-            : display.constrained
-              ? "Browser menu — size limit reached"
-              : "Browser menu"
+            : "Browser menu"
         }
       >
         {display.pending ? (
@@ -90,11 +88,6 @@ export function BrowserMenu() {
               <Maximize size={16} aria-hidden="true" />
               {display.pending ? "Syncing…" : "Sync now"}
             </Menu.Item>
-            {display.constrained && (
-              <div className="cdpv-browser-menu-heading" role="status">
-                Size limit reached
-              </div>
-            )}
             {display.pointerBlocked && !display.pending && (
               <div className="cdpv-browser-menu-heading" role="status">
                 Use Sync now to resume pointer input

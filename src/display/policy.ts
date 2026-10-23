@@ -6,7 +6,6 @@ type Request = { readonly source: "manual" | "automatic" };
 interface Selection {
   readonly owner: object;
   readonly completed: boolean;
-  readonly constrained: boolean;
 }
 
 export interface DisplayIntent extends Request {
@@ -41,7 +40,6 @@ export type DisplayOutcome =
       readonly proof: "reused" | "painted";
       readonly windowId: number;
       readonly dpr: number;
-      readonly constrained: boolean;
     }
   | { readonly kind: "deferred" | "retired" | "failed" };
 
@@ -135,7 +133,7 @@ export function transitionDisplay(
       return {
         ...policy,
         selection: event.owner
-          ? { owner: event.owner, completed: false, constrained: false }
+          ? { owner: event.owner, completed: false }
           : null,
         pending:
           event.owner && policy.mode !== "off" ? { source: "automatic" } : null,
@@ -243,7 +241,7 @@ export function transitionDisplay(
         selection:
           event.stage === "recovering" &&
           policy.selection?.owner === event.intent.owner
-            ? { ...policy.selection, completed: false, constrained: false }
+            ? { ...policy.selection, completed: false }
             : policy.selection,
       };
     }
@@ -276,7 +274,6 @@ export function transitionDisplay(
           selection: {
             owner: intent.owner,
             completed: true,
-            constrained: outcome.constrained,
           },
           execution: { kind: "idle" },
         };

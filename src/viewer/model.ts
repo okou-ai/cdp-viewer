@@ -74,7 +74,6 @@ function createViewerSignals() {
   const internalDisplay$ = state<DisplayState>({
     ready: false,
     pending: false,
-    constrained: false,
     pointerBlocked: false,
   });
   const internalSyncMode$ = state<WindowSizeSync>("off");
@@ -101,7 +100,6 @@ function createViewerSignals() {
     if (
       previous.ready !== value.ready ||
       previous.pending !== value.pending ||
-      previous.constrained !== value.constrained ||
       previous.pointerBlocked !== value.pointerBlocked
     )
       set(internalDisplay$, Object.freeze({ ...value }));
@@ -341,7 +339,6 @@ function createViewerSignals() {
     set(internalDisplay$, {
       ready: false,
       pending: false,
-      constrained: false,
       pointerBlocked: false,
     });
   });
@@ -355,7 +352,6 @@ function createViewerSignals() {
       set(internalDisplay$, {
         ready: false,
         pending: false,
-        constrained: false,
         pointerBlocked: false,
       });
     }

@@ -17,7 +17,6 @@ import type { DisplayEffects, DisplayTarget } from "./transaction";
 export interface DisplayState {
   readonly ready: boolean;
   readonly pending: boolean;
-  readonly constrained: boolean;
   readonly pointerBlocked: boolean;
 }
 
@@ -88,7 +87,6 @@ export class DisplaySync {
       pending:
         !!activeDisplayIntent(this.policy) ||
         (this.scheduled && !!this.policy.pending),
-      constrained: this.policy.selection?.constrained ?? false,
       pointerBlocked: !!this.target && !this.target.geometry.available,
     });
   }

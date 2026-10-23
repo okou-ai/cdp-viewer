@@ -5,8 +5,8 @@ Set `interactive` on a viewer to enable mouse, keyboard and page navigation.
 Use the three-dot menu to the right of the address bar to choose automatic display
 adaptation: off, once on opening, or continuously. **Sync now** synchronizes size
 and DPR together in every mode. Continuous adaptation follows the available page
-surface and local display density without reconnecting. A size-limit indicator
-means the requested geometry was reduced to stay within the capture budget.
+surface and local display density without reconnecting. Oversized requests are
+reduced automatically to stay within the supported display limits.
 Restore maximized, minimized or fullscreen remote windows before syncing. Turning
 automatic adaptation off keeps the latest display; it does not reset native size.
 The component defaults to read-only; the Pages demo explicitly enables interaction.

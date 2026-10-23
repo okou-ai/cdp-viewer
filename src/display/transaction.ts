@@ -248,7 +248,6 @@ export class DisplayTransaction {
       proof,
       windowId,
       dpr: prepared.size.dpr,
-      constrained: prepared.size.constrained,
     };
   }
 

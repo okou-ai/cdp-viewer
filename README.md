@@ -231,7 +231,7 @@ same window or page can compete over shared browser state.
 
 Sizing retains the requested DPR and aspect ratio while reducing dimensions when
 necessary: logical and physical edges are capped at 4096, and physical area at
-3840 × 2160 pixels. The menu reports **Size limit reached** when constrained.
+3840 × 2160 pixels.
 A density that cannot fit within the physical budget at minimum dimensions is
 refused with a recoverable diagnostic.
 These are protective product limits, not a universal performance guarantee.

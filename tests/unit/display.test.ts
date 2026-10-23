@@ -909,7 +909,7 @@ it("retains current native bounds when restoring initial density and still enfor
   expect(bounded.width * 2).toBeLessThanOrEqual(4096);
   expect(bounded.height * 2).toBeLessThanOrEqual(4096);
   expect(resizes(browser)).toHaveLength(2);
-  expect(model.read(model.display$).constrained).toBe(true);
+  expect(model.getSnapshot().error).toBeNull();
 });
 
 it("preserves a queued manual sync when automatic synchronization is turned off", async () => {
@@ -1696,8 +1696,9 @@ it("constrains physical edges and area while preserving requested DPR and aspect
   expect(Math.abs(width / height - 2)).toBeLessThan(0.01);
   expect(emulations(browser)[0]!.params?.deviceScaleFactor).toBe(3);
   await vi.waitFor(() =>
-    expect(model.read(model.display$).constrained).toBe(true),
+    expect(model.read(model.display$).pending).toBe(false),
   );
+  expect(model.getSnapshot().error).toBeNull();
 });
 
 it("lets a sibling window synchronize while another owner's write is held", async () => {
