@@ -132,6 +132,8 @@ under both the previous and projected scale; different native dimensions alone
 do not guarantee a new static capture frame. Fence decisions retain pre-write
 observations until the acknowledged native extent is known, including when
 distinct requested sizes round to the same actual image.
+Capture bounds can also collapse distinct native sizes to identical decoded
+rasters, so freshness decisions must include the active image bounds.
 After acknowledged writes, the native executor establishes an elapsed timestamp
 fence in a private isolated world while the controller restarts the same bounded
 stream. The geometry owner rejects pre-fence images. Timing details and the

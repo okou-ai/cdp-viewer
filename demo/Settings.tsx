@@ -210,7 +210,7 @@ function CaptureSettings({
                 });
             }}
           >
-            <option value="default">Default for viewing mode</option>
+            <option value="default">Automatic (container and DPR)</option>
             {captureResolutions.map(({ width, height }) => (
               <option key={width} value={`${width}x${height}`}>
                 {width} × {height}

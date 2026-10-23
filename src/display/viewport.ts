@@ -191,13 +191,20 @@ export class DisplayViewport {
     const previous = device(state.scale);
     const projected = device(transform.viewportScale);
     const painted = this.painted?.device;
+    const capture = this.capture;
     // Preserve pre-write facts until acknowledged native bounds are known.
     return (expected) =>
       same(previous, expected.device) ||
       // An unchanged logical viewport can need a fresh static image even when
       // its native extent changes under the projected density.
       same(projected, expected.device) ||
-      (!!painted && same(painted, expected.device));
+      (!!painted && same(painted, expected.device)) ||
+      // A capture ceiling can collapse distinct native sizes to the same JPEG
+      // dimensions. Raster compatibility alone cannot prove those pixels fresh.
+      same(
+        captureRaster(previous, expected.nativeDpr, capture),
+        captureRaster(expected.device, expected.nativeDpr, capture),
+      );
   }
 
   fence(timestamp: number): void {

@@ -315,6 +315,7 @@ for (const nativeDpr of [1, 2]) {
           windowA: windowId,
           second: false,
           interactive: true,
+          captureA: { maxWidth: 4096, maxHeight: 4096 },
           hostForm: true,
         },
       );
@@ -516,8 +517,8 @@ for (const nativeDpr of [1, 2]) {
       expect(
         commands.filter((method) => method === "Target.attachToTarget"),
       ).toHaveLength(1);
-      // Initial native acquisition shares the manual quality upgrade. Each
-      // additional refresh belongs to bounded, fenced native-size recovery.
+      // Fixed image detail isolates required native capture fences from the
+      // separately tested automatic container/DPR policy.
       expect(nativeFences).toBe(1);
       expect(captureFences).toBeLessThanOrEqual(
         commands.filter((method) => method === "Browser.setContentsSize")

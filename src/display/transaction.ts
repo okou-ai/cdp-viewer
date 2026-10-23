@@ -22,7 +22,6 @@ export interface DisplayEffects {
   readonly signal: AbortSignal;
   readonly presentationTimeout?: number | undefined;
   readonly windowId: number | undefined;
-  readonly capture: () => Promise<void>;
   readonly refresh: (prepare: () => Promise<void>) => Promise<void>;
 }
 
@@ -110,7 +109,7 @@ export class DisplayTransaction {
       );
       if (!snapshot) return { kind: this.current() ? "deferred" : "retired" };
       const { window, remote: remoteSize, layout } = snapshot;
-      let decision = this.decision(policy, snapshot);
+      const decision = this.decision(policy, snapshot);
       if (!decision) return { kind: this.current() ? "deferred" : "retired" };
       const existing = projection(
         window.windowId,
@@ -132,9 +131,6 @@ export class DisplayTransaction {
         return this.completed(this.applied, "reused");
       }
 
-      await host.capture();
-      decision = this.decision(policy, snapshot);
-      if (!decision) return { kind: this.current() ? "deferred" : "retired" };
       // Choose the latest local observation once. Later changes are separate work;
       // no dispatched payload can change while awaiting native acknowledgements.
       const prepared = projection(

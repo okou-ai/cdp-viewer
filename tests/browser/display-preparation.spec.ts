@@ -20,10 +20,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => server?.close());
 test.use({ deviceScaleFactor: 2 });
 
-for (const boundary of [
-  "Page.getLayoutMetrics",
-  "Page.stopScreencast",
-] as const) {
+for (const boundary of ["Page.getLayoutMetrics", "Runtime.evaluate"] as const) {
   test(`reprepares invalidated native units while awaiting ${boundary}`, async ({
     page,
   }) => {
@@ -111,6 +108,7 @@ for (const boundary of [
           windowA: windowId,
           second: false,
           interactive: true,
+          captureA: { maxWidth: 4096, maxHeight: 4096 },
         },
       );
       const view = page.locator("#viewer-a .cdpv-root"),
@@ -272,6 +270,7 @@ test("retains a held manual fit through mode-off and a zero-area surface", async
         second: false,
         interactive: true,
         windowSizeSync,
+        captureA: { maxWidth: 4096, maxHeight: 4096 },
       });
     await configure("live");
     const view = page.locator("#viewer-a .cdpv-root");

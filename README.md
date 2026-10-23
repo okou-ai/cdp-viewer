@@ -209,10 +209,13 @@ Choose JPEG compression quality and maximum capture dimensions independently:
 ```
 
 All three `ViewerCaptureOptions` fields are optional. Quality defaults to 70.
-Each omitted dimension retains the current capture profile: maximum 1920×1080
-for ordinary viewing, or 4096×4096 after explicit display adaptation. Supplied
-fields override independently, including during display synchronization. Quality must be
-an integer from 0 to 100; each dimension must be an integer from 1 to 4096.
+Omitted dimensions automatically follow the visible canvas container in CSS pixels
+multiplied by the local device pixel ratio (DPR). Automatic bounds preserve the
+container aspect ratio within 4096 pixels per edge and 3840×2160 total pixels.
+Supplied dimensions override their respective automatic bounds independently,
+including during display synchronization. Quality must be an integer from 0 to
+100; each fixed dimension must be an integer from 1 to 4096. Fixed overrides can
+intentionally exceed the automatic pixel budget, within those per-edge limits.
 These are capture ceilings: Chrome preserves the source aspect ratio and may
 produce a smaller image. Higher settings can increase bandwidth and decoding
 work; lower resolution can soften small text, especially when enlarged or on a
@@ -223,8 +226,16 @@ The connection, selected page and native input/composition remain owned. The las
 displayed image stays visible during the frame gap. In-flight same-page frames
 may briefly reflect the previous setting; obsolete decode callbacks cannot
 replace the current capture generation. Capture settings never resize/emulate the
-remote page, automatically follow panel size/DPR, or change another viewer's
-settings. Changes while paused apply on resume. Equal values do not restart.
+remote page or change another viewer's settings. Automatic changes coalesce to
+the latest measurement, at most once per 150ms, and continue during resizing.
+An active native display synchronization takes priority; ordinary automatic
+capture changes apply afterward, while required causal capture refreshes retain
+their own bounded recovery.
+Unavailable/zero-size surfaces retain the last valid bounds; before the first
+measurement the bounded fallback is 1920×1080. Changes while paused apply on
+resume. Equal effective settings do not restart. Remove a fixed dimension to
+return that axis to automatic sizing. Window-size synchronization remains a
+separate explicit capability.
 
 Invalid settings report a `configuration` error. Invalid initial settings open
 no connection; correcting them starts viewing. An invalid runtime update retains

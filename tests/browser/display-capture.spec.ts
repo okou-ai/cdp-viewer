@@ -9,7 +9,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => server?.close());
 test.use({ deviceScaleFactor: 2 });
 
-for (const stage of ["upgrade", "refresh"] as const) {
+for (const stage of ["initial fence", "subsequent fence"] as const) {
   for (const method of [
     "Page.stopScreencast",
     "Page.startScreencast",
@@ -73,6 +73,7 @@ for (const stage of ["upgrade", "refresh"] as const) {
             windowA: windowId,
             second: false,
             interactive: true,
+            captureA: { maxWidth: 4096, maxHeight: 4096 },
           },
         );
         const view = page.locator("#viewer-a .cdpv-root"),
@@ -87,7 +88,7 @@ for (const stage of ["upgrade", "refresh"] as const) {
             .getByRole("menuitem", { name: "Sync now", exact: true })
             .click();
         };
-        if (stage === "refresh") {
+        if (stage === "subsequent fence") {
           await sync();
           await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
           const local = await page.context().newCDPSession(page);
@@ -101,6 +102,32 @@ for (const stage of ["upgrade", "refresh"] as const) {
             element.style.width = "311px";
             element.style.height = "275px";
           });
+        } else {
+          const native = await remote.evaluate(() => ({
+            width: innerWidth,
+            height: innerHeight,
+          }));
+          // The first native synchronization also needs a causal fence when
+          // changing layout/DPR leaves its physical raster unchanged.
+          await view.evaluate((element: HTMLElement, native) => {
+            const root = element.getBoundingClientRect();
+            const image = element
+              .querySelector("canvas")!
+              .getBoundingClientRect();
+            element.style.width = `${native.width / 2 + root.width - image.width}px`;
+            element.style.height = `${native.height / 2 + root.height - image.height}px`;
+          }, native);
+          await expect
+            .poll(async () => {
+              const image = await canvas.boundingBox();
+              return image
+                ? Math.max(
+                    Math.abs(image.width * 2 - native.width),
+                    Math.abs(image.height * 2 - native.height),
+                  )
+                : Infinity;
+            })
+            .toBeLessThanOrEqual(1);
         }
         fault = true;
         await sync();
@@ -144,7 +171,7 @@ for (const stage of ["upgrade", "refresh"] as const) {
         await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
         const box = await canvas.boundingBox();
         if (!box) throw new Error("Owned viewer has no geometry.");
-        const dpr = stage === "refresh" ? 4 : 2;
+        const dpr = stage === "subsequent fence" ? 4 : 2;
         await expect
           .poll(() =>
             remote.evaluate(() => ({

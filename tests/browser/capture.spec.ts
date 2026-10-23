@@ -120,6 +120,7 @@ for (const deviceScaleFactor of [1, 2]) {
           windowA: a.windowId,
           windowB: b.windowId,
           interactive: true,
+          captureA: { maxWidth: 1920, maxHeight: 1080 },
           captureB: { maxWidth: 960, maxHeight: 540 },
         };
         await page.evaluate(
@@ -427,7 +428,7 @@ test("paused capture preferences apply to the first frame after resume", async (
 
 test.describe("capture with adapted display", () => {
   test.use({ deviceScaleFactor: 2 });
-  test("bounded capture remains compatible with display presentation and pointer input", async ({
+  test("automatic and fixed capture remain compatible with native display and pointer input", async ({
     page,
   }, info) => {
     const backend = await launchNativeBackend(server.origin, true, 1);
@@ -466,7 +467,6 @@ test.describe("capture with adapted display", () => {
         second: false,
         interactive: true,
         windowSizeSync: "initial",
-        captureA: { maxWidth: 960, maxHeight: 540 },
       };
       await page.evaluate(
         (settings) => window.configureViewers!(settings),
@@ -479,12 +479,21 @@ test.describe("capture with adapted display", () => {
       const canvas = view.locator("canvas");
       await expect
         .poll(() =>
-          canvas.evaluate((canvas: HTMLCanvasElement) => canvas.height),
+          canvas.evaluate((canvas: HTMLCanvasElement) => {
+            const box = canvas.getBoundingClientRect();
+            return Math.max(
+              Math.abs(canvas.width - box.width * devicePixelRatio),
+              Math.abs(canvas.height - box.height * devicePixelRatio),
+            );
+          }),
         )
-        .toBeLessThanOrEqual(540);
+        .toBeLessThanOrEqual(1);
       await clickInput(page, view, remote);
       await page.keyboard.insertText("adapted capture");
       await expect(remote.locator("#plain")).toHaveValue("adapted capture");
+      await view.screenshot({
+        path: info.outputPath("automatic-native-text.png"),
+      });
       const native = await remote.evaluate(() => ({
         width: innerWidth,
         height: innerHeight,
