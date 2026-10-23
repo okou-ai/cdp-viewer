@@ -51,6 +51,11 @@ export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "targets" | "navigation" | "error">
 >;
 
+type Favicon = {
+  readonly url: string;
+  readonly failed: boolean;
+};
+
 function initialSnapshot(): ViewerSnapshot {
   return Object.freeze({
     status: "connecting",
@@ -63,6 +68,44 @@ function initialSnapshot(): ViewerSnapshot {
 
 function createViewerSignals() {
   const internalSnapshot$ = state<ViewerSnapshot>(initialSnapshot());
+  const internalFavicons$ = state<ReadonlyMap<string, Favicon>>(new Map());
+  const favicons$ = computed((get) => get(internalFavicons$));
+  const setFavicon$ = command(
+    ({ get, set }, value: { targetId: string; url: string | null }) => {
+      if (
+        !get(internalSnapshot$).targets.some(
+          (target) => target.id === value.targetId,
+        )
+      )
+        return;
+      const previous = get(internalFavicons$);
+      if ((previous.get(value.targetId)?.url ?? null) === value.url) return;
+      const next = new Map(previous);
+      if (value.url)
+        next.set(
+          value.targetId,
+          Object.freeze({ url: value.url, failed: false }),
+        );
+      else next.delete(value.targetId);
+      set(internalFavicons$, next);
+    },
+  );
+  const rejectFavicon$ = command(
+    ({ get, set }, value: { targetId: string; icon: Favicon }) => {
+      const previous = get(internalFavicons$);
+      if (previous.get(value.targetId) !== value.icon || value.icon.failed)
+        return;
+      const next = new Map(previous);
+      next.set(
+        value.targetId,
+        Object.freeze({
+          url: value.icon.url,
+          failed: true,
+        }),
+      );
+      set(internalFavicons$, next);
+    },
+  );
   const internalRevision$ = state(0);
   const actions$ = state<ViewerActions | null>(null);
   const draft$ = state<AddressDraft | null>(null);
@@ -247,6 +290,15 @@ function createViewerSignals() {
   const update$ = command(({ get, set }, patch: Partial<ViewerSnapshot>) => {
     const old = get(internalSnapshot$);
     const next = Object.freeze({ ...old, ...patch });
+    if (patch.targets) {
+      const ids = new Set(patch.targets.map((target) => target.id));
+      const icons = get(internalFavicons$);
+      if ([...icons.keys()].some((id) => !ids.has(id)))
+        set(
+          internalFavicons$,
+          new Map([...icons].filter(([id]) => ids.has(id))),
+        );
+    }
     // A completed draft belongs to this URL lifetime, including reconnects
     // through null that subsequently reopen exactly the same remote address.
     if (old.navigation?.url !== next.navigation?.url && !get(draft$)?.editing)
@@ -281,6 +333,7 @@ function createViewerSignals() {
     if (event.type !== "streaming") set(internalClipboard$, null);
     switch (event.type) {
       case "reset":
+        set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(pendingTab$, null);
         set(update$, initialSnapshot());
@@ -324,6 +377,7 @@ function createViewerSignals() {
         });
         break;
       case "disconnected":
+        set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(update$, {
           status: event.established ? "disconnected" : "error",
@@ -400,6 +454,9 @@ function createViewerSignals() {
     get(actions$)?.navigate({ url });
   });
   return {
+    favicons$,
+    setFavicon$,
+    rejectFavicon$,
     display$,
     windowSizeSync$,
     configureDisplay$,

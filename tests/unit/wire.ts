@@ -88,6 +88,8 @@ export class FakeBrowser {
   unsupportedDisplay = false;
   unsupportedContentsSize = false;
   unsupportedClock = false;
+  favicon: unknown = null;
+  holdFavicon = false;
   nativeDpr = 1;
   browserZoom = 1;
   windowState = "normal";
@@ -109,6 +111,7 @@ export class FakeBrowser {
   readonly heldFrames: (() => void)[] = [];
   holdMethod: string | null = null;
   holdCommand: ((command: WireCommand) => boolean) | null = null;
+  holdExpression: string | null = null;
   blockOpen = false;
   readonly heldCommands: { command: WireCommand; socket: FakeSocket }[] = [];
   readonly held: {
@@ -130,9 +133,18 @@ export class FakeBrowser {
   };
 
   resume(command: WireCommand, socket: FakeSocket): void {
-    if (this.holdMethod === command.method || this.holdCommand?.(command))
+    if (this.holds(command))
       throw new Error("Clear the held method before resuming it.");
     this.respond(command, socket);
+  }
+
+  private holds(command: WireCommand): boolean {
+    return (
+      this.holdCommand?.(command) === true ||
+      (this.holdMethod === command.method &&
+        (this.holdExpression === null ||
+          command.params?.expression === this.holdExpression))
+    );
   }
 
   frame(
@@ -188,7 +200,7 @@ export class FakeBrowser {
 
   private respond(command: WireCommand, socket: FakeSocket): void {
     queueMicrotask(() => {
-      if (command.method === this.holdMethod || this.holdCommand?.(command)) {
+      if (this.holds(command)) {
         this.heldCommands.push({ command, socket });
         return;
       }
@@ -200,6 +212,18 @@ export class FakeBrowser {
           socket.reply(command, { frameTree: { frame: { id: "main" } } });
           break;
         case "Runtime.evaluate":
+          if (
+            String(command.params?.expression).startsWith(
+              "/* cdp-viewer favicon */",
+            )
+          ) {
+            if (this.holdFavicon) this.heldCommands.push({ command, socket });
+            else
+              socket.reply(command, {
+                result: { type: typeof this.favicon, value: this.favicon },
+              });
+            break;
+          }
           if (
             command.params?.expression === "Date.now()" ||
             (command.params?.awaitPromise === true &&

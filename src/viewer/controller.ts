@@ -29,6 +29,13 @@ import type {
 } from "./types";
 import { captureSettings, capturePreferences } from "./capture";
 import { Screencast } from "./screencast";
+import { readFavicon } from "./favicon";
+
+interface FaviconDocument {
+  wanted: boolean;
+  waiting: boolean;
+  ready: boolean;
+}
 
 interface Selection {
   targetId: string;
@@ -40,6 +47,7 @@ interface Selection {
   inputReady: boolean;
   highDensity: boolean;
   geometry: DisplayViewport;
+  favicon: FaviconDocument;
 }
 
 interface Retirement {
@@ -90,6 +98,8 @@ export class ViewerController {
   private capture: ViewerCaptureOptions = Object.freeze({});
   private captureError: ViewerError | null = null;
   private waitingForCapture = false;
+  private faviconPending = false;
+  private faviconAvailable = true;
 
   constructor(
     private readonly model: ViewerModel,
@@ -146,6 +156,7 @@ export class ViewerController {
       inputReady: !this.options.interactive,
       highDensity: false,
       geometry: new DisplayViewport(),
+      favicon: { wanted: true, waiting: false, ready: false },
     };
     this.selection = selection;
     this.attach(selection).catch((error: unknown) => {
@@ -847,7 +858,66 @@ export class ViewerController {
     ) {
       this.model.transition({ type: "streaming" });
       if (this.captureError) this.model.update({ error: this.captureError });
+      this.refreshFavicon(selection);
     }
+  }
+
+  private refreshFavicon(selection: Selection): void {
+    const client = this.client;
+    const sessionId = selection.sessionId;
+    const document = selection.favicon;
+    if (
+      !client ||
+      !sessionId ||
+      !this.isCurrent(selection) ||
+      !selection.painted ||
+      !selection.inputReady ||
+      !document.wanted ||
+      !this.faviconAvailable ||
+      this.faviconPending
+    )
+      return;
+    document.wanted = false;
+    document.waiting = !document.ready;
+    this.faviconPending = true;
+    readFavicon(client, sessionId)
+      .then((url) => {
+        if (!this.isCurrent(selection) || selection.favicon !== document)
+          return;
+        if (url === undefined) return;
+        document.ready = true;
+        document.waiting = false;
+        this.model.run(this.model.setFavicon$, {
+          targetId: selection.targetId,
+          url,
+        });
+      })
+      .catch((error: unknown) => {
+        // A definite session/context rejection retires its request slot, so a
+        // newer document can still be inspected. Never retry this failed read.
+        // Unsupported or uncertain failures (including timeouts with a late
+        // reply owner) stop further reads on this connection to bound that work.
+        if (
+          !(error instanceof CdpFault) ||
+          error.code === undefined ||
+          error.code === -32601
+        )
+          this.faviconAvailable = false;
+        if (selection.favicon === document) {
+          document.ready = true;
+          document.waiting = false;
+          document.wanted = false;
+          if (this.isCurrent(selection))
+            this.model.run(this.model.setFavicon$, {
+              targetId: selection.targetId,
+              url: null,
+            });
+        }
+      })
+      .finally(() => {
+        this.faviconPending = false;
+        if (this.selection) this.refreshFavicon(this.selection);
+      });
   }
 
   private loseSelection(error: ViewerError | null): void {
@@ -932,6 +1002,37 @@ export class ViewerController {
   private onEvent(event: CdpEvent, client: CdpClient): void {
     if (this.disposed) return;
     if (client === this.client) {
+      const selected = this.selection;
+      if (selected && event.sessionId === selected.sessionId) {
+        if (
+          event.method === "Page.frameNavigated" &&
+          isRecord(event.params.frame) &&
+          !event.params.frame.parentId
+        ) {
+          // A restored document does not fire DOMContentLoaded again.
+          const restored = event.params.type === "BackForwardCacheRestore";
+          selected.favicon = {
+            wanted: restored,
+            waiting: !restored,
+            ready: restored,
+          };
+          this.model.run(this.model.setFavicon$, {
+            targetId: selected.targetId,
+            url: null,
+          });
+          if (restored) this.refreshFavicon(selected);
+        } else if (
+          event.method === "Page.domContentEventFired" &&
+          !selected.favicon.ready
+        ) {
+          selected.favicon.ready = true;
+          if (selected.favicon.waiting) {
+            selected.favicon.waiting = false;
+            selected.favicon.wanted = true;
+            this.refreshFavicon(selected);
+          }
+        }
+      }
       if (event.sessionId === this.selection?.sessionId)
         this.selection?.geometry.event(event.method);
       this.selection?.input?.event(event);

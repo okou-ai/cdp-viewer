@@ -189,10 +189,31 @@
 .cdpv-root .cdpv-tab svg {
   flex: none;
 }
-.cdpv-root .cdpv-tab span {
+.cdpv-root .cdpv-tab-title {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.cdpv-root .cdpv-favicon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.cdpv-root .cdpv-favicon img {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  visibility: hidden;
+}
+.cdpv-root .cdpv-favicon img[data-loaded] {
+  visibility: visible;
+}
+.cdpv-root .cdpv-favicon img[data-loaded] + svg {
+  visibility: hidden;
 }
 .cdpv-root .cdpv-close {
   display: inline-flex;
@@ -299,7 +320,7 @@
   }
 }
 @container cdpv-tab (width < 88px) {
-  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab span {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab-title {
     display: none;
   }
   .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab {
@@ -308,12 +329,12 @@
   }
 }
 @container cdpv-tab (width < 72px) {
-  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab svg {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-favicon {
     display: none;
   }
 }
 @container cdpv-tab (width < 56px) {
-  .cdpv-root .cdpv-tab span {
+  .cdpv-root .cdpv-tab-title {
     display: none;
   }
   .cdpv-root .cdpv-tab {
