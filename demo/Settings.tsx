@@ -294,6 +294,17 @@ function AppearanceSettings({
             />
           </div>
         ))}
+        <label className="demo-toggle" htmlFor={`${identity}-settings-menu`}>
+          <span>Show settings menu</span>
+          <input
+            id={`${identity}-settings-menu`}
+            type="checkbox"
+            checked={options.showSettingsMenu}
+            onChange={(event) =>
+              configure(panel.id, { showSettingsMenu: event.target.checked })
+            }
+          />
+        </label>
         <div className="demo-field">
           <label htmlFor={`${identity}-window-sync`}>
             Window size sync <code>windowSizeSync</code>

@@ -90,6 +90,7 @@ display to the new page surface.
 | `extensions`             | Optional adapter checkboxes                        | Connect or Apply & connect                                              |
 | `paused`                 | Pause stream / Resume stream                       | Immediately, without replacing the connection                           |
 | `interactive`            | Control mode                                       | Immediately; restarts this viewer using its applied connection settings |
+| `showSettingsMenu`       | Appearance & layout → Show settings menu           | Immediately; preserves the connection and sync mode                     |
 | `capture`                | Image detail → JPEG quality and capture resolution | Immediately; restarts only the selected screenshot stream               |
 | `colorScheme`            | Appearance & layout → Viewer theme                 | Immediately; Inherit page omits the prop, while System follows the OS   |
 | `style`                  | Height, width, corner radius and custom accent     | Immediately; remote adaptation follows Window size sync                 |

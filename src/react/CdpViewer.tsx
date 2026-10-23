@@ -32,6 +32,7 @@ export function CdpViewer(props: CdpViewerProps) {
 
 function ViewerSurface({
   interactive = false,
+  showSettingsMenu = true,
   colorScheme,
   className,
   style,
@@ -146,6 +147,7 @@ function ViewerSurface({
         <NavigationToolbar
           navigation={snapshot.navigation ?? null}
           disabled={!controls.streaming}
+          showSettingsMenu={showSettingsMenu}
         />
       )}
       <Tabs.Panel
@@ -306,9 +308,11 @@ function ClipboardRecovery() {
 function NavigationToolbar({
   navigation,
   disabled,
+  showSettingsMenu,
 }: {
   navigation: ViewerNavigation | null;
   disabled: boolean;
+  showSettingsMenu: boolean;
 }) {
   const model = viewerScope.useModel();
   const { address: addressElement } = useViewerElements();
@@ -374,7 +378,7 @@ function NavigationToolbar({
           submit();
         }}
       />
-      <BrowserMenu />
+      {showSettingsMenu && <BrowserMenu />}
     </div>
   );
 }

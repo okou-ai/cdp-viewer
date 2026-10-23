@@ -136,6 +136,7 @@ it("keeps live presentation separate from drafts and uses applied settings for m
   model.run(model.edit$, 1, "windowDraft", "42");
   model.run(model.configure$, 1, {
     paused: true,
+    showSettingsMenu: false,
     theme: "dark",
     height: 640,
     width: 75,
@@ -150,6 +151,7 @@ it("keeps live presentation separate from drafts and uses applied settings for m
   expect(current.connection).toEqual({ ...first?.connection, generation: 2 });
   expect(current.options).toMatchObject({
     paused: true,
+    showSettingsMenu: false,
     interactive: false,
     theme: "dark",
     framed: true,
@@ -360,10 +362,12 @@ it("generates valid JSX from applied options without endpoints or draft metadata
     accent: "#123456",
     framed: true,
     windowSizeSync: "live",
+    showSettingsMenu: false,
   });
   const panel = model.read(model.panels$)[0]!;
   const code = usageCode(panel.options, panel.connection);
   expect(code).toContain("windowId={0}");
+  expect(code).toContain("showSettingsMenu={false}");
   expect(code).toContain("[browserUse()]");
   expect(code).toContain("demo-viewer-framed");
   expect(code).toContain('colorScheme="dark"');
