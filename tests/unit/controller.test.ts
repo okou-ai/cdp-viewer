@@ -19,7 +19,12 @@ function mount(
 ) {
   const model = createViewerModel();
   const sink = {
-    push: vi.fn((_data: string, paint: () => void) => paint()),
+    push: vi.fn(
+      (
+        _data: string,
+        paint: (raster: { width: number; height: number }) => void,
+      ) => paint({ width: 800, height: 600 }),
+    ),
     reset: vi.fn(),
     dispose: vi.fn(),
   };
@@ -36,6 +41,62 @@ function mount(
 }
 
 describe("viewer lifecycle", () => {
+  it("acknowledges older capture readbacks without replacing newer pixels and resets ordering per selection", async () => {
+    const browser = new FakeBrowser();
+    const { controller, model, sink } = mount(browser);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const socket = browser.sockets[0]!;
+    sink.push.mockClear();
+    socket.emit(
+      "Page.screencastFrame",
+      { sessionId: 501, data: "newer", metadata: { timestamp: 2 } },
+      "session-1",
+    );
+    socket.emit(
+      "Page.screencastFrame",
+      { sessionId: 502, data: "older", metadata: { timestamp: 1 } },
+      "session-1",
+    );
+    expect(sink.push.mock.calls.map(([data]) => data)).toEqual(["newer"]);
+    expect(
+      socket.commands
+        .filter((command) => command.method === "Page.screencastFrameAck")
+        .slice(-2)
+        .map((command) => command.params?.sessionId),
+    ).toEqual([501, 502]);
+    socket.emit(
+      "Page.screencastFrame",
+      { sessionId: 503, data: "without-time", metadata: {} },
+      "session-1",
+    );
+    expect(sink.push).toHaveBeenLastCalledWith(
+      "without-time",
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    controller.select("page-b");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().selectedTargetId).toBe("page-b"),
+    );
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    socket.emit(
+      "Page.screencastFrame",
+      { sessionId: 504, data: "replacement", metadata: { timestamp: 0.5 } },
+      "session-2",
+    );
+    expect(sink.push).toHaveBeenLastCalledWith(
+      "replacement",
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
   it("follows Browser Use activation and preserves the stream on activation echoes", async () => {
     const browser = new FakeBrowser();
     const { controller, model } = mount(browser);

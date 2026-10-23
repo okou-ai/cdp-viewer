@@ -18,6 +18,7 @@ export interface ViewerError {
     | "unsupported-capability"
     | "target-unavailable"
     | "input"
+    | "display"
     | "extension"
     | "tab"
     | "frame";
@@ -52,6 +53,10 @@ export interface CdpViewerProps {
   readonly paused?: boolean;
   /** Enable remote input, navigation and tab creation/closure. Default: false. */
   readonly interactive?: boolean;
+  /** Controlled size/DPR adaptation. Omit for menu-owned mode, initially off. */
+  readonly windowSizeSync?: WindowSizeSync;
+  /** Requests a controlled update, or reports a menu-owned mode change. */
+  readonly onWindowSizeSyncChange?: (mode: WindowSizeSync) => void;
   /** Optional adapters, reconciled by ID and key independently of transport. */
   readonly extensions?: readonly ViewerExtension[];
   /** Omit to inherit the host's CSS color-scheme. System follows OS preference. */
@@ -61,6 +66,8 @@ export interface CdpViewerProps {
   readonly onStatusChange?: (snapshot: ViewerSnapshot) => void;
   readonly onError?: (error: ViewerError) => void;
 }
+
+export type WindowSizeSync = "off" | "initial" | "live";
 
 export interface CdpViewerStyle extends CSSProperties {
   [variable: `--cdpv-${string}`]: string | number | undefined;

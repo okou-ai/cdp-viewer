@@ -4,8 +4,9 @@ import { CdpFault, isRecord } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
 import { navigationAddress } from "./address";
 import { InputEffects } from "./effects";
-import { frameViewport } from "./geometry";
-import type { Point, Viewport } from "./geometry";
+import { DisplayViewport } from "../display/viewport";
+import type { InputGeometry } from "../display/geometry";
+import type { Point } from "./geometry";
 import { InputLifecycle } from "./lifecycle";
 import type { InputOwner, InputStop, InputTransition } from "./lifecycle";
 import { InputQueue } from "./queue";
@@ -52,8 +53,6 @@ const caretPosition = `(() => {
 
 /** Native focus belongs to Chromium; each selected session owns its input work. */
 export class InputSession {
-  private viewport: Viewport | null = null;
-  private viewportVersion = 0;
   private readonly lifecycle: InputLifecycle;
   private readonly queue: InputQueue;
   private readonly effects: InputEffects;
@@ -79,6 +78,7 @@ export class InputSession {
     private readonly caret: (point: Point) => void,
     private readonly setError: (error: CdpFault | null) => void,
     private readonly resetClipboard: () => void = () => {},
+    private readonly geometry = new DisplayViewport(),
   ) {
     this.lifecycle = new InputLifecycle(sessionId);
     this.effects = new InputEffects(client, sessionId);
@@ -104,13 +104,14 @@ export class InputSession {
   }
 
   async start(): Promise<void> {
-    const tree = await this.client.request(
-      "Page.getFrameTree",
-      undefined,
-      this.sessionId,
-    );
+    const revision = this.geometry.revision;
+    const [tree, metrics] = await Promise.all([
+      this.client.request("Page.getFrameTree", undefined, this.sessionId),
+      this.client.request("Page.getLayoutMetrics", undefined, this.sessionId),
+    ]);
     if (!this.available) return;
     this.frameId = tree.frameTree.frame.id;
+    this.geometry.read(metrics, revision);
     await this.client.request("Runtime.enable", undefined, this.sessionId);
     if (this.available) this.updateHistory();
   }
@@ -158,7 +159,7 @@ export class InputSession {
     this.historyJob = null;
     this.clipboardVersion++;
     if (reason !== "blur") this.resetClipboard();
-    if (reason !== "blur" && reason !== "failed") this.invalidateViewport();
+    if (reason !== "blur" && reason !== "failed") this.geometry.invalidate();
     this.invalidateCaret();
     this.queue.clear();
     if (cleanup.composition) this.cancelComposition();
@@ -200,7 +201,6 @@ export class InputSession {
       ].includes(method)
     )
       this.invalidateClipboard();
-    if (method === "Page.frameResized") this.invalidateViewport();
     if (
       method === "Runtime.executionContextCreated" &&
       isRecord(params.context)
@@ -259,39 +259,11 @@ export class InputSession {
     }
   }
 
-  /** The renderer calls this only when this exact frame has been painted. */
-  frame(metadata: unknown): () => void {
-    const viewport = frameViewport(metadata);
-    const version = this.viewportVersion;
-    const document = this.lifecycle.owner.document;
-    return () => {
-      if (
-        this.available &&
-        version === this.viewportVersion &&
-        document === this.lifecycle.owner.document
-      )
-        this.viewport = viewport;
-    };
-  }
-
-  private invalidateViewport(): void {
-    this.viewportVersion++;
-    this.viewport = null;
-  }
-
-  private async readViewport(job: InputJob): Promise<Viewport> {
-    const viewport = (await job.request("Page.getLayoutMetrics", undefined))
-      .cssVisualViewport;
-    if (
-      ![viewport.clientWidth, viewport.clientHeight].every(
-        (v) => Number.isFinite(v) && v > 0,
-      )
-    )
-      throw new CdpFault(
-        "input",
-        "The remote viewport is unavailable for input.",
-      );
-    return { width: viewport.clientWidth, height: viewport.clientHeight };
+  private async readGeometry(job: InputJob): Promise<InputGeometry | null> {
+    if (!this.geometry.available) return null;
+    const revision = this.geometry.revision;
+    const layout = await job.request("Page.getLayoutMetrics", undefined);
+    return this.geometry.read(layout, revision);
   }
 
   pointer(
@@ -303,22 +275,35 @@ export class InputSession {
     >,
   ): void {
     if (!this.accepting) return;
+    if (!this.geometry.available && type !== "mouseReleased") return;
     if (type === "mousePressed") this.invalidateClipboard();
-    let viewport: Viewport | null = null;
-    let version = this.viewportVersion;
+    let geometry: InputGeometry | null = null;
     const prepare = async (job: InputJob) => {
-      version = this.viewportVersion;
-      viewport = this.viewport ?? (await this.readViewport(job));
+      geometry = this.geometry.input ?? (await this.readGeometry(job));
     };
     const run = async (job: InputJob) => {
-      if (!viewport || version !== this.viewportVersion)
-        viewport = await this.readViewport(job);
-      const pointInViewport = {
-        // Input coordinates are relative to the visible CSS viewport. Adding
-        // its layout offset would apply pinch-pan translation a second time.
-        x: point.x * viewport.width,
-        y: point.y * viewport.height,
-      };
+      if (!geometry || geometry.revision !== this.geometry.revision)
+        geometry = this.geometry.input ?? (await this.readGeometry(job));
+      // A second invalidation retires this unsent gesture; never dispatch stale units.
+      if (!geometry || geometry.revision !== this.geometry.revision) {
+        // Release an owned press without inventing a new pointer position or click.
+        if (type === "mouseReleased" && details.button) {
+          const pressed = this.lifecycle.pressedButton(
+            job.owner,
+            details.button,
+          );
+          if (pressed) {
+            const button = details.button;
+            job.dispatch(
+              "Input.dispatchMouseEvent",
+              { type, ...pressed, button, buttons: details.buttons ?? 0 },
+              () => this.lifecycle.releaseButton(job.owner, button, pressed),
+            );
+          }
+        }
+        return;
+      }
+      const pointInViewport = geometry.position(point);
       if (type === "mousePressed") this.invalidateCaret();
       this.lifecycle.pointer(
         job.owner,
@@ -337,7 +322,7 @@ export class InputSession {
           ...pointInViewport,
           ...details,
           ...(job.wheel
-            ? { deltaX: job.wheel.deltaX, deltaY: job.wheel.deltaY }
+            ? geometry.wheel(job.wheel.deltaX, job.wheel.deltaY)
             : {}),
         },
         () => {

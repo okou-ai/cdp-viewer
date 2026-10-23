@@ -86,7 +86,7 @@ export async function serveConsumer(
   };
 }
 
-function browserOptions(origin: string, headless: boolean) {
+function browserOptions(origin: string, headless: boolean, nativeDpr?: number) {
   const extension = fileURLToPath(new URL("./extension", import.meta.url));
   return {
     headless,
@@ -97,6 +97,9 @@ function browserOptions(origin: string, headless: boolean) {
       ? { executablePath: process.env.CDP_VIEWER_CHROMIUM }
       : {}),
     args: [
+      ...(nativeDpr === undefined
+        ? []
+        : [`--force-device-scale-factor=${nativeDpr}`]),
       "--remote-debugging-port=0",
       `--remote-allow-origins=${origin}`,
       `--disable-extensions-except=${extension}`,
@@ -105,11 +108,15 @@ function browserOptions(origin: string, headless: boolean) {
   };
 }
 
-export async function launchBackend(profile: string, origin: string) {
+export async function launchBackend(
+  profile: string,
+  origin: string,
+  nativeDpr?: number,
+) {
   await mkdir(profile, { recursive: true });
   const context = await chromium.launchPersistentContext(
     profile,
-    browserOptions(origin, true),
+    browserOptions(origin, true, nativeDpr),
   );
   try {
     const endpoint = await waitForDebuggerEndpoint(
@@ -132,8 +139,14 @@ export async function launchBackend(profile: string, origin: string) {
 }
 
 /** Inspect an owned browser without Playwright's per-page focus emulation. */
-export async function launchNativeBackend(origin: string, headless = true) {
-  const owner = await chromium.launchServer(browserOptions(origin, headless));
+export async function launchNativeBackend(
+  origin: string,
+  headless = true,
+  nativeDpr?: number,
+) {
+  const owner = await chromium.launchServer(
+    browserOptions(origin, headless, nativeDpr),
+  );
   let inspection: Browser | undefined;
   const close = async () => {
     try {

@@ -1,10 +1,12 @@
 import { CdpFault } from "../cdp/errors";
+import type { Viewport } from "../display/geometry";
 
 export interface FrameSink {
   push(
     data: string,
-    painted: () => void,
+    painted: (raster: Viewport) => void,
     failed: (error: CdpFault) => void,
+    accept?: (raster: Viewport) => boolean,
   ): void;
   reset(): void;
   dispose(): void;
@@ -21,8 +23,9 @@ type Decode = (data: string) => Promise<DecodedFrame>;
 interface QueuedFrame {
   data: string;
   generation: number;
-  painted: () => void;
+  painted: (raster: Viewport) => void;
   failed: (error: CdpFault) => void;
+  accept: ((raster: Viewport) => boolean) | undefined;
 }
 
 async function decodeJpeg(data: string): Promise<DecodedFrame> {
@@ -73,15 +76,22 @@ export class CanvasRenderer implements FrameSink {
 
   push(
     data: string,
-    painted: () => void,
+    painted: (raster: Viewport) => void,
     failed: (error: CdpFault) => void,
+    accept?: (raster: Viewport) => boolean,
   ): void {
     if (this.disposed) return;
     if (data.length > 12 * 1024 * 1024) {
       failed(new CdpFault("frame", "The browser sent an oversized frame."));
       return;
     }
-    this.queued = { data, generation: this.generation, painted, failed };
+    this.queued = {
+      data,
+      generation: this.generation,
+      painted,
+      failed,
+      accept,
+    };
     if (!this.decoding) {
       const generation = this.generation;
       this.drain().catch(() => {
@@ -124,12 +134,14 @@ export class CanvasRenderer implements FrameSink {
             "The browser sent invalid frame dimensions.",
           );
         }
+        const raster = { width: decoded.width, height: decoded.height };
+        if (frame.accept && !frame.accept(raster)) continue;
         if (this.canvas.width !== decoded.width)
           this.canvas.width = decoded.width;
         if (this.canvas.height !== decoded.height)
           this.canvas.height = decoded.height;
         this.context.drawImage(decoded.source, 0, 0);
-        frame.painted();
+        frame.painted(raster);
       } catch (error) {
         if (!this.disposed && frame.generation === this.generation) {
           frame.failed(

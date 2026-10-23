@@ -2,7 +2,8 @@ import { command, computed, state } from "ccstate";
 import { createInstance } from "../state/instance";
 import { layoutTabs } from "./tab-layout";
 import type { TabSpace } from "./tab-layout";
-import type { ViewerError, ViewerSnapshot } from "./types";
+import type { ViewerError, ViewerSnapshot, WindowSizeSync } from "./types";
+import type { DisplayState } from "../display/sync";
 import type { ClipboardRecovery } from "../input/clipboard";
 
 export interface ViewerActions {
@@ -13,6 +14,8 @@ export interface ViewerActions {
   copyClipboard?(): void;
   dismissClipboard?(): void;
   selectClipboard?(): void;
+  syncDisplay?(): void;
+  onWindowSizeSyncChange?(mode: WindowSizeSync): void;
 }
 
 interface AddressDraft {
@@ -68,6 +71,49 @@ function createViewerSignals() {
   const internalNotification$ = state<ViewerNotification | null>(null);
   const notificationSequence$ = state(0);
   const internalConnected$ = state(false);
+  const internalDisplay$ = state<DisplayState>({
+    ready: false,
+    pending: false,
+    pointerBlocked: false,
+  });
+  const internalSyncMode$ = state<WindowSizeSync>("off");
+  const controlledSyncMode$ = state<WindowSizeSync | null>(null);
+  const canChangeSyncMode$ = state(true);
+  const display$ = computed((get) => get(internalDisplay$));
+  const windowSizeSync$ = computed(
+    (get) => get(controlledSyncMode$) ?? get(internalSyncMode$),
+  );
+  const configureDisplay$ = command(
+    (
+      { set },
+      value: {
+        controlled: WindowSizeSync | null;
+        canChange: boolean;
+      },
+    ) => {
+      set(controlledSyncMode$, value.controlled);
+      set(canChangeSyncMode$, value.canChange);
+    },
+  );
+  const setDisplay$ = command(({ get, set }, value: DisplayState) => {
+    const previous = get(internalDisplay$);
+    if (
+      previous.ready !== value.ready ||
+      previous.pending !== value.pending ||
+      previous.pointerBlocked !== value.pointerBlocked
+    )
+      set(internalDisplay$, Object.freeze({ ...value }));
+  });
+  const chooseWindowSizeSync$ = command(({ get, set }, value: string) => {
+    if (
+      !get(canChangeSyncMode$) ||
+      (value !== "off" && value !== "initial" && value !== "live")
+    )
+      return;
+    if (!get(controlledSyncMode$)) set(internalSyncMode$, value);
+    get(actions$)?.onWindowSizeSyncChange?.(value);
+  });
+  const syncDisplay$ = command(({ get }) => get(actions$)?.syncDisplay?.());
   // Clipboard text is private and must never enter ViewerSnapshot/callbacks.
   const internalClipboard$ = state<ClipboardRecovery | null>(null);
   const clipboard$ = computed((get) => get(internalClipboard$));
@@ -171,6 +217,9 @@ function createViewerSignals() {
       canMutateTabs,
       canCreate: canMutateTabs && (streaming || emptyUnscoped),
       tabsDisabled: snapshot.status === "disconnected",
+      canSyncDisplay:
+        streaming && get(display$).ready && !get(display$).pending,
+      canChangeSyncMode: get(canChangeSyncMode$),
       placeholderTitle:
         snapshot.status === "disconnected"
           ? "Browser disconnected"
@@ -287,6 +336,11 @@ function createViewerSignals() {
   const bind$ = command(({ set }, actions: ViewerActions) => {
     set(pendingTab$, null);
     set(actions$, actions);
+    set(internalDisplay$, {
+      ready: false,
+      pending: false,
+      pointerBlocked: false,
+    });
   });
   const unbind$ = command(({ get, set }, actions: ViewerActions) => {
     if (get(actions$) === actions) {
@@ -295,6 +349,11 @@ function createViewerSignals() {
       set(internalConnected$, false);
       set(internalNotification$, null);
       set(internalClipboard$, null);
+      set(internalDisplay$, {
+        ready: false,
+        pending: false,
+        pointerBlocked: false,
+      });
     }
   });
   const reconnect$ = command(({ set }) => {
@@ -341,6 +400,12 @@ function createViewerSignals() {
     get(actions$)?.navigate({ url });
   });
   return {
+    display$,
+    windowSizeSync$,
+    configureDisplay$,
+    setDisplay$,
+    chooseWindowSizeSync$,
+    syncDisplay$,
     clipboard$,
     setClipboard$,
     copyClipboard$,

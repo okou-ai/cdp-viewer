@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
 import { AllTabs } from "./AllTabs";
+import { BrowserMenu } from "./BrowserMenu";
 import { viewerScope } from "./context";
 import { ViewerRuntime, useViewerElements } from "./runtime";
 
@@ -373,6 +374,7 @@ function NavigationToolbar({
           submit();
         }}
       />
+      <BrowserMenu />
     </div>
   );
 }

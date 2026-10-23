@@ -30,7 +30,10 @@ function browser() {
   });
   vi.stubGlobal(
     "createImageBitmap",
-    vi.fn(() => Promise.resolve({ width: 2, height: 2, close: vi.fn() })),
+    vi.fn(async (blob: Blob) => ({
+      ...(JSON.parse(await blob.text()) as { width: number; height: number }),
+      close: vi.fn(),
+    })),
   );
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     clearRect: vi.fn(),
@@ -38,6 +41,181 @@ function browser() {
   } as unknown as CanvasRenderingContext2D);
   return fake;
 }
+
+it("owns the browser menu mode and combined manual sync without replacing native input", async () => {
+  const fake = browser();
+  vi.spyOn(
+    HTMLCanvasElement.prototype,
+    "getBoundingClientRect",
+  ).mockReturnValue(new DOMRect(0, 0, 640, 480));
+  const changed = vi.fn();
+  const view = render(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      windowSizeSync="off"
+      onWindowSizeSyncChange={changed}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  const proxy = screen.getByRole("textbox", { name: "Remote browser input" });
+  const menu = screen.getByRole("button", { name: "Browser menu" });
+  await userEvent.click(menu);
+  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeEnabled();
+  await userEvent.click(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  );
+  expect(changed).toHaveBeenCalledWith("live");
+  await userEvent.click(menu);
+  expect(
+    screen.getByRole("menuitemradio", { name: "Do not sync automatically" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await waitFor(() =>
+    expect(fake.windowSizes.get(0)).toEqual({ width: 640, height: 480 }),
+  );
+  view.rerender(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      windowSizeSync="live"
+    />,
+  );
+  await userEvent.click(menu);
+  expect(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-checked", "true");
+  expect(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    proxy,
+  );
+  expect(fake.sockets).toHaveLength(1);
+});
+
+it("keeps a menu-owned mode when the host changes callback identity", async () => {
+  const fake = browser();
+  const changed = vi.fn();
+  const view = render(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      onWindowSizeSyncChange={changed}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Browser menu" }));
+  await userEvent.click(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  );
+  expect(changed).toHaveBeenCalledWith("live");
+  view.rerender(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      onWindowSizeSyncChange={() => {}}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Browser menu" }));
+  expect(
+    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-checked", "true");
+  expect(fake.sockets).toHaveLength(1);
+});
+
+it("keeps display recovery guidance and a usable manual action until pointer input can resume", async () => {
+  const fake = browser();
+  vi.spyOn(
+    HTMLCanvasElement.prototype,
+    "getBoundingClientRect",
+  ).mockReturnValue(new DOMRect(0, 0, 640, 480));
+  render(<CdpViewer cdpUrl="wss://fixture.invalid" interactive />);
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  const proxy = screen.getByRole("textbox", { name: "Remote browser input" });
+  const menu = screen.getByRole("button", { name: "Browser menu" });
+  fake.unsupportedContentsSize = true;
+  fake.holdMethod = "Emulation.clearDeviceMetricsOverride";
+  await userEvent.click(menu);
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+  const held = fake.heldCommands[0]!;
+  act(() => held.socket.reject(held.command, -32000));
+  await waitFor(() =>
+    expect(menu).toHaveAttribute(
+      "title",
+      "Browser menu — display recovery required",
+    ),
+  );
+  await userEvent.click(menu);
+  expect(
+    screen.getByText("Use Sync now to resume pointer input"),
+  ).toBeVisible();
+  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeEnabled();
+  fake.unsupportedContentsSize = false;
+  fake.holdMethod = null;
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await waitFor(() => expect(menu).toHaveAttribute("title", "Browser menu"));
+  await userEvent.click(menu);
+  expect(
+    screen.queryByText("Use Sync now to resume pointer input"),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    proxy,
+  );
+  expect(fake.sockets).toHaveLength(1);
+});
+
+it("recovers view-only adaptation through a mode update without requiring an input menu", async () => {
+  const fake = browser();
+  vi.spyOn(
+    HTMLCanvasElement.prototype,
+    "getBoundingClientRect",
+  ).mockReturnValue(new DOMRect(0, 0, 640, 480));
+  fake.unsupportedContentsSize = true;
+  fake.holdMethod = "Emulation.clearDeviceMetricsOverride";
+  const view = render(
+    <CdpViewer cdpUrl="wss://fixture.invalid" windowSizeSync="initial" />,
+  );
+  await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+  const held = fake.heldCommands[0]!;
+  act(() => held.socket.reject(held.command, -32000));
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Display recovery could not be confirmed. Try synchronizing again.",
+    ),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Browser menu" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("textbox", { name: "Remote browser input" }),
+  ).not.toBeInTheDocument();
+  fake.unsupportedContentsSize = false;
+  fake.holdMethod = null;
+  view.rerender(
+    <CdpViewer cdpUrl="wss://fixture.invalid" windowSizeSync="live" />,
+  );
+  await waitFor(() =>
+    expect(fake.windowSizes.get(0)).toEqual({ width: 640, height: 480 }),
+  );
+  expect(
+    document.querySelector('[data-status="streaming"]'),
+  ).toBeInTheDocument();
+  expect(fake.sockets).toHaveLength(1);
+});
 
 it("reconciles inline adapter configuration while preserving the connection and input", async () => {
   const fake = browser();
@@ -860,6 +1038,8 @@ it.each(["connecting", "paused", "error", "disconnected"] as const)(
     await userEvent.click(
       screen.getByRole("textbox", { name: "Remote page address" }),
     );
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: "Browser menu" })).toHaveFocus();
     await userEvent.tab();
     if (status === "error" || status === "disconnected") {
       expect(

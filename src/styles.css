@@ -518,6 +518,60 @@
 .cdpv-root .cdpv-address::placeholder {
   color: var(--cdpv-muted);
 }
+.cdpv-root .cdpv-browser-menu-container {
+  display: contents;
+}
+.cdpv-root .cdpv-browser-menu-trigger {
+  flex: none;
+  width: 30px;
+  height: 32px;
+}
+.cdpv-root .cdpv-browser-menu-positioner {
+  z-index: 4;
+  max-width: calc(100% - 16px);
+}
+.cdpv-root .cdpv-browser-menu {
+  width: min(210px, var(--available-width));
+  max-height: var(--available-height);
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--cdpv-border);
+  border-radius: 8px;
+  background: var(--cdpv-background);
+  color: var(--cdpv-foreground);
+  font: inherit;
+  font-size: 13px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 16%);
+}
+.cdpv-root .cdpv-browser-menu-heading {
+  padding: 7px 10px;
+  color: var(--cdpv-muted);
+  font-size: 12px;
+}
+.cdpv-root .cdpv-browser-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: default;
+  outline: none;
+}
+.cdpv-root .cdpv-browser-menu-item[data-highlighted] {
+  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+}
+.cdpv-root .cdpv-browser-menu-item[data-disabled] {
+  opacity: 0.4;
+}
+.cdpv-root .cdpv-browser-menu-check {
+  width: 16px;
+  height: 16px;
+}
+.cdpv-root .cdpv-browser-menu-separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--cdpv-border);
+}
 .cdpv-root .cdpv-sr-only {
   position: absolute;
   width: 1px;

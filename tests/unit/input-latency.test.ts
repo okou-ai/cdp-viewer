@@ -38,7 +38,11 @@ async function mount(windowId?: number) {
   const caret = vi.fn();
   const controller = new ViewerController(
     model,
-    { push: (_data, painted) => painted(), reset() {}, dispose() {} },
+    {
+      push: (_data, painted) => painted({ width: 800, height: 600 }),
+      reset() {},
+      dispose() {},
+    },
     {
       url: "wss://fixture.invalid/",
       socketFactory: browser.factory,

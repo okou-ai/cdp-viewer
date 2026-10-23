@@ -16,7 +16,7 @@ async function mount() {
   const controller = new ViewerController(
     model,
     {
-      push: (_data, painted) => painted(),
+      push: (_data, painted) => painted({ width: 800, height: 600 }),
       reset: () => {},
       dispose: () => {},
     },

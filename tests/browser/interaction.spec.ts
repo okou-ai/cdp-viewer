@@ -419,6 +419,10 @@ test("inactive input leaves local Tab navigation usable and resumes remote typin
     const after = page.getByRole("textbox", { name: "After viewers" });
     await view.getByRole("textbox", { name: "Remote page address" }).focus();
     await page.keyboard.press("Tab");
+    await expect(
+      view.getByRole("button", { name: "Browser menu" }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(after).toBeFocused();
     await after.fill("local while paused");
     await expect(remote.locator("#plain")).toHaveValue("before pause");
@@ -448,6 +452,10 @@ test("inactive input leaves local Tab navigation usable and resumes remote typin
     );
     await expect(view).toHaveAttribute("data-status", "error");
     await view.getByRole("textbox", { name: "Remote page address" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(
+      view.getByRole("button", { name: "Browser menu" }),
+    ).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(
       view.getByRole("button", { name: "Reconnect viewer" }),

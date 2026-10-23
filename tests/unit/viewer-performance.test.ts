@@ -17,8 +17,9 @@ async function mount(windowId?: number, holdPaint = false) {
     model,
     {
       push: (_data, paint) => {
-        paints.push(paint);
-        if (!holdPaint) paint();
+        const done = () => paint({ width: 800, height: 600 });
+        paints.push(done);
+        if (!holdPaint) done();
       },
       reset() {},
       dispose() {},
@@ -246,6 +247,44 @@ it("revalidates geometry invalidated while layout preparation is pending", async
   ).toMatchObject({ x: 400, y: 300 });
 });
 
+it("discards an invalidated fallback mapping without blocking current text or later pointer input", async () => {
+  const { browser, input, socket, frame, sessionId, model } = await mount(0);
+  frame(metadata);
+  socket.emit("Page.frameResized", {}, sessionId);
+  browser.holdMethod = "Page.getLayoutMetrics";
+  input.pointer("mouseWheel", point, { deltaY: 120 });
+  input.text("current document text");
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  socket.emit("Page.frameResized", {}, sessionId);
+  const preparation = browser.heldCommands[0]!;
+  expect(preparation.command.method).toBe("Page.getLayoutMetrics");
+  preparation.socket.reply(preparation.command, {
+    cssVisualViewport: { clientWidth: 1000, clientHeight: 700 },
+  });
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+  const layout = browser.heldCommands[1]!;
+  expect(layout.command.method).toBe("Page.getLayoutMetrics");
+  socket.emit("Page.frameResized", {}, sessionId);
+  browser.holdMethod = null;
+  layout.socket.reply(layout.command, {
+    cssVisualViewport: { clientWidth: 1111, clientHeight: 777, zoom: 1.25 },
+  });
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.find((command) => command.method === "Input.insertText"),
+    ).toMatchObject({ params: { text: "current document text" } }),
+  );
+  const pointers = () =>
+    socket.commands.filter(
+      (command) => command.method === "Input.dispatchMouseEvent",
+    );
+  expect(pointers()).toHaveLength(0);
+  expect(model.getSnapshot().error).toBeNull();
+  input.pointer("mouseWheel", point, { deltaY: 120 });
+  await vi.waitFor(() => expect(pointers()).toHaveLength(1));
+  expect(pointers()[0]!.params).toMatchObject({ x: 400, y: 300, deltaY: 120 });
+});
+
 it("coalesces unsent wheels while earlier acknowledgements remain pending", async () => {
   const { browser, input, socket, model } = await mount();
   browser.holdMethod = "Input.dispatchMouseEvent";
@@ -333,7 +372,12 @@ it("starts frames during input initialization without enabling input early", asy
   const browser = new FakeBrowser();
   browser.holdMethod = "Page.getFrameTree";
   const model = createViewerModel();
-  const paint = vi.fn((_data: string, done: () => void) => done());
+  const paint = vi.fn(
+    (
+      _data: string,
+      done: (raster: { width: number; height: number }) => void,
+    ) => done({ width: 800, height: 600 }),
+  );
   const controller = new ViewerController(
     model,
     { push: paint, reset() {}, dispose() {} },

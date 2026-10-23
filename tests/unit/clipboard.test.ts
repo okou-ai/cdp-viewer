@@ -31,6 +31,9 @@ async function fixture(requestTimeout = 1000) {
       }
       const results: Record<string, object> = {
         "Page.getFrameTree": { frameTree: { frame: { id: "main" } } },
+        "Page.getLayoutMetrics": {
+          cssVisualViewport: { clientWidth: 800, clientHeight: 600, zoom: 1 },
+        },
         "Page.getNavigationHistory": { entries: [], currentIndex: -1 },
         "Page.createIsolatedWorld": { executionContextId: 19 },
         "Runtime.evaluate": {

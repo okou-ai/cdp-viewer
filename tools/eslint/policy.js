@@ -35,6 +35,14 @@ const primitiveCapabilities = Object.freeze([
     files: ["src/input/queue.ts", "src/input/clipboard.ts"],
     rules: { "ccstate/no-new-promise": "off" },
   },
+  {
+    // One selected session settles its painted-image barrier and owns its deadline.
+    files: ["src/display/viewport.ts"],
+    rules: {
+      "ccstate/no-new-promise": "off",
+      "ccstate/no-new-abort-controller": "off",
+    },
+  },
 ]);
 
 export const architecture = [

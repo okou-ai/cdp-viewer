@@ -1,6 +1,14 @@
 # Interaction and native text input
 
 Set `interactive` on a viewer to enable mouse, keyboard and page navigation.
+
+Use the three-dot menu to the right of the address bar to choose automatic display
+adaptation: off, once on opening, or continuously. **Sync now** synchronizes size
+and DPR together in every mode. Continuous adaptation follows the available page
+surface and local display density without reconnecting. Oversized requests are
+reduced automatically to stay within the supported display limits.
+Restore maximized, minimized or fullscreen remote windows before syncing. Turning
+automatic adaptation off keeps the latest display; it does not reset native size.
 The component defaults to read-only; the Pages demo explicitly enables interaction.
 Each instance owns its native textarea, focus, pressed keys/buttons, bounded
 command queue and selected-target CDP session. No endpoint-keyed global input

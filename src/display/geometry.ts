@@ -1,0 +1,192 @@
+import type { Protocol } from "devtools-protocol";
+import { CdpFault, isRecord } from "../cdp/errors";
+
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface Viewport {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Local page surface in CSS pixels, with the requested physical density. */
+export interface DisplaySize extends Viewport {
+  readonly dpr: number;
+}
+
+/** Acknowledged emulation scale and its native-frame/input relationships. */
+export interface DisplayTransform {
+  readonly viewportScale: number;
+  readonly frameScale: number;
+  readonly wheelScale: number;
+}
+
+/** Observable native frame dimensions and the bounded decoded image. */
+export interface PresentationGeometry {
+  readonly device: Viewport;
+  readonly nativeDpr: number;
+}
+
+export function captureRaster(device: Viewport, nativeDpr: number): Viewport {
+  const scale = Math.min(nativeDpr, 4096 / device.width, 4096 / device.height);
+  return {
+    width: Math.round(device.width * scale),
+    height: Math.round(device.height * scale),
+  };
+}
+
+function presentationGeometry(
+  device: Viewport,
+  nativeDpr: number,
+): PresentationGeometry {
+  if (![device.width, device.height, nativeDpr].every(positive))
+    throw new CdpFault("display", "The browser display scale is unavailable.");
+  return { device, nativeDpr };
+}
+
+export function nativePresentation(
+  layout: Protocol.Page.GetLayoutMetricsResponse,
+): PresentationGeometry {
+  const viewport = layout.cssVisualViewport;
+  const zoom = viewport.zoom ?? 1;
+  if (![viewport.clientWidth, viewport.clientHeight, zoom].every(positive))
+    throw new CdpFault("display", "The browser display scale is unavailable.");
+  return presentationGeometry(
+    {
+      width: viewport.clientWidth * zoom,
+      height: viewport.clientHeight * zoom,
+    },
+    layout.visualViewport.clientWidth / viewport.clientWidth / zoom,
+  );
+}
+
+export const positive = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+/** Native and adapted input use the same Chrome zoom relationship. */
+export function inputTransform(
+  zoom: number,
+  viewportScale = 1,
+): DisplayTransform {
+  if (!positive(zoom) || !positive(viewportScale))
+    throw new CdpFault(
+      "input",
+      "The remote display scale is unavailable for input.",
+    );
+  return {
+    viewportScale,
+    frameScale: 1 / zoom,
+    wheelScale: viewportScale * viewportScale * zoom,
+  };
+}
+
+/** Captured by an input job; later calibration cannot change its units. */
+export class InputGeometry {
+  constructor(
+    readonly revision: number,
+    private readonly viewport: Viewport,
+    private readonly wheelScale: number,
+  ) {}
+
+  position(point: Point): Point {
+    return {
+      x: point.x * this.viewport.width,
+      y: point.y * this.viewport.height,
+    };
+  }
+
+  wheel(deltaX: number, deltaY: number): { deltaX: number; deltaY: number } {
+    return {
+      deltaX: deltaX * this.wheelScale,
+      deltaY: deltaY * this.wheelScale,
+    };
+  }
+}
+
+export function frameViewport(metadata: unknown): Viewport | null {
+  if (!isRecord(metadata)) return null;
+  const { deviceWidth, deviceHeight, pageScaleFactor } = metadata;
+  if (
+    !positive(deviceWidth) ||
+    !positive(deviceHeight) ||
+    !positive(pageScaleFactor)
+  )
+    return null;
+  const width = deviceWidth / pageScaleFactor;
+  const height = deviceHeight / pageScaleFactor;
+  return positive(width) && positive(height) ? { width, height } : null;
+}
+
+/** Product policy, independently of capture caps and native window chrome. */
+export function constrainDisplay(
+  size: DisplaySize,
+): DisplaySize & { constrained: boolean } {
+  const scale = Math.min(
+    1,
+    4096 / size.width,
+    4096 / size.height,
+    4096 / (size.width * size.dpr),
+    4096 / (size.height * size.dpr),
+    Math.sqrt((3840 * 2160) / size.width / size.height) / size.dpr,
+  );
+  const width = Math.max(1, Math.floor(size.width * scale));
+  const height = Math.max(1, Math.floor(size.height * scale));
+  if (
+    width * size.dpr > 4096 ||
+    height * size.dpr > 4096 ||
+    width * height * size.dpr * size.dpr > 3840 * 2160
+  )
+    throw new CdpFault(
+      "display",
+      "The display density cannot fit within the supported size limits.",
+    );
+  return { width, height, dpr: size.dpr, constrained: scale < 1 };
+}
+
+/** Project a requested CSS surface into native window DIP, emulation and input. */
+export function projectDisplay(
+  windowId: number,
+  size: DisplaySize,
+  layout: Protocol.Page.GetLayoutMetricsResponse,
+) {
+  const zoom = layout.cssVisualViewport.zoom ?? 1;
+  const nativeDpr =
+    layout.visualViewport.clientWidth /
+    layout.cssVisualViewport.clientWidth /
+    zoom;
+  if (!positive(zoom) || !positive(nativeDpr))
+    throw new CdpFault("display", "The browser display scale is unavailable.");
+  const densityScale = size.dpr / nativeDpr;
+  const viewportScale = densityScale / zoom;
+  const contents = {
+    windowId,
+    width: Math.max(1, Math.round(size.width * densityScale)),
+    height: Math.max(1, Math.round(size.height * densityScale)),
+  };
+  const metrics: Protocol.Emulation.SetDeviceMetricsOverrideRequest = {
+    width: Math.max(1, Math.round(size.width * zoom)),
+    height: Math.max(1, Math.round(size.height * zoom)),
+    deviceScaleFactor: size.dpr / zoom,
+    scale: viewportScale,
+    dontSetVisibleSize: true,
+    mobile: false,
+  };
+  return {
+    contents,
+    metrics,
+    input: inputTransform(zoom, viewportScale),
+    presentation: presentationGeometry(contents, nativeDpr),
+    // Integer native sizes prevent metric float noise from defeating deduplication.
+    key: [
+      windowId,
+      size.width,
+      size.height,
+      size.dpr,
+      zoom,
+      contents.width,
+      contents.height,
+    ].join(":"),
+  };
+}

@@ -329,6 +329,18 @@ const rejected = [
     "ccstate/no-new-promise",
   ],
   [
+    "display synchronization cannot create a second deferred owner",
+    "function helper() { return new Promise(resolve => resolve(1)); }",
+    "ccstate/no-new-promise",
+    "src/display/sync.ts",
+  ],
+  [
+    "display geometry helpers cannot acquire cancellation lifetimes",
+    "function helper() { return new AbortController(); }",
+    "ccstate/no-new-abort-controller",
+    "src/display/geometry.ts",
+  ],
+  [
     "discarded promise",
     "function helper() { void load(); }",
     "ccstate/no-void-statement",
@@ -463,6 +475,16 @@ const accepted = [
     "wire cancellation primitive",
     "export function lifetime() { return new AbortController(); }",
     "src/cdp/client.ts",
+  ],
+  [
+    "selected-session presentation settlement primitive",
+    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "src/display/viewport.ts",
+  ],
+  [
+    "selected-session presentation deadline primitive",
+    "export function lifetime() { return new AbortController(); }",
+    "src/display/viewport.ts",
   ],
   [
     "extension registration lifetime primitive",

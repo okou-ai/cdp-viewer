@@ -114,6 +114,8 @@ and connection without closing the remote browser or its tabs.
 | `windowId?: number`                           | Optional presentation/selection scope                                            |
 | `paused?: boolean`                            | Release this viewer's current stream while retaining connection/selection        |
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
+| `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
+| `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
 | `extensions?: readonly ViewerExtension[]`     | Optional per-connection adapters, reconciled by ID and configuration key         |
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
@@ -122,7 +124,7 @@ and connection without closing the remote browser or its tabs.
 
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
-`ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation` and `ViewerError`.
+`ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
 Snapshots may include `navigation` (current remote address and available back/forward
 actions), or `null` when unavailable. Remote page addresses can contain sensitive
 data; do not log or persist snapshots indiscriminately.
@@ -173,14 +175,83 @@ independent. Views of the same remote page still share the page's real website
 state; **same-target simultaneous screencasts are not guaranteed**.
 The required same-browser/different-window case has independent ownership.
 
-The local image uses contain fitting. The viewer does not resize/emulate the
-remote viewport. Frames use one active decode and one newest queued frame;
-old-generation images are discarded/closed. `document.hidden`, `paused`, and an
+The local image uses contain fitting. By default, the remote viewport is untouched.
+Frames use one active decode and one newest queued frame;
+Old-generation images and older timestamped readbacks are discarded.
+`document.hidden`, `paused`, and an
 offscreen viewer (when IntersectionObserver is available) release stream work;
 resuming revalidates and attaches the selected target. Re-entering the viewport
 does not override explicit pause or whole-document invisibility.
 Cleanup cannot cancel a native image decode already in progress, but its result
 is discarded and closed. No connection credentials are persisted by the library.
+
+### Display adaptation
+
+The three-dot menu to the right of the interactive address bar offers three modes:
+**Do not sync automatically**, **Sync once on opening**, and **Sync continuously**.
+Its single **Sync now** action always remains available when the stream and local
+geometry are ready, and synchronizes both the page size and DPR in every mode.
+It is temporarily disabled while a synchronization is pending. Modes apply per
+viewer; the library does not persist settings.
+
+```tsx
+const [syncMode, setSyncMode] = useState<WindowSizeSync>("initial");
+
+<CdpViewer
+  cdpUrl={cdpUrl}
+  windowId={windowId}
+  interactive
+  windowSizeSync={syncMode}
+  onWindowSizeSyncChange={setSyncMode}
+/>;
+```
+
+With `windowSizeSync`, the host owns the mode. The change callback requests a new
+value; the mode changes only when the host updates the prop. Omitting the prop
+gives the menu its own state, initially off, and the callback reports its changes.
+Initialize host state to choose another starting mode; no separate default prop
+is needed. Manual synchronization never changes the automatic mode.
+
+Adaptation measures the available page surface in local CSS pixels and the client
+browser's `devicePixelRatio`. It combines native content sizing with session-owned
+page emulation so the logical page fits the surface and the screencast can carry
+the corresponding physical pixels. This does not change the remote OS display
+scale. Existing browser zoom settings are preserved during synchronization.
+Continuous mode observes both surface size and DPR changes, coalesces work
+with at least 150ms between operation starts, and retains one latest pending size.
+Resizing keeps the socket, selected session and native input textarea intact.
+
+Initial mode fits each real window once per connection. Reattaching a page in
+that window restores its adapted density without refitting a changed local surface.
+Manual synchronization updates it explicitly. Reconnecting starts fresh history.
+Switching to off stops automatic updates; it does not undo the current display.
+Detachment releases the session's emulation, while the last native window size
+remains. Two viewers should control different remote windows; controllers of the
+same window or page can compete over shared browser state.
+
+Sizing retains the requested DPR and aspect ratio while reducing dimensions when
+necessary: logical and physical edges are capped at 4096, and physical area at
+3840 × 2160 pixels.
+A density that cannot fit within the physical budget at minimum dimensions is
+refused with a recoverable diagnostic.
+These are protective product limits, not a universal performance guarantee.
+Opting into adaptation raises the screencast ceiling to 4096 × 4096 once on the
+same session; untouched viewing retains JPEG quality 70 and 1920 × 1080 caps.
+High DPR still increases capture, transport and decode cost within those limits.
+
+Native sizing and emulation require browser support. Non-normal windows must be
+restored first; unsupported commands produce a recoverable diagnostic and leave
+viewing available. Synchronization remains pending until the new image paints;
+pointer actions pause while native changes or a compatible image are pending.
+When a DPR/layout change can keep the same image dimensions, the viewer refreshes
+capture once on the existing session and requires a timestamp after the native
+change. Ordinary size changes keep the current stream running.
+If display recovery cannot be confirmed, they remain paused
+until synchronization succeeds; choose **Sync now** to retry. Text input remains
+available. Native minimum sizes, fractional scale rounding and provider
+restrictions may prevent exact matching. This is not browser zoom or a general
+capture-quality selector. A controlled mode without `onWindowSizeSyncChange`
+disables menu mode changes, while manual synchronization remains usable.
 
 ## Extensions
 

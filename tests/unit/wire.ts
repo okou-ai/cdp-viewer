@@ -1,5 +1,10 @@
 import type { SocketFactory } from "../../src/cdp/client";
 
+/** The fake wire carries observable raster dimensions instead of real JPEG bytes. */
+export function fakeRaster(data: string): { width: number; height: number } {
+  return JSON.parse(atob(data)) as { width: number; height: number };
+}
+
 export interface WireCommand {
   id: number;
   method: string;
@@ -11,6 +16,8 @@ export class FakeSocket extends EventTarget {
   readyState = 0;
   bufferedAmount = 0;
   readonly commands: WireCommand[] = [];
+  holdReplyMethod: string | null = null;
+  readonly heldReplies: { command: WireCommand; result: object }[] = [];
   constructor(
     readonly handle?: (command: WireCommand, socket: FakeSocket) => void,
   ) {
@@ -31,6 +38,10 @@ export class FakeSocket extends EventTarget {
     this.dispatchEvent(new Event("close"));
   }
   reply(command: WireCommand, result: object = {}) {
+    if (command.method === this.holdReplyMethod) {
+      this.heldReplies.push({ command, result });
+      return;
+    }
     this.dispatchEvent(
       new MessageEvent("message", {
         data: JSON.stringify({ id: command.id, result }),
@@ -74,7 +85,23 @@ export class FakeBrowser {
   ];
   unsupportedWindows = false;
   unsupportedStream = false;
+  unsupportedDisplay = false;
+  unsupportedContentsSize = false;
+  unsupportedClock = false;
+  nativeDpr = 1;
+  browserZoom = 1;
+  windowState = "normal";
+  readonly windowSizes = new Map<number, { width: number; height: number }>();
+  private readonly emulation = new Map<
+    string,
+    { width: number; height: number; dpr: number }
+  >();
+  private readonly streams = new Set<string>();
+  private nativeClock = 1_800_000_000;
+  private readonly clocks = new Set<string>();
   holdAttach = false;
+  holdFrames = false;
+  readonly heldFrames: (() => void)[] = [];
   holdMethod: string | null = null;
   blockOpen = false;
   readonly heldCommands: { command: WireCommand; socket: FakeSocket }[] = [];
@@ -96,12 +123,57 @@ export class FakeBrowser {
     return socket.asWebSocket();
   };
 
-  frame(socket: FakeSocket, sessionId: string, frameId = 73): void {
-    socket.emit(
-      "Page.screencastFrame",
-      { data: "aW1hZ2U=", sessionId: frameId },
-      sessionId,
+  resume(command: WireCommand, socket: FakeSocket): void {
+    if (this.holdMethod === command.method)
+      throw new Error("Clear the held method before resuming it.");
+    this.respond(command, socket);
+  }
+
+  frame(
+    socket: FakeSocket,
+    sessionId: string,
+    frameId = 73,
+    nativeMetadata = false,
+  ): void {
+    const target = this.targets.find(
+      (value) => value.id === this.sessions.get(sessionId),
     );
+    const native = target ? this.windowSizes.get(target.windowId) : undefined;
+    const size = native ?? { width: 800, height: 600 };
+    const scale = Math.min(
+      this.nativeDpr,
+      4096 / size.width,
+      4096 / size.height,
+    );
+    const timestamp = this.clocks.has(sessionId)
+      ? (this.nativeClock += 0.002)
+      : undefined;
+    const emit = () =>
+      socket.emit(
+        "Page.screencastFrame",
+        {
+          data: btoa(
+            JSON.stringify({
+              width: Math.round(size.width * scale),
+              height: Math.round(size.height * scale),
+            }),
+          ),
+          sessionId: frameId,
+          ...(native || nativeMetadata || timestamp !== undefined
+            ? {
+                metadata: {
+                  deviceWidth: size.width,
+                  deviceHeight: size.height,
+                  pageScaleFactor: 1,
+                  ...(timestamp === undefined ? {} : { timestamp }),
+                },
+              }
+            : {}),
+        },
+        sessionId,
+      );
+    if (this.holdFrames) this.heldFrames.push(emit);
+    else emit();
   }
 
   private respond(command: WireCommand, socket: FakeSocket): void {
@@ -118,6 +190,44 @@ export class FakeBrowser {
           socket.reply(command, { frameTree: { frame: { id: "main" } } });
           break;
         case "Runtime.evaluate":
+          if (command.params?.expression === "Date.now()") {
+            if (this.unsupportedClock) {
+              socket.reply(command, { result: { type: "undefined" } });
+              break;
+            }
+            this.clocks.add(command.sessionId!);
+            this.nativeClock += 0.01;
+            socket.reply(command, {
+              result: { type: "number", value: this.nativeClock * 1000 },
+            });
+            break;
+          }
+          if (
+            command.params?.expression ===
+            "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})"
+          ) {
+            const target = this.targets.find(
+              (value) => value.id === this.sessions.get(command.sessionId!),
+            );
+            const size = this.emulation.get(command.sessionId!) ??
+              (target ? this.windowSizes.get(target.windowId) : undefined) ?? {
+                width: 800,
+                height: 600,
+              };
+            socket.reply(command, {
+              result: {
+                type: "object",
+                value: {
+                  width: Math.round(size.width / this.browserZoom),
+                  height: Math.round(size.height / this.browserZoom),
+                  dpr:
+                    (this.emulation.get(command.sessionId!)?.dpr ??
+                      this.nativeDpr) * this.browserZoom,
+                },
+              },
+            });
+            break;
+          }
           if (
             String(command.params?.expression).includes(
               "const tab = window.open(",
@@ -175,16 +285,32 @@ export class FakeBrowser {
             },
           });
           break;
-        case "Page.getLayoutMetrics":
+        case "Page.getLayoutMetrics": {
+          const target = this.targets.find(
+            (value) => value.id === this.sessions.get(command.sessionId!),
+          );
+          const size = this.emulation.get(command.sessionId!) ??
+            (target ? this.windowSizes.get(target.windowId) : undefined) ?? {
+              width: 800,
+              height: 600,
+            };
+          const width = size.width / this.browserZoom,
+            height = size.height / this.browserZoom;
           socket.reply(command, {
+            visualViewport: {
+              clientWidth: width * this.nativeDpr * this.browserZoom,
+              clientHeight: height * this.nativeDpr * this.browserZoom,
+            },
             cssVisualViewport: {
+              zoom: this.browserZoom,
               offsetX: 0,
               offsetY: 0,
-              clientWidth: 800,
-              clientHeight: 600,
+              clientWidth: width,
+              clientHeight: height,
             },
           });
           break;
+        }
         case "Page.getNavigationHistory":
           socket.reply(command, {
             currentIndex: 0,
@@ -224,9 +350,62 @@ export class FakeBrowser {
             (t) => t.id === command.params?.targetId,
           );
           if (this.unsupportedWindows || !target) socket.reject(command);
-          else socket.reply(command, { windowId: target.windowId, bounds: {} });
+          else
+            socket.reply(command, {
+              windowId: target.windowId,
+              bounds: { windowState: this.windowState },
+            });
           break;
         }
+        case "Emulation.setDeviceMetricsOverride":
+          if (this.unsupportedDisplay) socket.reject(command);
+          else {
+            this.emulation.set(command.sessionId!, {
+              width: Number(command.params?.width),
+              height: Number(command.params?.height),
+              dpr: Number(command.params?.deviceScaleFactor),
+            });
+            socket.reply(command);
+            socket.emit("Page.frameResized", {}, command.sessionId);
+            if (this.streams.has(command.sessionId!))
+              this.frame(socket, command.sessionId!);
+          }
+          break;
+        case "Emulation.clearDeviceMetricsOverride":
+          this.emulation.delete(command.sessionId!);
+          socket.reply(command);
+          socket.emit("Page.frameResized", {}, command.sessionId);
+          this.frame(socket, command.sessionId!, 73, true);
+          break;
+        case "Browser.setContentsSize":
+          if (this.unsupportedContentsSize) {
+            socket.reject(command);
+            break;
+          }
+          this.windowSizes.set(Number(command.params?.windowId), {
+            width: Number(command.params?.width),
+            height: Number(command.params?.height),
+          });
+          socket.reply(command);
+          for (const session of this.streams) {
+            const target = this.targets.find(
+              (value) => value.id === this.sessions.get(session),
+            );
+            if (target?.windowId === command.params?.windowId) {
+              socket.emit("Page.frameResized", {}, session);
+              this.frame(socket, session);
+            }
+          }
+          break;
+        case "Target.detachFromTarget":
+          this.emulation.delete(String(command.params?.sessionId));
+          this.streams.delete(String(command.params?.sessionId));
+          socket.reply(command);
+          break;
+        case "Page.stopScreencast":
+          this.streams.delete(command.sessionId!);
+          socket.reply(command);
+          break;
         case "Target.attachToTarget": {
           const sessionId = "session-" + ++this.nextSession;
           this.sessions.set(sessionId, String(command.params?.targetId));
@@ -258,10 +437,11 @@ export class FakeBrowser {
           break;
         }
         case "Page.startScreencast":
-          if (this.unsupportedStream) {
+          if (this.unsupportedStream || this.streams.has(command.sessionId!)) {
             socket.reject(command);
             break;
           }
+          this.streams.add(command.sessionId!);
           socket.reply(command);
           // Deliver before the awaiting startup continuation: frames may race
           // the start response, and must not become a cancelled-timer error.

@@ -16,6 +16,7 @@ import type { CdpViewerProps } from "../viewer/types";
 import { viewerScope } from "./context";
 import { ToolbarFocus } from "./focus";
 import { observeTabStrip } from "./tab-strip";
+import { observeDisplay } from "./display";
 
 interface Elements {
   canvas: RefObject<HTMLCanvasElement | null>;
@@ -24,6 +25,7 @@ interface Elements {
   tabs: RefObject<HTMLDivElement | null>;
   notice: RefObject<HTMLDivElement | null>;
   clipboard: RefObject<HTMLTextAreaElement | null>;
+  browserMenu: RefObject<HTMLDivElement | null>;
 }
 const ElementsContext = createContext<Elements | null>(null);
 
@@ -44,6 +46,8 @@ export function ViewerRuntime({
   windowId,
   paused = false,
   interactive = false,
+  windowSizeSync,
+  onWindowSizeSyncChange,
   extensions,
   onStatusChange,
   onError,
@@ -56,24 +60,44 @@ export function ViewerRuntime({
   const notification = viewerScope.useValue(model.notification$);
   const notificationId = notification?.id;
   const notificationExiting = notification?.exiting ?? false;
+  const displayMode = viewerScope.useValue(model.windowSizeSync$);
   const canvas = useRef<HTMLCanvasElement>(null);
   const proxy = useRef<HTMLTextAreaElement>(null);
   const address = useRef<HTMLInputElement>(null);
   const tabs = useRef<HTMLDivElement>(null);
   const notice = useRef<HTMLDivElement>(null);
   const clipboard = useRef<HTMLTextAreaElement>(null);
+  const browserMenu = useRef<HTMLDivElement>(null);
   const elements = useMemo(
-    () => ({ canvas, proxy, address, tabs, notice, clipboard }),
-    [canvas, proxy, address, tabs, notice, clipboard],
+    () => ({ canvas, proxy, address, tabs, notice, clipboard, browserMenu }),
+    [canvas, proxy, address, tabs, notice, clipboard, browserMenu],
   );
   const focus = useMemo(() => new ToolbarFocus(tabs, address), [tabs, address]);
   const native = useRef<NativeInput | null>(null);
   const runtime = useRef<ViewerController | null>(null);
   const inViewport = useRef(true);
-  const committed = useRef({ paused, onStatusChange, onError });
+  const committed = useRef({
+    paused,
+    onStatusChange,
+    onError,
+    onWindowSizeSyncChange,
+    displayMode,
+  });
   useLayoutEffect(() => {
-    committed.current = { paused, onStatusChange, onError };
-  }, [paused, onStatusChange, onError]);
+    committed.current = {
+      paused,
+      onStatusChange,
+      onError,
+      onWindowSizeSyncChange,
+      displayMode,
+    };
+  }, [paused, onStatusChange, onError, onWindowSizeSyncChange, displayMode]);
+  useLayoutEffect(() => {
+    model.run(model.configureDisplay$, {
+      controlled: windowSizeSync ?? null,
+      canChange: windowSizeSync === undefined || !!onWindowSizeSyncChange,
+    });
+  }, [model, windowSizeSync, onWindowSizeSyncChange]);
   useLayoutEffect(() => {
     if (!canvas.current) return;
     // The conditional address editor's lifetime ends in view-only mode.
@@ -115,6 +139,9 @@ export function ViewerRuntime({
       copyClipboard: () => native.current?.copyClipboard(),
       dismissClipboard: () => native.current?.clearClipboard(),
       selectClipboard: () => clipboard.current?.select(),
+      syncDisplay: () => controller.syncDisplay(),
+      onWindowSizeSyncChange: (mode) =>
+        committed.current.onWindowSizeSyncChange?.(mode),
     };
     model.run(model.bind$, actions);
     let active = true;
@@ -133,18 +160,26 @@ export function ViewerRuntime({
           })
         : null;
     observer?.observe(canvas.current);
+    const stopDisplayObservation = observeDisplay(canvas.current, (size) =>
+      controller.measureDisplay(size),
+    );
     document.addEventListener("visibilitychange", visibility);
+    controller.setWindowSizeSync(committed.current.displayMode);
     controller.start();
     return () => {
       active = false;
       document.removeEventListener("visibilitychange", visibility);
       observer?.disconnect();
+      stopDisplayObservation();
       model.run(model.unbind$, actions);
       controller.close();
       focus.reset();
       if (runtime.current === controller) runtime.current = null;
     };
   }, [cdpUrl, windowId, revision, model, interactive, focus]);
+  useLayoutEffect(() => {
+    runtime.current?.setWindowSizeSync(displayMode);
+  }, [displayMode]);
   // Configuration reconciliation does not own or recreate the transport.
   useLayoutEffect(() => {
     runtime.current?.setExtensions(extensions ?? []);

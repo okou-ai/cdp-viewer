@@ -102,6 +102,14 @@ from live service evidence.
 
 ## Deterministic asynchronous tests
 
+Validate pure policy transitions with bounded event sequences as well as named
+examples. Check lifecycle and ordering invariants across configuration changes,
+unavailable observations, replacement and late outcomes. Assert semantic
+decisions, retained intent and committed history rather than reproducing the
+transition implementation as the expected-value calculation. A pure model test
+does not establish native effects or presentation; retain public protocol and
+installed-browser checks for those boundaries.
+
 Hold and release actual protocol or event boundaries to test delayed work,
 replacement and cancellation. Assert both the intended effect and the absence
 of stale effects. Do not hide races with arbitrary sleeps, higher timeouts or
