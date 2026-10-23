@@ -180,7 +180,12 @@ it("rejects invalid initial settings before opening and starts when they are cor
     browser.sockets[0]!.commands.find(
       (c) => c.method === "Page.startScreencast",
     )?.params,
-  ).toEqual({ format: "jpeg", ...defaultCapture, quality: 0 });
+  ).toEqual({
+    format: "jpeg",
+    ...defaultCapture,
+    quality: 0,
+    sendLastFrame: true,
+  });
 });
 
 it("reconfigures only capture while preserving selected input and rejecting invalid updates", async () => {
@@ -291,7 +296,13 @@ it("uses the latest capture during attachment and applies paused changes on resu
   expect(
     socket.commands.filter((c) => c.method === "Page.startScreencast").at(-1)
       ?.params,
-  ).toEqual({ format: "jpeg", quality: 70, maxWidth: 960, maxHeight: 540 });
+  ).toEqual({
+    format: "jpeg",
+    quality: 70,
+    maxWidth: 960,
+    maxHeight: 540,
+    sendLastFrame: true,
+  });
 });
 
 it("does not restart a replaced session after a held stop reply", async () => {

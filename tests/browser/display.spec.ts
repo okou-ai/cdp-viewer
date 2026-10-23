@@ -483,7 +483,29 @@ for (const nativeDpr of [1, 2]) {
       await expect(
         view.getByRole("menuitem", { name: "Sync now", exact: true }),
       ).toBeEnabled();
-      await page.keyboard.press("Escape");
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      const startsBeforeReuse = commands.filter(
+        (method) => method === "Page.startScreencast",
+      ).length;
+      const writesBeforeReuse = commands.filter(
+        (method) => method === "Emulation.setDeviceMetricsOverride",
+      ).length;
+      // An unchanged acknowledged display reuses its compatible painted image.
+      // Earlier size/density changes may legitimately need a capture fence or
+      // the bounded clipped-image recovery.
+      await view
+        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .click();
+      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+      expect(
+        commands.filter((method) => method === "Page.startScreencast"),
+      ).toHaveLength(startsBeforeReuse);
+      expect(
+        commands.filter(
+          (method) => method === "Emulation.setDeviceMetricsOverride",
+        ),
+      ).toHaveLength(writesBeforeReuse);
       expect(await input!.evaluate((element) => element.isConnected)).toBe(
         true,
       );

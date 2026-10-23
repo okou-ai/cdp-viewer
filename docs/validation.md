@@ -127,6 +127,48 @@ synchronization. Keep latency measurements in separate reproducible probes.
 Record conditions, samples and the measured boundary before claiming a gain;
 do not turn one machine's timings into a universal threshold.
 
+Capture freshness tests should verify that a sampled native clock boundary has
+elapsed before restarting capture. Cover the first sub-millisecond static frame,
+malformed or regressed clock proofs, stale/same-raster images and cancellation
+while the native operation waits. Match the CI browser revision when investigating
+native capture behavior; a successful resize acknowledgement alone does not
+prove compatible presented pixels.
+
+Cover density-only changes with an unchanged logical viewport at different native
+DPR and zoom values. Withhold automatic resize frames, retain the stale pixels
+barrier and require exactly one fresh capture to restore input. Ordinary logical
+resizes and no-op reuse must retain their bounded native IO behavior.
+
+For continuous input, measure first input to first changed canvas, changing-frame
+gaps during the action, and final input to the corresponding final canvas. Record
+actual native scroll distance alongside normalized outbound deltas, request count
+and pending work. An acknowledgement or incoming frame packet does not prove
+visible completion. Use natural frame delivery and actual renderer draws, with
+fresh per-trial preparation and a scene whose scrolling changes visible pixels.
+Label canvas-draw timing separately from physical-display presentation.
+
+Compare exact source revisions under the same workload, capture and network
+conditions. Establish equal remote work before comparing speed; a provider's
+non-additive wheel conversion can change distance when events are coalesced.
+Use independent direct-CDP controls to distinguish endpoint transformations from
+the actual viewer path. Preserve failed samples, censored waits and outliers;
+later successful samples do not explain earlier failures. Normal correctness
+coverage should verify native default scrolling and streamed final position
+without adding machine-specific latency assertions to CI.
+
+Exercise original-owner admission through synchronous callbacks as well as
+delayed replies. Retire or replace input while clearing clipboard/error state,
+flushing a full queue and publishing deliberate focus/navigation transitions.
+Assert no old-event write on the successor and confirm that a fresh event still
+works. Clipboard capture/bubble and compatibility pointer/mouse events must keep
+their original binding. A leading scheduler's pressure fixture must actually
+retain a trailing sample at the held boundary; an already sent leading sample
+cannot be cancelled retroactively.
+
+Verify native send ordering at the controlled protocol wire. Chromium can
+schedule wheel and keyboard DOM callbacks independently; check their remote
+effects separately when ordered sends intentionally do not await acknowledgement.
+
 The opt-in [adjacent-input experiment](../tests/experiments/README.md) compares
 guarded execution locations with an independently installed public consumer.
 It is separate from the normal browser correctness suite; its narrow prototype

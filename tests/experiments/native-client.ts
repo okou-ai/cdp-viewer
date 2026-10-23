@@ -212,11 +212,13 @@ window.installNativeExperiment = ({
     blur: () => {
       if (!composition) {
         stop();
-        return;
+        return null;
       }
-      if (stopped || !token) return;
+      if (stopped || !token) return null;
       discard();
       socket.send(JSON.stringify({ kind: "blur", owner, generation }));
+      // This fixture receives replacement authority only from the remote reply.
+      return null;
     },
     key: (key) => send({ kind: "key", key }),
     pointer: (type, point, details) =>

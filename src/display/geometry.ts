@@ -114,10 +114,16 @@ export class InputGeometry {
   }
 
   wheel(deltaX: number, deltaY: number): { deltaX: number; deltaY: number } {
-    return {
+    const wheel = {
       deltaX: deltaX * this.wheelScale,
       deltaY: deltaY * this.wheelScale,
     };
+    if (!Number.isFinite(wheel.deltaX) || !Number.isFinite(wheel.deltaY))
+      throw new CdpFault(
+        "input",
+        "The wheel distance is outside the supported range.",
+      );
+    return wheel;
   }
 }
 

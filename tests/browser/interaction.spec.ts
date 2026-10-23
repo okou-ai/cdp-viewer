@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { launchBackend, serveBrowserConsumer } from "./backend";
+import {
+  launchBackend,
+  launchNativeBackend,
+  serveBrowserConsumer,
+} from "./backend";
 import type {} from "../consumer/api";
 
 let server: Awaited<ReturnType<typeof serveBrowserConsumer>>;
@@ -119,7 +123,7 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
-test("forwards new wheel distance while an earlier dispatch response is held", async ({
+test("batches wheel tasks before a frame and admits them before a later key", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -130,13 +134,157 @@ test("forwards new wheel distance while an earlier dispatch response is held", a
     const { remote, windowId } = await editor(backend);
     await remote.evaluate(() => {
       document.body.dataset.wheel = "0";
-      document.addEventListener("wheel", (event) => {
-        document.body.dataset.wheel = String(
-          Number(document.body.dataset.wheel) + event.deltaY,
+      document.body.dataset.keys = "0";
+      document.body.dataset.releases = "0";
+      document.addEventListener(
+        "wheel",
+        (event) => {
+          event.preventDefault();
+          document.body.dataset.wheel = String(
+            Number(document.body.dataset.wheel) + event.deltaY,
+          );
+        },
+        { passive: false },
+      );
+      document.addEventListener("keydown", (event) => {
+        event.preventDefault();
+        document.body.dataset.keys = String(
+          Number(document.body.dataset.keys) + 1,
+        );
+      });
+      document.addEventListener("keyup", () => {
+        document.body.dataset.releases = String(
+          Number(document.body.dataset.releases) + 1,
         );
       });
     });
-    const wheels: number[] = [];
+    const commands: {
+      method?: string;
+      params?: { type?: string; deltaY?: number };
+    }[] = [];
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(
+          String(message),
+        ) as (typeof commands)[number];
+        if (command.method?.startsWith("Input.")) commands.push(command);
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => socket.send(message));
+    });
+    const view = await host(page, backend, windowId);
+    await view.getByRole("textbox", { name: "Remote browser input" }).focus();
+    const position = await imagePosition(view, 500, 300, remote);
+    const before = await view
+      .locator("canvas")
+      .evaluate(async (canvas, point) => {
+        const request = window.requestAnimationFrame;
+        const cancel = window.cancelAnimationFrame;
+        const callbacks = new Map<number, FrameRequestCallback>();
+        let next = 0;
+        window.requestAnimationFrame = (callback) => {
+          callbacks.set(++next, callback);
+          return next;
+        };
+        window.cancelAnimationFrame = (id) => {
+          callbacks.delete(id);
+        };
+        try {
+          const task = () =>
+            new Promise<void>((resolve) => {
+              const channel = new MessageChannel();
+              channel.port1.onmessage = () => {
+                channel.port1.close();
+                channel.port2.close();
+                resolve();
+              };
+              channel.port2.postMessage(null);
+            });
+          for (let index = 0; index < 8; index++) {
+            canvas.dispatchEvent(
+              new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                clientX: point.x,
+                clientY: point.y,
+                deltaY: 12,
+              }),
+            );
+            await task();
+          }
+          const pending = callbacks.size;
+          const proxy = canvas.parentElement!.querySelector("textarea")!;
+          proxy.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              bubbles: true,
+              cancelable: true,
+              key: "ArrowLeft",
+              code: "ArrowLeft",
+            }),
+          );
+          proxy.dispatchEvent(
+            new KeyboardEvent("keyup", {
+              bubbles: true,
+              cancelable: true,
+              key: "ArrowLeft",
+              code: "ArrowLeft",
+            }),
+          );
+          return pending;
+        } finally {
+          window.requestAnimationFrame = request;
+          window.cancelAnimationFrame = cancel;
+          for (const callback of callbacks.values())
+            callback(performance.now());
+        }
+      }, position);
+    expect(before).toBeGreaterThanOrEqual(1);
+    await expect(remote.locator("body")).toHaveAttribute("data-wheel", "96");
+    await expect(remote.locator("body")).toHaveAttribute("data-keys", "1");
+    await expect(remote.locator("body")).toHaveAttribute("data-releases", "1");
+    // Chromium's wheel compositor barrier can deliver DOM callbacks after a
+    // later key. Verify ordered CDP admission and remote effects independently.
+    expect(
+      commands.map((command) => [command.method, command.params?.type]),
+    ).toEqual([
+      ["Input.dispatchMouseEvent", "mouseWheel"],
+      ["Input.dispatchKeyEvent", "rawKeyDown"],
+      ["Input.dispatchKeyEvent", "keyUp"],
+    ]);
+    expect(commands[0]?.params?.deltaY).toBe(96);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("batched wheels scroll and paint while an earlier reply is held", async ({
+  page,
+}) => {
+  const backend = await launchNativeBackend(server.origin, true, 1.25);
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.setContent(`<!doctype html><html><head><style>
+      html,body{margin:0}body{width:100000px;height:100000px}
+      #landmark{position:absolute;width:40px;height:40px;background:rgb(24,224,80)}
+    </style></head><body><div id="landmark"></div></body></html>`);
+    await remote.evaluate(() => {
+      document.addEventListener("wheel", (event) => {
+        document.body.dataset.wheelX = String(
+          Number(document.body.dataset.wheelX) + event.deltaX,
+        );
+        document.body.dataset.wheelY = String(
+          Number(document.body.dataset.wheelY) + event.deltaY,
+        );
+        document.body.dataset.trusted = String(event.isTrusted);
+      });
+    });
+    expect(await remote.evaluate(() => devicePixelRatio)).toBe(1.25);
+    const viewport = await remote.evaluate(() => ({
+      width: visualViewport!.width,
+      height: visualViewport!.height,
+    }));
     let heldId: number | undefined;
     let release: (() => void) | undefined;
     await page.routeWebSocket(backend.endpoint, (socket) => {
@@ -145,15 +293,14 @@ test("forwards new wheel distance while an earlier dispatch response is held", a
         const command = JSON.parse(String(message)) as {
           id?: number;
           method?: string;
-          params?: { type?: string; deltaY?: number };
+          params?: { type?: string };
         };
         if (
+          heldId === undefined &&
           command.method === "Input.dispatchMouseEvent" &&
           command.params?.type === "mouseWheel"
-        ) {
-          wheels.push(command.params.deltaY!);
-          if (wheels.length === 1) heldId = command.id;
-        }
+        )
+          heldId = command.id;
         upstream.send(message);
       });
       upstream.onMessage((message) => {
@@ -164,30 +311,111 @@ test("forwards new wheel distance while an earlier dispatch response is held", a
       });
     });
     const view = await host(page, backend, windowId);
-    const position = await imagePosition(view, 500, 300, remote);
-    const wheel = (count: number) =>
-      view.locator("canvas").evaluate(
-        (canvas, value) => {
-          for (let i = 0; i < value.count; i++)
-            canvas.dispatchEvent(
-              new WheelEvent("wheel", {
-                bubbles: true,
-                cancelable: true,
-                clientX: value.x,
-                clientY: value.y,
-                deltaY: 12,
-              }),
-            );
-        },
-        { ...position, count },
-      );
-    await wheel(1);
-    await expect.poll(() => typeof release).toBe("function");
-    await wheel(20);
-    await expect(remote.locator("body")).toHaveAttribute("data-wheel", "252");
-    expect(wheels.reduce((total, delta) => total + delta, 0)).toBe(252);
-    expect(wheels[0]).toBe(12);
-    expect(wheels.length).toBeGreaterThan(1);
+    const canvas = view.locator("canvas");
+    const expectPixel = async (color: number[]) => {
+      await expect
+        .poll(() =>
+          canvas.evaluate(
+            (element: HTMLCanvasElement, expected) => {
+              const pixels = element
+                .getContext("2d")!
+                .getImageData(
+                  Math.round((84 / expected.width) * element.width),
+                  Math.round((84 / expected.height) * element.height),
+                  1,
+                  1,
+                ).data;
+              return Math.max(
+                ...expected.color.map((channel, i) =>
+                  Math.abs(channel - pixels[i]!),
+                ),
+              );
+            },
+            { ...viewport, color },
+          ),
+        )
+        .toBeLessThanOrEqual(12);
+    };
+    const scenarios = [
+      { name: "small positive", x: 0, y: 0, dx: 0, dy: 12, count: 8 },
+      { name: "small negative", x: 0, y: 2000, dx: 0, dy: -12, count: 8 },
+      { name: "large accumulated", x: 0, y: 0, dx: 0, dy: 120, count: 14 },
+      { name: "horizontal fraction", x: 1000, y: 0, dx: -3.5, dy: 0, count: 8 },
+    ];
+    for (const [index, scenario] of scenarios.entries()) {
+      await test.step(scenario.name, async () => {
+        const expected = {
+          x: scenario.x + scenario.dx * scenario.count,
+          y: scenario.y + scenario.dy * scenario.count,
+        };
+        const background = [224 - index * 32, 32, 48 + index * 48];
+        await remote.evaluate(
+          ({ scenario, expected, background }) => {
+            document.body.style.background = `rgb(${background.join(",")})`;
+            document.body.dataset.wheelX = "0";
+            document.body.dataset.wheelY = "0";
+            document.body.dataset.trusted = "false";
+            const landmark = document.getElementById("landmark")!;
+            landmark.style.left = `${expected.x + 64}px`;
+            landmark.style.top = `${expected.y + 64}px`;
+            scrollTo({
+              left: scenario.x,
+              top: scenario.y,
+              behavior: "instant",
+            });
+          },
+          { scenario, expected, background },
+        );
+        // A distinct background joins preparation through the actual stream.
+        // The existing landmark moves through native default scrolling only.
+        await expectPixel(background);
+        const point = await imagePosition(view, 500, 300, remote);
+        await canvas.evaluate(
+          (element, value) => {
+            for (let i = 0; i < value.count; i++)
+              element.dispatchEvent(
+                new WheelEvent("wheel", {
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: value.x,
+                  clientY: value.y,
+                  deltaX: value.dx,
+                  deltaY: value.dy,
+                }),
+              );
+          },
+          {
+            ...point,
+            dx: scenario.dx,
+            dy: scenario.dy,
+            count: scenario.count,
+          },
+        );
+        await expect(remote.locator("body")).toHaveAttribute(
+          "data-wheel-x",
+          String(scenario.dx * scenario.count),
+        );
+        await expect(remote.locator("body")).toHaveAttribute(
+          "data-wheel-y",
+          String(scenario.dy * scenario.count),
+        );
+        await expect(remote.locator("body")).toHaveAttribute(
+          "data-trusted",
+          "true",
+        );
+        await expect
+          .poll(() =>
+            remote.evaluate(() => ({
+              x: scrollX,
+              y: scrollY,
+            })),
+          )
+          .toEqual(expected);
+        await expectPixel([24, 224, 80]);
+        await expect.poll(() => typeof release).toBe("function");
+        await expect(view).toHaveAttribute("data-status", "streaming");
+      });
+    }
     release!();
   } finally {
     await backend.close();
@@ -243,13 +471,14 @@ test("continuous wheel input survives delayed replies without dropping focus or 
     const view = await host(page, backend, windowId);
     await clickRemote(page, view, remote, "#plain");
     const position = await imagePosition(view, 500, 300, remote);
-    // Each message is a client task, letting input sends drain between events
-    // without driver round trips extending the hold past the request deadline.
+    // Cross real frame boundaries so early batching still fills the native
+    // reply budget. Separate client tasks can all fit in one frame.
     await view.locator("canvas").evaluate(async (canvas, point) => {
-      await new Promise<void>((resolve) => {
-        const tasks = new MessageChannel();
-        let sent = 0;
-        tasks.port1.onmessage = () => {
+      for (let frame = 0; frame < 40; frame++) {
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        for (let event = 0; event < 4; event++)
           canvas.dispatchEvent(
             new WheelEvent("wheel", {
               bubbles: true,
@@ -259,18 +488,10 @@ test("continuous wheel input survives delayed replies without dropping focus or 
               deltaY: 12,
             }),
           );
-          if (++sent === 160) {
-            tasks.port1.close();
-            tasks.port2.close();
-            resolve();
-          } else tasks.port2.postMessage(null);
-        };
-        tasks.port2.postMessage(null);
-      });
+      }
     }, position);
-    await expect.poll(() => replies.length).toBeGreaterThan(1);
-    expect(wheels.length).toBeGreaterThan(1);
-    expect(wheels.length).toBeLessThanOrEqual(64);
+    await expect.poll(() => replies.length).toBe(32);
+    expect(wheels).toHaveLength(32);
     await expect(view.getByRole("alert")).toHaveCount(0);
     await expect(
       view.getByRole("textbox", { name: "Remote browser input" }),
@@ -1839,6 +2060,43 @@ for (const [kind, selector] of [
     }
   });
 }
+
+test("a composing click cancels the original range and focuses the new control once", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    const proxy = view.getByRole("textbox", { name: "Remote browser input" });
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.value = "draft";
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          isComposing: true,
+          inputType: "insertCompositionText",
+          data: "draft",
+        }),
+      );
+    });
+    await expect(remote.locator("#plain")).toHaveValue("draft");
+    await clickRemote(page, view, remote, "#multiline");
+    await expect(remote.locator("#plain")).toHaveValue("");
+    await page.keyboard.insertText("fresh focus");
+    await expect(remote.locator("#multiline")).toHaveValue("fresh focus");
+    await expect(proxy).toBeFocused();
+  } finally {
+    await backend.close();
+  }
+});
 
 test("composition commits once, cancels locally and keeps candidate Enter separate", async ({
   page,

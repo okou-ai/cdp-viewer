@@ -6,6 +6,8 @@ import type { InputTransition } from "./lifecycle";
 import { imagePoint, localPoint } from "./geometry";
 import type { Point } from "./geometry";
 import type { NativeInputPort } from "./port";
+import { InputIngress } from "./ingress";
+import type { InputBinding } from "./ingress";
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
 const buttonMasks = [1, 4, 2, 8, 16] as const;
@@ -25,23 +27,34 @@ export class NativeInput {
   private readonly forwarded = new Set<string>();
   private readonly clipboardKeys = new Set<string>();
   private pointerId: number | null = null;
+  private pointerInput: InputBinding | null = null;
   private readonly pressedButtons = new Set<number>();
-  private moveFrame: number | null = null;
-  private latestMove: PointerEvent | null = null;
+  private readonly ingress: InputIngress;
   private readonly lifetime = new AbortController();
   private readonly clipboard: NativeClipboard;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly proxy: HTMLTextAreaElement,
-    private readonly input: () => NativeInputPort | null,
+    input: () => NativeInputPort | null,
     private readonly releaseFocus: () => void,
     clipboardChanged: (value: ClipboardRecovery | null) => void = () => {},
   ) {
+    this.ingress = new InputIngress(input, (sample) =>
+      sample.type === "mouseMoved"
+        ? imagePoint(canvas, sample.clientX, sample.clientY, sample.captured)
+        : sample.point,
+    );
     const signal = this.lifetime.signal;
+    for (const type of ["copy", "paste", "cut"])
+      proxy.addEventListener(type, this.clipboardBoundary, {
+        signal,
+        capture: true,
+      });
     this.clipboard = new NativeClipboard(
       proxy,
-      input,
+      (event) =>
+        event ? this.ingress.boundary(event) : this.ingress.current(),
       () => this.composition.composing,
       clipboardChanged,
       signal,
@@ -65,7 +78,9 @@ export class NativeInput {
       () => {
         // A pointer gesture establishes remote focus after its release. Avoid
         // querying the previous control before that click has reached Chrome.
-        if (this.pointerId === null) this.input()?.focus();
+        if (this.pointerId === null) {
+          this.ingress.boundary()?.focus();
+        }
       },
       { signal },
     );
@@ -75,10 +90,9 @@ export class NativeInput {
     proxy.addEventListener(
       "compositionstart",
       () => {
+        const input = this.ingress.boundary();
         this.composition.start(
-          document.activeElement === this.proxy
-            ? (this.input()?.owner ?? null)
-            : null,
+          document.activeElement === this.proxy ? (input?.owner ?? null) : null,
           this.proxy.value,
           this.proxy.selectionStart,
           this.proxy.selectionEnd,
@@ -97,6 +111,10 @@ export class NativeInput {
   }
 
   reset(reason?: InputTransition): void {
+    this.resetLocal(reason);
+  }
+
+  private resetLocal(reason?: InputTransition | "pointer-restarted"): void {
     if (this.resetting) return;
     this.resetting = true;
     try {
@@ -105,9 +123,10 @@ export class NativeInput {
       this.proxy.value = "";
       this.forwarded.clear();
       this.clipboardKeys.clear();
-      this.clearMove();
+      this.ingress.reset();
       const pointer = this.pointerId;
       this.pointerId = null;
+      this.pointerInput = null;
       this.pressedButtons.clear();
       if (
         pointer !== null &&
@@ -120,7 +139,8 @@ export class NativeInput {
         reason !== "navigation-started" &&
         reason !== "same-document" &&
         reason !== "document-lost" &&
-        reason !== "failed"
+        reason !== "failed" &&
+        reason !== "pointer-restarted"
       )
         this.proxy.blur();
     } finally {
@@ -138,7 +158,7 @@ export class NativeInput {
 
   dispose(): void {
     this.lifetime.abort();
-    this.input()?.blur();
+    this.ingress.dispose();
     this.reset();
   }
 
@@ -151,7 +171,7 @@ export class NativeInput {
 
   private readonly cancel = () => {
     if (this.resetting) return;
-    this.input()?.blur();
+    this.ingress.blur();
     this.reset("blur");
   };
 
@@ -161,27 +181,26 @@ export class NativeInput {
 
   private readonly pointerDown = (event: PointerEvent) => {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
-    const input = this.input();
-    if (!point || !input || event.pointerType !== "mouse") return;
-    if (this.composition.composing) {
-      input.blur();
-      this.reset();
-    }
-    // The press already supplies this position. Do not insert a deferred hover
-    // between its press/release; held-button drag movement must still flush.
-    if (
-      !this.pressedButtons.size &&
-      this.latestMove?.buttons === 0 &&
-      this.latestMove.clientX === event.clientX &&
-      this.latestMove.clientY === event.clientY
-    )
-      this.clearMove();
+    if (!point || event.pointerType !== "mouse") return;
+    const composing = this.composition.composing;
+    const input = this.ingress.pointerBoundary({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      modifiers: modifiers(event),
+      composing,
+      heldButtons: this.pressedButtons.size,
+    });
+    if (!input) return;
+    if (composing) this.resetLocal("pointer-restarted");
+    if (!input.owner) return;
     // Preserve queued gestures, held modifiers and the consumed composition
     // boundary for another click in the same viewer. The ordered press follows
     // preceding committed input on the same CDP session.
     this.place(point);
     this.pointerId = event.pointerId;
+    this.pointerInput = input;
     this.proxy.focus({ preventScroll: true });
+    if (!input.owner) return;
     this.canvas.parentElement?.setPointerCapture(event.pointerId);
   };
 
@@ -192,8 +211,10 @@ export class NativeInput {
     // PointerEvent.detail is zero. The compatibility mouse event supplies the
     // browser/OS click count, including native double/triple-click settings.
     event.preventDefault();
+    const input = this.ingress.boundary(undefined, this.pointerInput);
+    if (!input) return;
     this.pressedButtons.add(event.button);
-    this.input()?.pointer("mousePressed", point, {
+    input.pointer("mousePressed", point, {
       button: buttons[event.button] ?? "left",
       buttons: this.ownedButtons(event.buttons),
       modifiers: modifiers(event),
@@ -203,40 +224,39 @@ export class NativeInput {
 
   private readonly pointerMove = (event: PointerEvent) => {
     if (event.pointerType !== "mouse") return;
-    this.latestMove = event;
-    if (this.moveFrame === null)
-      this.moveFrame = requestAnimationFrame(this.flushMove);
-  };
-
-  private readonly flushMove = () => {
-    const event = this.latestMove;
-    this.clearMove();
-    if (!event) return;
     const held = this.ownedButtons(event.buttons);
-    const point = imagePoint(
-      this.canvas,
-      event.clientX,
-      event.clientY,
-      this.pointerId !== null,
+    this.ingress.continuous(
+      {
+        type: "mouseMoved",
+        clientX: event.clientX,
+        clientY: event.clientY,
+        captured: this.pointerId !== null,
+        details: {
+          button:
+            held & 1
+              ? "left"
+              : held & 2
+                ? "right"
+                : held & 4
+                  ? "middle"
+                  : "none",
+          buttons: held,
+          modifiers: modifiers(event),
+        },
+      },
+      this.pointerId === null ? this.ingress.current() : this.pointerInput,
     );
-    if (point)
-      this.input()?.pointer("mouseMoved", point, {
-        button:
-          held & 1 ? "left" : held & 2 ? "right" : held & 4 ? "middle" : "none",
-        buttons: held,
-        modifiers: modifiers(event),
-      });
   };
 
-  private clearMove(): void {
-    this.latestMove = null;
-    if (this.moveFrame !== null) cancelAnimationFrame(this.moveFrame);
-    this.moveFrame = null;
-  }
+  private readonly clipboardBoundary = (event: Event) => {
+    if (this.ingress.boundary(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
 
   private readonly pointerUp = (event: PointerEvent) => {
     if (event.pointerId !== this.pointerId) return;
-    this.flushMove();
+    this.ingress.boundary(undefined, this.pointerInput);
     this.pointerId = null;
     if (this.canvas.parentElement?.hasPointerCapture(event.pointerId)) {
       this.canvas.parentElement.releasePointerCapture(event.pointerId);
@@ -254,11 +274,12 @@ export class NativeInput {
     // button. The window listener also owns release outside the captured stage.
     if (!this.pressedButtons.has(event.button)) return;
     event.preventDefault();
-    this.flushMove();
+    const input = this.ingress.boundary(undefined, this.pointerInput);
+    if (!input) return;
     this.pressedButtons.delete(event.button);
     const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     if (point)
-      this.input()?.pointer("mouseReleased", point, {
+      input.pointer("mouseReleased", point, {
         button: buttons[event.button] ?? "left",
         buttons: this.ownedButtons(event.buttons),
         modifiers: modifiers(event),
@@ -268,7 +289,7 @@ export class NativeInput {
 
   private readonly wheel = (event: WheelEvent) => {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
-    if (!point || !this.input()) return;
+    if (!point || !this.ingress.current()) return;
     event.preventDefault();
     event.stopPropagation();
     const unit =
@@ -277,15 +298,20 @@ export class NativeInput {
         : event.deltaMode === 2
           ? this.canvas.clientHeight
           : 1;
-    this.input()?.pointer("mouseWheel", point, {
-      modifiers: modifiers(event),
-      deltaX: event.deltaX * unit,
-      deltaY: event.deltaY * unit,
+    this.ingress.continuous({
+      type: "mouseWheel",
+      point,
+      details: {
+        buttons: this.ownedButtons(event.buttons),
+        modifiers: modifiers(event),
+        deltaX: event.deltaX * unit,
+        deltaY: event.deltaY * unit,
+      },
     });
   };
 
   private readonly compositionUpdate = (event: CompositionEvent) => {
-    const input = this.input();
+    const input = this.ingress.boundary();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const preedit = this.composition.update(event.data, owner);
@@ -299,7 +325,7 @@ export class NativeInput {
   };
 
   private readonly compositionEnd = (event: CompositionEvent) => {
-    const input = this.input();
+    const input = this.ingress.boundary();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const composed = this.composition.owns(owner);
@@ -311,7 +337,7 @@ export class NativeInput {
   };
 
   private readonly text = (event: Event) => {
-    const input = this.input();
+    const input = this.ingress.boundary();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const result = this.composition.input(
@@ -356,6 +382,11 @@ export class NativeInput {
       this.releaseFocus();
       return;
     }
+    const input = this.ingress.boundary();
+    if (!input) {
+      event.preventDefault();
+      return;
+    }
     const shortcut =
       (event.ctrlKey || event.metaKey) && !event.getModifierState("AltGraph");
     const printable = Array.from(event.key).length === 1;
@@ -390,7 +421,7 @@ export class NativeInput {
       else if (letter === "y") key.commands = ["redo"];
     }
     this.forwarded.add(event.code || event.key);
-    this.input()?.key(key);
+    input.key(key);
   };
 
   private readonly keyUp = (event: KeyboardEvent) => {
@@ -402,7 +433,7 @@ export class NativeInput {
     }
     event.preventDefault();
     event.stopPropagation();
-    this.input()?.key({
+    this.ingress.boundary()?.key({
       type: "keyUp",
       key: event.key,
       code: event.code,

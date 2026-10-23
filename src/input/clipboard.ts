@@ -1,5 +1,5 @@
 import { clipboardTextLimit } from "./selection";
-import type { NativeInputPort } from "./port";
+import type { InputBinding } from "./ingress";
 
 export interface ClipboardRecovery {
   readonly message: string;
@@ -24,7 +24,7 @@ export class NativeClipboard {
 
   constructor(
     private readonly proxy: HTMLTextAreaElement,
-    private readonly input: () => NativeInputPort | null,
+    private readonly input: (event?: Event) => InputBinding | null,
     private readonly composing: () => boolean,
     private readonly changed: (recovery: ClipboardRecovery | null) => void,
     signal: AbortSignal,
@@ -53,14 +53,14 @@ export class NativeClipboard {
     this.changed(value);
   }
 
-  private focused(): NativeInputPort | null {
-    return document.activeElement === this.proxy ? this.input() : null;
+  private focused(event?: Event): InputBinding | null {
+    return document.activeElement === this.proxy ? this.input(event) : null;
   }
 
   private readonly paste = (event: ClipboardEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    const input = this.focused();
+    const input = this.focused(event);
     const owner = input?.owner;
     if (!event.isTrusted || !input || !owner) return;
     if (this.composing()) {
@@ -86,7 +86,7 @@ export class NativeClipboard {
   private readonly copy = (event: ClipboardEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    const input = this.focused();
+    const input = this.focused(event);
     const owner = input?.owner;
     if (!event.isTrusted || !input || !owner) return;
     this.reset();

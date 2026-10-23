@@ -126,20 +126,26 @@ export class DisplayViewport {
   needsCaptureFence(
     layout: Protocol.Page.GetLayoutMetricsResponse,
     expected: PresentationGeometry,
+    transform: DisplayTransform,
   ): boolean {
     const state = this.adaptation;
     if (state.kind !== "native" && state.kind !== "presented") return true;
     const viewport = layout.cssVisualViewport;
-    const scale = (viewport.zoom ?? 1) * (viewport.scale ?? 1) * state.scale;
-    const same = (size: Viewport) =>
-      Math.abs(size.width - expected.device.width) <= 1 &&
-      Math.abs(size.height - expected.device.height) <= 1;
+    const scale = (viewport.zoom ?? 1) * (viewport.scale ?? 1);
+    const unchanged = (viewportScale: number) =>
+      same(
+        {
+          width: viewport.clientWidth * scale * viewportScale,
+          height: viewport.clientHeight * scale * viewportScale,
+        },
+        expected.device,
+      );
     return (
-      same({
-        width: viewport.clientWidth * scale,
-        height: viewport.clientHeight * scale,
-      }) ||
-      (!!this.painted?.device && same(this.painted.device))
+      unchanged(state.scale) ||
+      // A density-only change keeps the logical viewport identical. Chrome may
+      // resize the native surface without producing a new static capture frame.
+      unchanged(transform.viewportScale) ||
+      (!!this.painted?.device && same(this.painted.device, expected.device))
     );
   }
 

@@ -5,13 +5,14 @@ should own one responsibility and expose explicit facts or effects to the next.
 
 ## Responsibilities
 
-| Layer                 | Responsibility                                                           |
-| --------------------- | ------------------------------------------------------------------------ |
-| Native adapter        | Translate DOM events and own local listeners and references              |
-| Composition model     | Represent pending local input and its captured owner                     |
-| Lifecycle coordinator | Decide ownership transitions and required cleanup without performing I/O |
-| Session adapter       | Translate protocol facts and execute the coordinator's effects           |
-| Serial executor       | Order external writes and enforce their captured ownership               |
+| Layer                 | Responsibility                                                              |
+| --------------------- | --------------------------------------------------------------------------- |
+| Native adapter        | Translate DOM events and own local listeners and references                 |
+| Input ingress         | Bind original event authority, schedule continuous work and order admission |
+| Composition model     | Represent pending local input and its captured owner                        |
+| Lifecycle coordinator | Decide ownership transitions and required cleanup without performing I/O    |
+| Session adapter       | Translate protocol facts and execute the coordinator's effects              |
+| Serial executor       | Order external writes and enforce their captured ownership                  |
 
 Keep transition decisions in the coordinator instead of distributing policy
 across event handlers. Adapters report semantic facts rather than selecting
@@ -55,6 +56,29 @@ late reply cannot clear a newer acquisition of the same external resource.
 Coalescing must preserve ordering and observable intent. A dispatched payload is
 immutable; later work must not change a request that is already awaiting
 acknowledgement.
+
+One input ingress owns continuous scheduling and discrete ordering before
+protocol admission. Capture the original port and immutable owner before a flush
+or callback, and give DOM adapters a bound capability. Its methods can only use
+that original authority. Sessions carry the supplied identity through callbacks
+into queue admission; the queue must never substitute whichever owner is current.
+This includes synchronous callbacks, not only awaited continuations. Deliberate
+focus/navigation transitions use the generation published before cleanup effects;
+reading a later current generation is not a transition receipt.
+
+Retain one compatible continuous sample for a natural frame. Keep raw movement
+coordinates until actual dispatch. Reset retires pending samples and frame
+callbacks; even a cancelled callback that runs later cannot flush a new lifetime.
+The protocol executor retains the same compatibility boundaries when coalescing
+under reply pressure. Its ordered sends and separate acknowledgements serve a
+different boundary from the ingress buffer.
+
+Clear pending state before external effects. A discrete action or selection read
+flushes preceding continuous work using its original binding; retirement makes
+the following action inadmissible. A clipboard event retains one binding across
+capture and bubble, with denied capture cancelling later admission. Local
+clipboard writes still begin synchronously in the original trusted gesture.
+Pointer capture/compatibility mouse events likewise retain their gesture binding.
 
 Remote composition is transient owned editing state. Keep preedit updates,
 final commits and cancellation ordered, and retain cleanup ownership until the

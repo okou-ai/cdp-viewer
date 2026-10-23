@@ -6,8 +6,10 @@ import type { InputEffects } from "./effects";
 import type { Preedit } from "./composition";
 import type { InputLifecycle, InputOwner } from "./lifecycle";
 import type { Point } from "./geometry";
+import { sameDirection, samePointerState } from "./coalescing";
+import type { PointerState } from "./coalescing";
 
-interface Wheel {
+interface Wheel extends PointerState {
   point: Point;
   modifiers: number;
   deltaX: number;
@@ -51,7 +53,7 @@ export interface InputJob {
 
 interface QueuedJob extends InputJob {
   run: (job: InputJob) => void | Promise<void>;
-  move: boolean;
+  move: PointerState | null;
   started: boolean;
   cancelled?: boolean;
   prepare?: (job: InputJob) => Promise<void>;
@@ -130,6 +132,7 @@ export class InputQueue {
           }
         }
         this.add(
+          owner,
           async (job) => {
             try {
               resolve(await run(job));
@@ -143,8 +146,7 @@ export class InputQueue {
     });
   }
 
-  capture(): InputJob {
-    const owner = this.lifecycle.owner;
+  capture(owner: InputOwner): InputJob {
     return {
       owner,
       request: (method, params) => this.request(owner, method, params),
@@ -166,18 +168,18 @@ export class InputQueue {
     };
   }
 
-  text(text: string, run: QueuedJob["run"]): void {
-    if (!this.lifecycle.available || !text) return;
+  text(owner: InputOwner, text: string, run: QueuedJob["run"]): void {
+    if (!this.lifecycle.owns(owner) || !text) return;
     if (text.length > 64 * 1024) {
       this.failed();
       return;
     }
     // Each native commit may change the page's focus before the next commit.
-    this.add(run, { text });
+    this.add(owner, run, { text });
   }
 
-  preedit(value: Preedit, run: QueuedJob["run"]): void {
-    if (!this.lifecycle.available) return;
+  preedit(owner: InputOwner, value: Preedit, run: QueuedJob["run"]): void {
+    if (!this.lifecycle.owns(owner)) return;
     if (value.text.length > 64 * 1024) {
       this.failed();
       return;
@@ -188,7 +190,7 @@ export class InputQueue {
       tail.preedit = value;
       return;
     }
-    this.add(run, { preedit: value });
+    this.add(owner, run, { preedit: value });
   }
 
   discardPreedit(): void {
@@ -200,15 +202,14 @@ export class InputQueue {
   }
 
   wheel(
+    owner: InputOwner,
     wheel: Wheel,
     run: QueuedJob["run"],
     prepare: NonNullable<QueuedJob["prepare"]>,
   ): void {
-    if (!this.lifecycle.available) return;
+    if (!this.lifecycle.owns(owner)) return;
     const tail = this.jobs.at(-1);
     const previous = tail?.wheel;
-    const compatible = (a: number, b: number) =>
-      !a || !b || Math.sign(a) === Math.sign(b);
     if (![wheel.deltaX, wheel.deltaY].every(Number.isFinite)) {
       this.failed();
       return;
@@ -219,9 +220,9 @@ export class InputQueue {
       this.lifecycle.owns(tail.owner) &&
       previous.point.x === wheel.point.x &&
       previous.point.y === wheel.point.y &&
-      previous.modifiers === wheel.modifiers &&
-      compatible(previous.deltaX, wheel.deltaX) &&
-      compatible(previous.deltaY, wheel.deltaY)
+      samePointerState(previous, wheel) &&
+      sameDirection(previous.deltaX, wheel.deltaX) &&
+      sameDirection(previous.deltaY, wheel.deltaY)
     ) {
       const deltaX = previous.deltaX + wheel.deltaX;
       const deltaY = previous.deltaY + wheel.deltaY;
@@ -232,25 +233,30 @@ export class InputQueue {
       }
       return;
     }
-    this.add(run, { wheel, prepare });
+    this.add(owner, run, { wheel, prepare });
   }
 
   enqueue(
+    owner: InputOwner,
     run: QueuedJob["run"],
-    move = false,
+    move?: PointerState,
     prepare?: QueuedJob["prepare"],
   ): void {
-    this.add(run, { move, ...(prepare ? { prepare } : {}) });
+    this.add(owner, run, {
+      ...(move ? { move } : {}),
+      ...(prepare ? { prepare } : {}),
+    });
   }
 
-  barrier(run: QueuedJob["run"]): void {
-    this.add(run, { barrier: true });
+  barrier(owner: InputOwner, run: QueuedJob["run"]): void {
+    this.add(owner, run, { barrier: true });
   }
 
   private add(
+    owner: InputOwner,
     run: QueuedJob["run"],
     options: {
-      move?: boolean;
+      move?: PointerState;
       text?: string;
       preedit?: Preedit;
       wheel?: Wheel;
@@ -261,19 +267,26 @@ export class InputQueue {
       valid?: () => boolean;
     },
   ): void {
-    if (!this.lifecycle.available) {
+    if (!this.lifecycle.owns(owner)) {
       options.cancel?.();
       return;
     }
-    const { move = false, ...rest } = options;
-    if (move && this.jobs.at(-1)?.move) this.jobs.pop();
+    const { move = null, ...rest } = options;
+    const previous = this.jobs.at(-1);
+    if (
+      move &&
+      previous?.move &&
+      this.lifecycle.owns(previous.owner) &&
+      samePointerState(previous.move, move)
+    )
+      this.jobs.pop();
     if (this.jobs.length + this.pending.size + (this.active ? 1 : 0) >= 64) {
       if (options.cancel) options.cancel();
       else this.failed();
       return;
     }
     const job: QueuedJob = {
-      ...this.capture(),
+      ...this.capture(owner),
       run,
       move,
       started: false,
