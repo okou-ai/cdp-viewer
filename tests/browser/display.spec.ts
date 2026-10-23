@@ -1011,12 +1011,10 @@ test("initial density restoration preserves native bounds across fractional-zoom
 
 test("adapts two windows independently and retains the sibling after unmount", async ({
   page,
-}, info) => {
-  const backend = await launchBackend(
-    info.outputPath("backend"),
-    server.origin,
-    1,
-  );
+}) => {
+  // Keep inspection free of Playwright's viewport/focus defaults and tracing
+  // screencasts, which can compete with the viewer on these same pages.
+  const backend = await launchNativeBackend(server.origin, true, 1);
   try {
     const windows = [];
     for (const color of ["red", "blue"]) {
@@ -1027,13 +1025,11 @@ test("adapts two windows independently and retains the sibling after unmount", a
       });
       const remote = await created;
       await remote.goto(server.origin + "/fixture/" + color);
-      const cdp = await backend.context.newCDPSession(remote);
-      await cdp.send("Emulation.clearDeviceMetricsOverride");
       const { windowId } = await backend.session.send(
         "Browser.getWindowForTarget",
         { targetId: target.targetId },
       );
-      windows.push({ remote, windowId, cdp });
+      windows.push({ remote, windowId });
     }
     const first = windows[0]!,
       second = windows[1]!;
@@ -1104,7 +1100,6 @@ test("adapts two windows independently and retains the sibling after unmount", a
         dpr: devicePixelRatio,
       })),
     ).toEqual({ width: 558, dpr: 2 });
-    for (const window of windows) await window.cdp.detach();
   } finally {
     await backend.close();
   }
