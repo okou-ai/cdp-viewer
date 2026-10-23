@@ -1,8 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -155,6 +163,23 @@ export async function prepareConsumer() {
         }
       }
     }
+    // Check ordinary inline file links against the installed package, not the checkout.
+    const readme = await readFile(join(installed, "README.md"), "utf8");
+    for (const [, href] of readme.matchAll(/\[[^\]\n]*\]\(([^)\s]+)\)/g)) {
+      if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(href)) continue;
+      const file = resolve(
+        installed,
+        decodeURIComponent(href.split(/[?#]/)[0]),
+      );
+      if (
+        !file.startsWith(installed + sep) ||
+        !(await stat(file).catch(() => null))?.isFile()
+      ) {
+        throw new Error(
+          "Installed README links to an unavailable file: " + href,
+        );
+      }
+    }
     run(["exec", "tsc", "--noEmit"]);
     run(["exec", "vite", "build"]);
     // Bundle source for SSR; plain Node is not a TSX compiler.
@@ -177,6 +202,7 @@ export async function prepareConsumer() {
         lifecycleScripts: false,
         frozenReinstall: true,
         lockfileSha256: createHash("sha256").update(lockfile).digest("hex"),
+        documentationLinks: true,
         publicTypes: true,
         extensionExports: true,
         build: true,

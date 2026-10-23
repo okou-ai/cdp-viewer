@@ -9,6 +9,7 @@ export function prepareConsumer(): Promise<{
     lifecycleScripts: boolean;
     frozenReinstall: boolean;
     lockfileSha256: string;
+    documentationLinks: boolean;
     publicTypes: boolean;
     build: boolean;
     ssr: boolean;

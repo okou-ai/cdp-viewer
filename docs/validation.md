@@ -40,12 +40,10 @@ browser binaries and system dependencies; keep its image version aligned with th
 project's Playwright dependency. Source checks run independently, and the aggregate
 CI result requires the checks job and every browser shard to succeed.
 
-The default setup uses an explicit full GitHub revision and checks source/CSS,
-peers, public types, frozen reinstall, client build and SSR. CI performs this
-distribution gate in browser setup; `pnpm test:package` remains available as a
-standalone check with its own preparation and cleanup. Before pushing changes,
-`CDP_VIEWER_CONSUMER_SOURCE=tarball` explicitly selects supplementary local-pack
-evidence for either command. It never establishes GitHub installation acceptance.
+CI performs the [source distribution gate](#source-and-distribution-checks) in
+browser setup. The standalone consumer check has its own preparation and cleanup;
+see [consumer verification](../CONTRIBUTING.md#consumer-verification) for commands
+and source selection.
 
 Browser tests report individual durations in CI. Compare runs with the same
 toolchain, worker policy and fixture setup, and distinguish test-case durations
@@ -181,14 +179,24 @@ Use an immutable pushed revision and a frozen lockfile. Disable dependency
 lifecycle scripts so installation cannot conceal a missing distributed file or
 an undocumented build requirement.
 
-Verify public types, styles, host-provided peers, a production build and source
-SSR without allocating browser resources. A local package can supplement these
-checks before submission but must not silently replace actual GitHub source
-installation as distribution evidence.
+Verify included source/CSS, public types, host-provided peers, an unchanged offline
+frozen reinstall, a production build and source SSR without allocating browser
+resources. Check README file links against the actual installed files: a link can
+resolve in the checkout yet target a document omitted from the package. Supporting
+guides outside the package use repository URLs; local links must stay inside the
+package and resolve to files. The consumer check covers ordinary inline file links,
+not arbitrary Markdown syntax, anchors or external HTTP availability.
+
+A local package can supplement these checks before submission but must not
+silently replace actual GitHub source installation as distribution evidence.
+The [consumer fixture](../scripts/consumer.mjs) defines baseline versions and
+records source identity, the generated lockfile hash and completed checks in its
+receipt; application repositories commit their own consumer lockfiles.
 
 ## Local checks and CI
 
-Run checks appropriate to the change. Do not run the full local Vitest suite or
+Use the [developer checklist](../CONTRIBUTING.md#checks) for commands and choose
+checks appropriate to the change. Do not run the full local Vitest suite or
 start a development server unless explicitly requested. Use focused regressions
 for local debugging; the PR pipeline owns broad unit and browser checks.
 Formatting and link checks are sufficient for documentation-only changes.
