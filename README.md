@@ -54,7 +54,8 @@ matching lockfile. Use immutable commits rather than a moving branch.
 Public exports contain TS/TSX source and its types, plus a committed standalone
 stylesheet. React and React DOM are host-provided peers. Consumers do not run a
 viewer install-time build, install its development toolchain, or configure ccstate
-or Tailwind. The consumer checks use pnpm 10.33.4, React 19.2.6 and Vite 8.
+or Tailwind. See [consumer verification](https://github.com/okou-ai/cdp-viewer/blob/main/CONTRIBUTING.md#consumer-verification)
+for the tested toolchain.
 Plain Node cannot import an uncompiled TSX entry; use a supported source-capable
 bundler/runtime for SSR. Importing/rendering the viewer on the server opens no
 browser connection.
