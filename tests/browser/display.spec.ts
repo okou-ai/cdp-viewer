@@ -256,12 +256,8 @@ for (const boundary of ["override", "restore"] as const) {
 for (const nativeDpr of [1, 2]) {
   test(`synchronizes actual streamed pixels and input at native DPR ${nativeDpr}`, async ({
     page,
-  }, info) => {
-    const backend = await launchBackend(
-      info.outputPath("backend"),
-      server.origin,
-      nativeDpr,
-    );
+  }) => {
+    const backend = await launchNativeBackend(server.origin, true, nativeDpr);
     try {
       const created = backend.context.waitForEvent("page");
       const target = await backend.session.send("Target.createTarget", {
@@ -270,9 +266,6 @@ for (const nativeDpr of [1, 2]) {
       });
       const remote = await created;
       await remote.goto(server.origin + "/fixture/editor");
-      const remoteCdp = await backend.context.newCDPSession(remote);
-      // Retire Playwright's viewport override before the public viewer owns display adaptation.
-      await remoteCdp.send("Emulation.clearDeviceMetricsOverride");
       const { windowId } = await backend.session.send(
         "Browser.getWindowForTarget",
         { targetId: target.targetId },
@@ -290,12 +283,20 @@ for (const nativeDpr of [1, 2]) {
         document.body.append(marker);
       });
       const commands: string[] = [];
+      let captureFences = 0;
       await page.routeWebSocket(backend.endpoint, (socket) => {
         const upstream = socket.connectToServer();
         socket.onMessage((message) => {
-          commands.push(
-            (JSON.parse(String(message)) as { method: string }).method,
-          );
+          const command = JSON.parse(String(message)) as {
+            method: string;
+            params?: { expression?: string };
+          };
+          commands.push(command.method);
+          if (
+            command.method === "Runtime.evaluate" &&
+            command.params?.expression === "Date.now()"
+          )
+            captureFences++;
           upstream.send(message);
         });
       });
@@ -493,9 +494,18 @@ for (const nativeDpr of [1, 2]) {
       expect(
         commands.filter((method) => method === "Target.attachToTarget"),
       ).toHaveLength(1);
+      // Preserve the initial quality upgrade and require each additional
+      // capture refresh to belong to bounded, fenced native-size recovery.
+      expect(captureFences).toBeLessThanOrEqual(
+        commands.filter((method) => method === "Browser.setContentsSize")
+          .length,
+      );
+      expect(
+        commands.filter((method) => method === "Page.stopScreencast"),
+      ).toHaveLength(1 + captureFences);
       expect(
         commands.filter((method) => method === "Page.startScreencast"),
-      ).toHaveLength(2);
+      ).toHaveLength(2 + captureFences);
       await expect(page.locator("#host-submissions")).toHaveText("0");
       await menu.click();
       await view
@@ -522,7 +532,6 @@ for (const nativeDpr of [1, 2]) {
         view.getByRole("menuitem", { name: "Sync now", exact: true }),
       ).toBeInViewport({ ratio: 1 });
       await page.keyboard.press("Escape");
-      await remoteCdp.detach();
       await localCdp.detach();
     } finally {
       await backend.close();
