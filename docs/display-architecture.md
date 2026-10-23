@@ -82,6 +82,12 @@ frame cannot establish that association. Rebinding uses the existing serialized
 capture refresh and confirmed elapsed-clock boundary to obtain accepted native
 facts after the window was observed, then verifies the window again. This native-only fence
 retires calibration authority while preserving the current painted/input receipt.
+The provisional association retains outer width/height as well as window identity.
+A changed confirming extent retires that association and reacquires native facts
+after the newly observed geometry; delayed metadata cannot bind an earlier extent
+to later bounds. This check applies while creating a reference. Verified calibration
+continues translating subsequent same-window bounds and own writes without a
+new capture. Independent hidden geometry changes between native reads are not atomic.
 Missing post-fence frames and failed capture, clock or provisional window
 confirmation remain bounded failures; explicit retry acquires a new capture.
 Another observed window change restarts rebinding for that destination. Initial

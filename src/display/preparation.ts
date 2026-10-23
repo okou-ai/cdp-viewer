@@ -26,6 +26,7 @@ type NativeWindow =
   | {
       readonly kind: "rebinding";
       readonly windowId: number;
+      readonly bounds: Protocol.Browser.Bounds;
       readonly refreshed: boolean;
     }
   | {
@@ -73,6 +74,7 @@ export class DisplayPreparation {
       this.reference = {
         kind: "rebinding",
         windowId: window.windowId,
+        bounds: window.bounds,
         refreshed: false,
       };
     }
@@ -97,13 +99,17 @@ export class DisplayPreparation {
         this.assertWindow(window);
         if (
           this.reference.kind === "initial" ||
-          this.reference.windowId !== window.windowId
+          this.reference.windowId !== window.windowId ||
+          (this.reference.kind === "rebinding" &&
+            (this.reference.bounds.width !== window.bounds.width ||
+              this.reference.bounds.height !== window.bounds.height))
         ) {
-          // Metadata has no window ID. Retire the association before obtaining
-          // a causal native frame for this observed destination on reprepare.
+          // Confirm the observed extent as well as identity before binding.
+          // Metadata may lag a same-window resize during causal acquisition.
           this.reference = {
             kind: "rebinding",
             windowId: window.windowId,
+            bounds: window.bounds,
             refreshed: false,
           };
           return null;

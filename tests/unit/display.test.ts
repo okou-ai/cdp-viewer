@@ -675,6 +675,98 @@ it.each(["non-normal", "rejected"] as const)(
   },
 );
 
+it.each(
+  [false, true].flatMap((established) =>
+    [false, true].map((changed) => ({ established, changed })),
+  ),
+)(
+  "confirms provisional native bounds after capture (established=$established, changed=$changed)",
+  async ({ established, changed }) => {
+    const browser = new FakeBrowser();
+    browser.windowSizes.set(0, { width: 800, height: 600 });
+    browser.windowSizes.set(2, { width: 900, height: 700 });
+    const { controller, model } = mount(browser, "off", undefined, 250);
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    if (established) {
+      controller.syncDisplay();
+      await vi.waitFor(() =>
+        expect(model.read(model.display$).pending).toBe(false),
+      );
+      expect(model.getSnapshot().error).toBeNull();
+      browser.targets[0]!.windowId = 2;
+    }
+    const socket = browser.sockets[0]!,
+      input = controller.input!;
+    const stops = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.stopScreencast",
+      ).length;
+    const before = stops();
+    let reads = 0;
+    browser.holdCommand = (command) => {
+      if (
+        command.method === "Browser.getWindowForTarget" &&
+        command.params?.targetId === "page-a" &&
+        ++reads === 2
+      ) {
+        socket.holdReplyMethod = "Page.getLayoutMetrics";
+        return true;
+      }
+      return false;
+    };
+    controller.measureDisplay({ width: 700, height: 500, dpr: 1.5 });
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    expect(socket.heldReplies).toHaveLength(1);
+    const windowId = established ? 2 : 0;
+    if (changed)
+      browser.windowSizes.set(windowId, { width: 1000, height: 800 });
+    browser.holdCommand = null;
+    const window = browser.heldCommands.shift()!;
+    browser.resume(window.command, window.socket);
+    // A completed public input operation follows the delivered window reply;
+    // the independent layout reply remains held, without a test delay.
+    input.text("after provisional window reply");
+    await input.completion(input.owner!);
+    browser.frame(socket, input.sessionId);
+    socket.holdReplyMethod = null;
+    const layout = socket.heldReplies.shift()!;
+    socket.reply(layout.command, layout.result);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(model.getSnapshot().error).toBeNull();
+    expect(controller.input).toBe(input);
+    expect(resizes(browser)).toHaveLength(established ? 2 : 1);
+    expect(resizes(browser).at(-1)?.params).toEqual({
+      windowId,
+      width: 1050,
+      height: 750,
+    });
+    expect(stops()).toBe(before + (changed ? 2 : 1));
+    const effects = socket.commands.length;
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(
+      socket.commands
+        .slice(effects)
+        .filter((command) =>
+          [
+            "Page.stopScreencast",
+            "Page.startScreencast",
+            "Emulation.setDeviceMetricsOverride",
+            "Browser.setContentsSize",
+          ].includes(command.method),
+        ),
+    ).toHaveLength(0);
+  },
+);
+
 it.each(["selection", "pause"] as const)(
   "retires an awaited native rebind clock on %s without lending its capture to a replacement",
   async (change) => {

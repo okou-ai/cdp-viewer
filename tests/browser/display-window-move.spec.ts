@@ -14,10 +14,12 @@ for (const [transport, timing] of [
   ["shared", "during"],
   ["shared", "late metadata"],
   ["shared", "initial late metadata"],
+  ["shared", "initial bounds change"],
   ["split", "before"],
   ["split", "during"],
   ["split", "late metadata"],
   ["split", "initial late metadata"],
+  ["split", "initial bounds change"],
 ] as const) {
   test(`synchronizes an emulated page after a native window move without a resize event (${transport}, ${timing} preparation)`, async ({
     page,
@@ -38,7 +40,8 @@ for (const [transport, timing] of [
           (window as unknown as { hits: number }).hits++;
         });
       });
-      const initial = timing === "initial late metadata";
+      const initial = timing.startsWith("initial");
+      const boundsChange = timing === "initial bounds change";
       if (initial) {
         const emulation = await backend.context.newCDPSession(remote);
         await emulation.send("Emulation.setDeviceMetricsOverride", {
@@ -68,7 +71,7 @@ for (const [transport, timing] of [
       const frames: { width: number; height: number }[] = [];
       const writes: number[] = [];
       let resizes = 0;
-      let holdWindow = false;
+      let windowReadsToHold = 0;
       let releaseWindow: (() => void) | null = null;
       let delayMetadata = false;
       const delayedMetadata: (() => void)[] = [];
@@ -96,8 +99,12 @@ for (const [transport, timing] of [
             releaseEffect = () => upstream.send(message);
             return;
           }
-          if (holdWindow && command.method === "Browser.getWindowForTarget") {
-            holdWindow = false;
+          if (
+            windowReadsToHold > 0 &&
+            command.method === "Browser.getWindowForTarget" &&
+            command.params?.targetId === targetId &&
+            --windowReadsToHold === 0
+          ) {
             releaseWindow = () => upstream.send(message);
             return;
           }
@@ -168,7 +175,7 @@ for (const [transport, timing] of [
         holdRebindEffect = true;
       }
       if (timing === "during") {
-        holdWindow = true;
+        windowReadsToHold = 1;
         await requestSync();
         await expect.poll(() => releaseWindow !== null).toBe(true);
       }
@@ -219,8 +226,32 @@ for (const [transport, timing] of [
         releaseWindow!();
         releaseWindow = null;
       } else {
+        if (boundsChange) windowReadsToHold = 2;
         await requestSync();
-        if (timing.includes("late metadata")) {
+        if (boundsChange) {
+          // This second window command follows accepted causal native capture.
+          // Resize that same window before its confirmation, holding metadata.
+          await expect.poll(() => releaseWindow !== null).toBe(true);
+          delayMetadata = true;
+          holdRebindEffect = true;
+          const framesBeforeResize = frames.length;
+          await backend.session.send("Browser.setContentsSize", {
+            windowId,
+            width: 1400,
+            height: 1000,
+          });
+          await expect
+            .poll(() =>
+              frames
+                .slice(framesBeforeResize)
+                .some((frame) => frame.width > 1300),
+            )
+            .toBe(true);
+          expect(resizes).toBe(beforeMove.resizes);
+          releaseWindow!();
+          releaseWindow = null;
+        }
+        if (timing.includes("late metadata") || boundsChange) {
           // The first outgoing effect proves preparation consumed the new-window
           // reply. A frame held on the other transport cannot arrive before it.
           await expect.poll(() => releaseEffect !== null).toBe(true);
@@ -231,7 +262,7 @@ for (const [transport, timing] of [
         }
       }
       await finishSync();
-      if (timing.includes("late metadata"))
+      if (timing.includes("late metadata") || boundsChange)
         expect(firstEffect).toBe("Page.stopScreencast");
       expect(writes).toEqual(initial ? [windowId] : [firstWindow, windowId]);
       await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
