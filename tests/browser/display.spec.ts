@@ -1,9 +1,5 @@
 import { expect, test } from "@playwright/test";
-import {
-  launchBackend,
-  launchNativeBackend,
-  serveBrowserConsumer,
-} from "./backend";
+import { launchNativeBackend, serveBrowserConsumer } from "./backend";
 import type {} from "../consumer/api";
 
 let server: Awaited<ReturnType<typeof serveBrowserConsumer>>;
