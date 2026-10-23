@@ -205,7 +205,11 @@ export class DisplayTransaction {
         budget,
         !freshCapture,
       );
-      if (presentation === "inconsistent") {
+      // Compatible pixels can paint after the mismatch wakes this continuation.
+      if (
+        presentation === "inconsistent" &&
+        !target.geometry.matches(projected.presentation, projected.input)
+      ) {
         if (!this.current()) return { kind: "retired" };
         // A clipped static image may be the stream's last frame. Refresh once
         // on evidence, retiring queued decodes before stopping that stream.

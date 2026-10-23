@@ -445,6 +445,60 @@ it.each(["before", "after"] as const)(
   },
 );
 
+it("completes an already compatible paint without waiting on a redundant capture stop", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "initial", 0);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  browser.holdFrames = true;
+  controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  socket.holdReplyMethod = "Page.stopScreencast";
+  socket.emit(
+    "Page.screencastFrame",
+    {
+      sessionId: 888,
+      data: btoa(JSON.stringify({ width: 1600, height: 960 })),
+      metadata: { deviceWidth: 1600, deviceHeight: 1200, pageScaleFactor: 1 },
+    },
+    input.sessionId,
+  );
+  // Both frames arrive before the awakened transaction can resume. The good
+  // pixels have already painted, so capture availability cannot gate success.
+  for (const deliver of browser.heldFrames.splice(0)) deliver();
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: false,
+    }),
+  );
+  expect(socket.heldReplies).toHaveLength(0);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Page.stopScreencast",
+    ),
+  ).toHaveLength(0);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    ),
+  ).toHaveLength(1);
+  input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, {});
+  await input.completion(input.owner!);
+  expect(
+    socket.commands
+      .filter((command) => command.method === "Input.dispatchMouseEvent")
+      .at(-1)?.params,
+  ).toMatchObject({ x: 800, y: 600 });
+  expect(controller.input).toBe(input);
+  expect(model.getSnapshot().error).toBeNull();
+});
+
 it("keeps the existing stream for stale metadata while a compatible static image is delayed", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "initial", 0);
