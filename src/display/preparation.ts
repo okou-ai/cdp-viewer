@@ -21,17 +21,29 @@ export interface DisplaySnapshot {
   readonly current: () => boolean;
 }
 
+type NativeWindow =
+  | { readonly kind: "initial" }
+  | {
+      readonly kind: "rebinding";
+      readonly windowId: number;
+      readonly refreshed: boolean;
+    }
+  | {
+      readonly kind: "bound";
+      readonly windowId: number;
+      readonly geometry: NativeWindowGeometry;
+    };
+
 /** Selected-owner acquisition; verified calibration outlives a preparation. */
 export class DisplayPreparation {
-  private reference:
-    | { readonly windowId: number; readonly geometry: NativeWindowGeometry }
-    | undefined;
+  private reference: NativeWindow = { kind: "initial" };
 
   constructor(
     private readonly client: CdpClient,
     private readonly target: DisplayTarget,
     private readonly windowId: number | undefined,
     private readonly current: () => boolean,
+    private readonly refreshNative: () => Promise<void>,
   ) {}
 
   async acquire(
@@ -39,8 +51,21 @@ export class DisplayPreparation {
     budget: number | undefined,
   ): Promise<DisplaySnapshot | null> {
     const { target } = this;
-    if (!this.reference)
-      await target.geometry.waitForNativeFrame(signal, budget);
+    const reference = this.reference;
+    if (reference.kind === "rebinding" && !reference.refreshed) {
+      await this.refreshNative();
+      if (!this.current()) return null;
+      this.reference = { ...reference, refreshed: true };
+    }
+    if (this.reference.kind !== "bound") {
+      try {
+        await target.geometry.waitForNativeFrame(signal, budget);
+      } catch (error) {
+        if (this.current() && this.reference.kind === "rebinding")
+          this.reference = { ...this.reference, refreshed: false };
+        throw error;
+      }
+    }
     if (!this.current()) return null;
     const revision = target.geometry.revision;
     const observation = target.geometry.nativeObservation;
@@ -52,13 +77,24 @@ export class DisplayPreparation {
       this.readWindow().then((window) => {
         if (!current()) return null;
         this.assertWindow(window);
-        if (this.reference?.windowId !== window.windowId) {
-          // A new window cannot borrow the old window's calibration. On retry,
-          // missing accepted metadata uses the existing bounded native waiter.
-          this.reference = undefined;
+        if (
+          this.reference.kind !== "initial" &&
+          this.reference.windowId !== window.windowId
+        ) {
+          // Metadata has no window ID. Retire the association before obtaining
+          // a causal native frame for this observed destination on reprepare.
+          this.reference = {
+            kind: "rebinding",
+            windowId: window.windowId,
+            refreshed: false,
+          };
+          return null;
+        }
+        if (this.reference.kind !== "bound") {
           const device = target.geometry.decodedNative(observation);
           if (!device) return null;
           this.reference = {
+            kind: "bound",
             windowId: window.windowId,
             geometry: nativeWindowGeometry(device, window.bounds),
           };

@@ -83,6 +83,7 @@ export class DisplayTransaction {
       target,
       host.windowId,
       () => this.current(),
+      () => this.fenceCapture("native"),
     );
   }
 
@@ -328,9 +329,12 @@ export class DisplayTransaction {
     return result;
   }
 
-  private async fenceCapture(): Promise<void> {
+  private async fenceCapture(
+    kind: "native" | "presentation" = "presentation",
+  ): Promise<void> {
     const { client, target } = this;
     if (!this.current()) return;
+    if (kind === "native") target.geometry.fenceNative(Infinity);
     await this.host.refresh(async () => {
       const tree = await client.request(
         "Page.getFrameTree",
@@ -368,7 +372,8 @@ export class DisplayTransaction {
           "display",
           "A fresh browser image could not be confirmed. Try synchronizing again.",
         );
-      target.geometry.fence(value.fence / 1000);
+      if (kind === "native") target.geometry.fenceNative(value.fence / 1000);
+      else target.geometry.fence(value.fence / 1000);
     });
   }
 }

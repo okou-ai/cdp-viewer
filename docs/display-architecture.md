@@ -74,6 +74,17 @@ replaces the old window's reference using accepted native facts and observed bou
 an unavailable new-window frame uses the same bounded native waiter. Scoped
 membership and mid-operation window identity checks still apply. The transaction
 revalidates its snapshot after capture preparation and before the first write.
+
+Frame metadata has no window identity. Observing a different native window enters
+an explicit rebinding state; a previously accepted frame cannot establish that
+association. Rebinding uses the existing serialized capture refresh and confirmed
+elapsed-clock boundary to obtain accepted native facts after the window was
+observed, then verifies the window again. This conditional native-only fence
+retires calibration authority while preserving the current painted/input receipt.
+Missing post-fence frames and failed capture/clock confirmation remain bounded
+failures; explicit retry acquires a new capture. Another observed window change
+restarts rebinding for that destination. Same-window preparations and no-op reuse
+do not gain a capture restart or a new waiter.
 Under emulation, a native window move can change compositor dimensions without
 a page resize event. The previous presentation can reject that new-size frame
 from painting while its decoded native metadata remains a calibration fact.

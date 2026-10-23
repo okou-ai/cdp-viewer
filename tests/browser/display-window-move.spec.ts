@@ -12,8 +12,10 @@ test.afterAll(async () => server?.close());
 for (const [transport, timing] of [
   ["shared", "before"],
   ["shared", "during"],
+  ["shared", "late metadata"],
   ["split", "before"],
   ["split", "during"],
+  ["split", "late metadata"],
 ] as const) {
   test(`synchronizes an emulated page after a native window move without a resize event (${transport}, ${timing} preparation)`, async ({
     page,
@@ -54,6 +56,11 @@ for (const [transport, timing] of [
       let resizes = 0;
       let holdWindow = false;
       let releaseWindow: (() => void) | null = null;
+      let delayMetadata = false;
+      const delayedMetadata: (() => void)[] = [];
+      let holdRebindEffect = false;
+      let releaseEffect: (() => void) | null = null;
+      let firstEffect: string | null = null;
       await page.routeWebSocket(backend.endpoint, (socket) => {
         const attaching = new Map<number, string>();
         const sessions = new Set<string>();
@@ -64,6 +71,17 @@ for (const [transport, timing] of [
             attaching.set(command.id, command.params.targetId);
           if (command.method === "Browser.setContentsSize")
             writes.push(command.params.windowId);
+          if (
+            holdRebindEffect &&
+            sessions.has(command.sessionId) &&
+            (command.method === "Page.stopScreencast" ||
+              command.method === "Emulation.setDeviceMetricsOverride")
+          ) {
+            holdRebindEffect = false;
+            firstEffect = command.method;
+            releaseEffect = () => upstream.send(message);
+            return;
+          }
           if (holdWindow && command.method === "Browser.getWindowForTarget") {
             holdWindow = false;
             releaseWindow = () => upstream.send(message);
@@ -83,6 +101,12 @@ for (const [transport, timing] of [
                 height: event.params.metadata.deviceHeight,
               });
               if (frames.length > 64) frames.shift();
+              if (delayMetadata) {
+                delayedMetadata.push(() => socket.send(message));
+                if (delayedMetadata.length > 64)
+                  throw new Error("Owned delayed frame bound exceeded.");
+                return;
+              }
             }
           }
           socket.send(message);
@@ -123,6 +147,10 @@ for (const [transport, timing] of [
       expect(writes).toHaveLength(1);
       const firstWindow = writes[0];
       const beforeMove = { frames: frames.length, resizes };
+      if (timing === "late metadata") {
+        delayMetadata = true;
+        holdRebindEffect = true;
+      }
       if (timing === "during") {
         holdWindow = true;
         await requestSync();
@@ -174,8 +202,21 @@ for (const [transport, timing] of [
       if (timing === "during") {
         releaseWindow!();
         releaseWindow = null;
-      } else await requestSync();
+      } else {
+        await requestSync();
+        if (timing === "late metadata") {
+          // The first outgoing effect proves preparation consumed the new-window
+          // reply. A frame held on the other transport cannot arrive before it.
+          await expect.poll(() => releaseEffect !== null).toBe(true);
+          delayMetadata = false;
+          for (const deliver of delayedMetadata.splice(0)) deliver();
+          releaseEffect!();
+          releaseEffect = null;
+        }
+      }
       await finishSync();
+      if (timing === "late metadata")
+        expect(firstEffect).toBe("Page.stopScreencast");
       expect(writes).toEqual([firstWindow, windowId]);
       await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
         "data-target-id",
@@ -201,6 +242,7 @@ for (const [transport, timing] of [
         body: JSON.stringify({
           transport,
           timing,
+          firstEffect,
           writes,
           beforeMove,
           resizes,

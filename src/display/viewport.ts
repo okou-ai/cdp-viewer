@@ -79,6 +79,7 @@ export class DisplayViewport {
   private version = 0;
   private timestamp = -Infinity;
   private captureAfter = -Infinity;
+  private nativeAfter = -Infinity;
   private painted: FrameGeometry | null = null;
   private decoded: FrameGeometry | null = null;
   private native: NativeObservation = { device: null };
@@ -179,6 +180,13 @@ export class DisplayViewport {
     this.version++;
     this.painted = null;
     this.decoded = null;
+    this.native = { device: this.native.device };
+    this.nativeDecoded = false;
+  }
+
+  /** Rebinding needs causal native facts without replacing painted input authority. */
+  fenceNative(timestamp: number): void {
+    this.nativeAfter = timestamp;
     this.native = { device: this.native.device };
     this.nativeDecoded = false;
   }
@@ -383,18 +391,29 @@ export class DisplayViewport {
       positive(metadata.deviceHeight)
         ? { width: metadata.deviceWidth, height: metadata.deviceHeight }
         : null;
+    const nativeCurrent =
+      this.nativeAfter === -Infinity ||
+      (typeof timestamp === "number" &&
+        Number.isFinite(timestamp) &&
+        timestamp >= this.nativeAfter);
     if (
-      device?.width !== this.native.device?.width ||
-      device?.height !== this.native.device?.height
+      nativeCurrent &&
+      (device?.width !== this.native.device?.width ||
+        device?.height !== this.native.device?.height)
     ) {
       this.native = { device };
       this.nativeDecoded = false;
     }
-    const observation = this.native;
+    const observation = nativeCurrent ? this.native : null;
     const version = this.version;
     const accept = (raster: Viewport) => {
       if (version !== this.version) return false;
-      if (device && observation === this.native && !this.nativeDecoded) {
+      if (
+        device &&
+        observation &&
+        observation === this.native &&
+        !this.nativeDecoded
+      ) {
         this.nativeDecoded = true;
         if (this.waiting?.request.kind === "native")
           this.waiting.finish("presented");
