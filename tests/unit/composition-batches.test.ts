@@ -278,39 +278,67 @@ it("does not send old-document cancellation after document loss and rejects old 
   ).toEqual(["current"]);
 });
 
-it("observes document loss during retirement and never sends late old cleanup into the replacement", async () => {
-  const a = await fixture();
-  a.browser.holdMethod = "Input.imeSetComposition";
-  a.send([preview("original document")]);
-  await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
-  const original = a.browser.heldCommands[0]!;
-  const retiring = a.host.retire(a.probe);
-  await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(2));
-  const beforeLoss = a.socket.commands.length;
-  a.socket.emit(
-    "Runtime.executionContextsCleared",
-    {},
-    original.command.sessionId,
-  );
-  expect(await retiring).toBe(false);
-  original.socket.reply(original.command);
-  expect(
-    a.socket.commands
-      .slice(beforeLoss)
-      .filter((c) => c.method === "Input.imeSetComposition"),
-  ).toHaveLength(0);
-  expect(
-    a.socket.commands.filter((c) => c.method === "Target.detachFromTarget"),
-  ).toHaveLength(0);
-  await expect(
-    a.host.admit({
+it.each(["acknowledged", "rejected"])(
+  "observes document loss during retirement with %s cleanup without writing to the replacement",
+  async (outcome) => {
+    const a = await fixture();
+    a.browser.holdMethod = "Input.imeSetComposition";
+    a.send([preview("original document")]);
+    await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
+    const original = a.browser.heldCommands[0]!;
+    let retired = false;
+    const retiring = a.host.retire(a.probe).then((ok) => {
+      retired = true;
+      return ok;
+    });
+    await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(2));
+    const beforeLoss = a.socket.commands.length;
+    a.socket.emit(
+      "Runtime.executionContextsCleared",
+      {},
+      original.command.sessionId,
+    );
+    const sibling = await fixture(a.browser, "page-b", 2, a.host);
+    expect(sibling.send([{ kind: "text", text: "independent document" }])).toBe(
+      true,
+    );
+    await vi.waitFor(() => expect(sibling.acks()).toHaveLength(1));
+    expect(retired).toBe(false);
+    expect(
+      a.socket.commands.filter((c) => c.method === "Target.detachFromTarget"),
+    ).toHaveLength(0);
+    await expect(
+      a.host.admit({
+        targetId: "page-a",
+        windowId: 0,
+        mode: "composition",
+        reply: () => {},
+      }),
+    ).rejects.toThrow("unsettled owner");
+    original.socket.reply(original.command);
+    const cleanup = a.browser.heldCommands[1]!;
+    if (outcome === "acknowledged") cleanup.socket.reply(cleanup.command);
+    else cleanup.socket.reject(cleanup.command, -32000);
+    expect(await retiring).toBe(outcome === "acknowledged");
+    expect(
+      a.socket.commands
+        .slice(beforeLoss)
+        .filter((c) => c.method === "Input.imeSetComposition"),
+    ).toHaveLength(0);
+    expect(
+      a.socket.commands.filter((c) => c.method === "Target.detachFromTarget"),
+    ).toHaveLength(outcome === "acknowledged" ? 1 : 0);
+    const replacement = a.host.admit({
       targetId: "page-a",
       windowId: 0,
       mode: "composition",
       reply: () => {},
-    }),
-  ).rejects.toThrow("unsettled owner");
-});
+    });
+    if (outcome === "acknowledged")
+      expect((await replacement).owner).not.toBe(a.probe.owner);
+    else await expect(replacement).rejects.toThrow("unsettled owner");
+  },
+);
 
 it("keeps a sibling lane independent while composition cleanup is held", async () => {
   const a = await fixture();
