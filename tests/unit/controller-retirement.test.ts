@@ -112,50 +112,178 @@ it("waits for original retirement before same-target reuse while another target 
   ).toHaveLength(1);
 });
 
-it("denies same-target reuse after failed cleanup without blocking another target", async () => {
-  const { browser, controller, model, socket } = await mount();
-  const old = controller.input!;
-  old.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
-  await old.completion(old.owner!);
-  browser.holdMethod = "Input.dispatchKeyEvent";
-  controller.select("page-b");
-  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  const release = browser.heldCommands[0]!;
-  expect(release.command).toMatchObject({
-    sessionId: old.sessionId,
-    params: { type: "keyUp" },
-  });
-  browser.holdMethod = null;
-  release.socket.reject(release.command, -32000);
-  await vi.waitFor(() =>
+it.each([false, true])(
+  "denies same-target reuse after failed cleanup (navigation: %s) without blocking another target",
+  async (navigation) => {
+    const { browser, controller, model, socket } = await mount();
+    const old = controller.input!;
+    old.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+    await old.completion(old.owner!);
+    browser.holdMethod = "Input.dispatchKeyEvent";
+    controller.select("page-b");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const release = browser.heldCommands[0]!;
+    expect(release.command).toMatchObject({
+      sessionId: old.sessionId,
+      params: { type: "keyUp" },
+    });
+    if (navigation)
+      socket.emit(
+        "Page.navigatedWithinDocument",
+        { frameId: "main", url: "https://fixture.invalid/#section" },
+        old.sessionId,
+      );
+    browser.holdMethod = null;
+    release.socket.reject(release.command, -32000);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.some(
+          (c) =>
+            c.method === "Target.detachFromTarget" &&
+            c.params?.sessionId === old.sessionId,
+        ),
+      ).toBe(true),
+    );
+    controller.select("page-a");
+    await vi.waitFor(() => expect(model.getSnapshot().status).toBe("error"));
+    expect(controller.input).toBeNull();
+    expect(
+      socket.commands.filter(
+        (c) =>
+          c.method === "Target.attachToTarget" &&
+          c.params?.targetId === "page-a",
+      ),
+    ).toHaveLength(1);
+    controller.select("page-b");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const other = controller.input!;
+    other.text("still usable");
+    await other.completion(other.owner!);
+    expect(
+      socket.commands
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text),
+    ).toEqual(["still usable"]);
+  },
+);
+
+it.each(["Page.navigatedWithinDocument", "Page.frameStartedNavigating"])(
+  "retains cleanup across %s before reusing the target",
+  async (method) => {
+    const { browser, controller, model, socket } = await mount();
+    const old = controller.input!;
+    old.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+    await old.completion(old.owner!);
+    browser.holdMethod = "Input.dispatchKeyEvent";
+    controller.select("page-b");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    socket.emit(
+      method,
+      { frameId: "main", url: "https://fixture.invalid/#section" },
+      old.sessionId,
+    );
+    const other = controller.input!;
+    other.text("independent navigation");
+    await other.completion(other.owner!);
     expect(
       socket.commands.some(
         (c) =>
           c.method === "Target.detachFromTarget" &&
           c.params?.sessionId === old.sessionId,
       ),
+    ).toBe(false);
+    browser.holdMethod = null;
+    const release = browser.heldCommands[0]!;
+    release.socket.reply(release.command);
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.some(
+          (c) =>
+            c.method === "Target.detachFromTarget" &&
+            c.params?.sessionId === old.sessionId,
+        ),
+      ).toBe(true),
+    );
+    controller.select("page-a");
+    await vi.waitFor(() =>
+      expect(model.getSnapshot()).toMatchObject({
+        status: "streaming",
+        selectedTargetId: "page-a",
+      }),
+    );
+    expect(controller.input!.sessionId).not.toBe(old.sessionId);
+  },
+);
+
+it("joins late preedit cleanup after same-document navigation before target reuse", async () => {
+  const { browser, controller, model, socket } = await mount();
+  const old = controller.input!;
+  browser.holdMethod = "Input.imeSetComposition";
+  old.preedit("n", old.owner!);
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  controller.select("page-b");
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+  socket.emit(
+    "Page.navigatedWithinDocument",
+    { frameId: "main", url: "https://fixture.invalid/#section" },
+    old.sessionId,
+  );
+  const other = controller.input!;
+  other.text("independent preedit");
+  await other.completion(other.owner!);
+  controller.select("page-a");
+  expect(controller.input).toBeNull();
+  const preedit = browser.heldCommands[0]!;
+  preedit.socket.reply(preedit.command);
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(3));
+  const cleanup = browser.heldCommands[1]!;
+  cleanup.socket.reply(cleanup.command);
+  const lateCleanup = browser.heldCommands[2]!;
+  expect(lateCleanup.command).toMatchObject({
+    sessionId: old.sessionId,
+    method: "Input.imeSetComposition",
+    params: { text: "" },
+  });
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.some(
+        (c) =>
+          c.method === "Target.detachFromTarget" &&
+          c.params?.sessionId === other.sessionId,
+      ),
     ).toBe(true),
   );
-  controller.select("page-a");
-  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("error"));
-  expect(controller.input).toBeNull();
+  expect(
+    socket.commands.some(
+      (c) =>
+        c.method === "Target.detachFromTarget" &&
+        c.params?.sessionId === old.sessionId,
+    ),
+  ).toBe(false);
   expect(
     socket.commands.filter(
       (c) =>
         c.method === "Target.attachToTarget" && c.params?.targetId === "page-a",
     ),
   ).toHaveLength(1);
-  controller.select("page-b");
-  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
-  const other = controller.input!;
-  other.text("still usable");
-  await other.completion(other.owner!);
-  expect(
-    socket.commands
-      .filter((c) => c.method === "Input.insertText")
-      .map((c) => c.params?.text),
-  ).toEqual(["still usable"]);
+  browser.holdMethod = null;
+  lateCleanup.socket.reply(lateCleanup.command);
+  await vi.waitFor(() =>
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "page-a",
+    }),
+  );
+  expect(controller.input!.sessionId).not.toBe(old.sessionId);
 });
 
 it("keeps retiring-session document events from granting late preedit cleanup a new document", async () => {
@@ -172,6 +300,18 @@ it("keeps retiring-session document events from granting late preedit cleanup a 
     { frame: { id: "replacement-document" } },
     old.sessionId,
   );
+  const other = controller.input!;
+  other.text("current owner");
+  await other.completion(other.owner!);
+  expect(
+    socket.commands.some(
+      (c) =>
+        c.method === "Target.detachFromTarget" &&
+        c.params?.sessionId === old.sessionId,
+    ),
+  ).toBe(false);
+  browser.holdMethod = null;
+  for (const held of browser.heldCommands) held.socket.reply(held.command);
   await vi.waitFor(() =>
     expect(
       socket.commands.some(
@@ -181,11 +321,6 @@ it("keeps retiring-session document events from granting late preedit cleanup a 
       ),
     ).toBe(true),
   );
-  browser.holdMethod = null;
-  for (const held of browser.heldCommands) held.socket.reply(held.command);
-  const other = controller.input!;
-  other.text("current owner");
-  await other.completion(other.owner!);
   expect(
     socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
   ).toHaveLength(2);

@@ -66,6 +66,7 @@ export class InputQueue {
   private readonly jobs: QueuedJob[] = [];
   private readonly pending = new Set<Promise<void>>();
   private running = false;
+  private drained: Promise<void> = Promise.resolve();
   private cancelPreparation: (() => void) | undefined;
   private active: QueuedJob | null = null;
 
@@ -82,6 +83,12 @@ export class InputQueue {
     this.active?.cancel?.();
     for (const job of this.jobs) job.cancel?.();
     this.jobs.length = 0;
+  }
+
+  /** After admission stops, join the send lane without acquiring a new owner. */
+  async settle(): Promise<void> {
+    await this.drained;
+    await Promise.allSettled(this.pending);
   }
 
   /** A completion fence observes prior work; it cannot acquire write authority. */
@@ -274,7 +281,7 @@ export class InputQueue {
     };
     this.jobs.push(job);
     if (!this.running)
-      this.drain().catch((error: unknown) => {
+      this.drained = this.drain().catch((error: unknown) => {
         if (this.lifecycle.available) this.failed(error);
       });
   }

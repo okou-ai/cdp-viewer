@@ -86,6 +86,10 @@ without acquiring membership or permission to send another input. Retirement
 publishes terminal admission first, cancels unsent preparation, joins dispatched
 work and its late cleanup, and completes through the original connection. Unknown
 cleanup remains unavailable; it cannot authorize replacement or replay.
+Retirement observes the original send lane and its receipts independently of
+focus/document generations. Navigation may invalidate write authority and cancel
+unsent jobs without cancelling this cleanup wait; late composition cleanup still
+requires its original document.
 
 The public controller stops obsolete streams immediately and retains retiring
 input sessions until original effects settle before detaching. It forwards their
