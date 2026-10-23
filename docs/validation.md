@@ -127,6 +127,13 @@ synchronization. Keep latency measurements in separate reproducible probes.
 Record conditions, samples and the measured boundary before claiming a gain;
 do not turn one machine's timings into a universal threshold.
 
+Capture freshness tests should verify that a sampled native clock boundary has
+elapsed before restarting capture. Cover the first sub-millisecond static frame,
+malformed or regressed clock proofs, stale/same-raster images and cancellation
+while the native operation waits. Match the CI browser revision when investigating
+native capture behavior; a successful resize acknowledgement alone does not
+prove compatible presented pixels.
+
 For continuous input, measure first input to first changed canvas, changing-frame
 gaps during the action, and final input to the corresponding final canvas. Record
 actual native scroll distance alongside normalized outbound deltas, request count
