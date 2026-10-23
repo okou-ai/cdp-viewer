@@ -51,7 +51,7 @@ export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "targets" | "navigation" | "error">
 >;
 
-export interface Favicon {
+interface Favicon {
   readonly url: string;
   readonly failed: boolean;
 }
