@@ -9,8 +9,13 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => server?.close());
 
-for (const transport of ["shared", "split"] as const) {
-  test(`synchronizes an emulated page after a native window move without a resize event (${transport})`, async ({
+for (const [transport, timing] of [
+  ["shared", "before"],
+  ["shared", "during"],
+  ["split", "before"],
+  ["split", "during"],
+] as const) {
+  test(`synchronizes an emulated page after a native window move without a resize event (${transport}, ${timing} preparation)`, async ({
     page,
   }) => {
     const backend = await launchNativeBackend(server.origin, true, 1.25);
@@ -47,6 +52,8 @@ for (const transport of ["shared", "split"] as const) {
       const frames: { width: number; height: number }[] = [];
       const writes: number[] = [];
       let resizes = 0;
+      let holdWindow = false;
+      let releaseWindow: (() => void) | null = null;
       await page.routeWebSocket(backend.endpoint, (socket) => {
         const attaching = new Map<number, string>();
         const sessions = new Set<string>();
@@ -57,6 +64,11 @@ for (const transport of ["shared", "split"] as const) {
             attaching.set(command.id, command.params.targetId);
           if (command.method === "Browser.setContentsSize")
             writes.push(command.params.windowId);
+          if (holdWindow && command.method === "Browser.getWindowForTarget") {
+            holdWindow = false;
+            releaseWindow = () => upstream.send(message);
+            return;
+          }
           upstream.send(message);
         });
         upstream.onMessage((message) => {
@@ -96,18 +108,26 @@ for (const transport of ["shared", "split"] as const) {
       const input = await view
         .getByLabel("Remote browser input")
         .elementHandle();
-      const sync = async () => {
+      const requestSync = async () => {
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
           .getByRole("menuitem", { name: "Sync now", exact: true })
           .click();
+      };
+      const finishSync = async () => {
         await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
         await expect(view.getByRole("alert")).toHaveCount(0);
       };
-      await sync();
+      await requestSync();
+      await finishSync();
       expect(writes).toHaveLength(1);
       const firstWindow = writes[0];
       const beforeMove = { frames: frames.length, resizes };
+      if (timing === "during") {
+        holdWindow = true;
+        await requestSync();
+        await expect.poll(() => releaseWindow !== null).toBe(true);
+      }
       const worker =
         backend.context.serviceWorkers()[0] ??
         (await backend.context.waitForEvent("serviceworker"));
@@ -151,7 +171,11 @@ for (const transport of ["shared", "split"] as const) {
       ).toBe(windowId);
       // Existing emulation keeps page layout stable during the native move.
       expect(resizes).toBe(beforeMove.resizes);
-      await sync();
+      if (timing === "during") {
+        releaseWindow!();
+        releaseWindow = null;
+      } else await requestSync();
+      await finishSync();
       expect(writes).toEqual([firstWindow, windowId]);
       await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
         "data-target-id",
@@ -176,6 +200,7 @@ for (const transport of ["shared", "split"] as const) {
       await test.info().attach("native-window-move", {
         body: JSON.stringify({
           transport,
+          timing,
           writes,
           beforeMove,
           resizes,

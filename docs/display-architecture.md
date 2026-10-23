@@ -60,16 +60,29 @@ the current decoded frame's native device extent against the browser's outer win
 bounds. Initial page layout may already be emulated and cannot substitute for
 that native frame. An unavailable first frame waits within the geometry owner's
 existing single settlement slot and deadline, without polling or another waiter.
-Frame device/revision are captured before native preparation reads. The window
-read validates that revision before retaining the reference, independently of
-later layout reads. A stable move before a new operation in an unscoped viewer
-replaces the old window's reference using the current frame and observed bounds;
-scoped membership and mid-operation window identity checks still apply.
+Native structural observations have an immutable identity separate from input
+and paint revisions. A changed metadata extent retires preparation immediately,
+before asynchronous decoding; only that observation's accepted decode can make
+it usable for calibration. An older decode cannot validate a newer observation.
+Identical-sized animation frames retain the accepted identity without requiring
+a quiet period. Capture invalidation retires both metadata and decode authority.
+The selected preparation owner reads window, runtime and layout against one
+observation identity and geometry revision, returning an immutable snapshot with
+one validity check. It retains a frame/window reference only while that pair is
+current, independently of later layout reads. A stable move in an unscoped viewer
+replaces the old window's reference using accepted native facts and observed bounds;
+an unavailable new-window frame uses the same bounded native waiter. Scoped
+membership and mid-operation window identity checks still apply. The transaction
+revalidates its snapshot after capture preparation and before the first write.
 Under emulation, a native window move can change compositor dimensions without
 a page resize event. The previous presentation can reject that new-size frame
 from painting while its decoded native metadata remains a calibration fact.
 Painted geometry alone still authorizes presentation and input; native calibration
-does not make rejected pixels usable.
+does not make rejected pixels usable. Acknowledged effects bind the dispatched
+projection and actual native presentation in one immutable receipt. Presentation
+consumes that receipt as a unit; only matching painted pixels complete it and
+allow its reuse. Preparation expires when own writes start, while verified native
+calibration survives those writes within the same selected window.
 After a contents-size
 acknowledgement it reads and verifies that same window again, translating the
 contents by the observed outer-bounds delta. Presentation and no-op reuse use

@@ -1069,12 +1069,13 @@ export class ViewerController {
         !selection ||
         selection.frameSessionId !== id ||
         !this.isCurrent(selection) ||
+        !selection.stream?.acceptingFrames ||
         typeof params.data !== "string"
       )
         return;
       const paintedViewport = selection.geometry.frame(params.metadata);
       if (!paintedViewport) return;
-      selection.stream?.push(
+      selection.stream.push(
         params.data,
         (raster) => {
           if (!this.isCurrent(selection)) return;

@@ -47,12 +47,16 @@ export class Screencast {
     this.schedule();
   }
 
+  get acceptingFrames(): boolean {
+    return this.current() && this.accepting;
+  }
+
   push(
     data: string,
     painted: (raster: Viewport) => void,
     accept?: (raster: Viewport) => boolean,
   ): void {
-    if (!this.current() || !this.accepting) return;
+    if (!this.acceptingFrames) return;
     const revision = this.revision;
     const current = () =>
       this.current() && this.accepting && revision === this.revision;

@@ -21,6 +21,15 @@ interface FrameGeometry {
   readonly raster: Viewport;
 }
 
+export interface NativeObservation {
+  readonly device: Viewport | null;
+}
+
+export interface PresentationReceipt {
+  readonly transform: DisplayTransform | null;
+  readonly expected: PresentationGeometry;
+}
+
 type Presentation = "presented" | "inconsistent";
 
 type FrameWait =
@@ -47,7 +56,7 @@ type Adaptation =
   | {
       readonly kind: "presenting" | "presented";
       readonly scale: number;
-      readonly expected: PresentationGeometry;
+      readonly receipt: PresentationReceipt;
     };
 
 function compatible(
@@ -72,6 +81,8 @@ export class DisplayViewport {
   private captureAfter = -Infinity;
   private painted: FrameGeometry | null = null;
   private decoded: FrameGeometry | null = null;
+  private native: NativeObservation = { device: null };
+  private nativeDecoded = false;
   private adaptation: Adaptation = { kind: "native", scale: 1 };
   private transform: DisplayTransform | null = null;
   private waiting: {
@@ -91,9 +102,15 @@ export class DisplayViewport {
     return this.version;
   }
 
-  /** Native facts can change while the previous presentation still blocks paint. */
-  get nativeDevice(): Viewport | null {
-    return this.decoded?.device ?? null;
+  /** Structural metadata retires preparation before asynchronous decode/paint. */
+  get nativeObservation(): NativeObservation {
+    return this.native;
+  }
+
+  decodedNative(observation: NativeObservation): Viewport | null {
+    return observation === this.native && this.nativeDecoded
+      ? observation.device
+      : null;
   }
 
   get available(): boolean {
@@ -162,12 +179,16 @@ export class DisplayViewport {
     this.version++;
     this.painted = null;
     this.decoded = null;
+    this.native = { device: this.native.device };
+    this.nativeDecoded = false;
   }
 
   invalidate(): void {
     this.version++;
     this.painted = null;
     this.decoded = null;
+    this.native = { device: this.native.device };
+    this.nativeDecoded = false;
     this.transform = null;
     // External resize/navigation recalibrates native units. A transaction still
     // awaiting its image keeps the presentation barrier across invalidation.
@@ -179,18 +200,14 @@ export class DisplayViewport {
     if (method === "Page.frameResized") this.invalidate();
   }
 
-  apply(
-    transform: DisplayTransform | null,
-    expected: PresentationGeometry,
-    freshCapture = false,
-  ): void {
+  apply(receipt: PresentationReceipt, freshCapture = false): void {
     // Frames can paint before the final native acknowledgement. Retain their facts,
     // but only the acknowledged projection can authorize their input mapping.
-    this.transform = transform;
+    this.transform = receipt.transform;
     this.adaptation = {
       kind: "presenting",
-      scale: transform?.viewportScale ?? 1,
-      expected,
+      scale: receipt.transform?.viewportScale ?? 1,
+      receipt,
     };
     if (freshCapture) this.fence(Infinity);
     this.present();
@@ -232,7 +249,7 @@ export class DisplayViewport {
     if (
       state.kind !== "presenting" ||
       !this.painted ||
-      !compatible(this.painted, state.expected, this.capture)
+      !compatible(this.painted, state.receipt.expected, this.capture)
     )
       return;
     this.adaptation = { ...state, kind: "presented" };
@@ -245,8 +262,8 @@ export class DisplayViewport {
       state.kind === "presenting" &&
       !!this.decoded?.viewport &&
       !!this.decoded.device &&
-      same(this.decoded.device, state.expected.device) &&
-      !compatible(this.decoded, state.expected, this.capture)
+      same(this.decoded.device, state.receipt.expected.device) &&
+      !compatible(this.decoded, state.receipt.expected, this.capture)
     );
   }
 
@@ -276,7 +293,7 @@ export class DisplayViewport {
     request: FrameWait,
   ): Promise<Presentation> {
     if (budget <= 0) return Promise.reject(presentationTimeout());
-    if (request.kind === "native" ? this.nativeDevice !== null : this.available)
+    if (request.kind === "native" ? this.nativeDecoded : this.available)
       return Promise.resolve("presented");
     if (
       request.kind === "presentation" &&
@@ -366,14 +383,27 @@ export class DisplayViewport {
       positive(metadata.deviceHeight)
         ? { width: metadata.deviceWidth, height: metadata.deviceHeight }
         : null;
+    if (
+      device?.width !== this.native.device?.width ||
+      device?.height !== this.native.device?.height
+    ) {
+      this.native = { device };
+      this.nativeDecoded = false;
+    }
+    const observation = this.native;
     const version = this.version;
     const accept = (raster: Viewport) => {
       if (version !== this.version) return false;
+      if (device && observation === this.native && !this.nativeDecoded) {
+        this.nativeDecoded = true;
+        if (this.waiting?.request.kind === "native")
+          this.waiting.finish("presented");
+      }
       const state = this.adaptation;
       this.decoded = { viewport, device, raster };
       const accepted =
         (state.kind !== "presenting" && state.kind !== "presented") ||
-        compatible(this.decoded, state.expected, this.capture);
+        compatible(this.decoded, state.receipt.expected, this.capture);
       if (
         this.waiting?.request.kind === "presentation" &&
         this.waiting.request.recoverInconsistent &&
@@ -387,8 +417,6 @@ export class DisplayViewport {
       painted: (raster) => {
         if (!accept(raster)) return;
         this.painted = { viewport, device, raster };
-        if (device && this.waiting?.request.kind === "native")
-          this.waiting.finish("presented");
         this.present();
       },
     };

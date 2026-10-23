@@ -5,22 +5,18 @@ import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import {
   constrainDisplay,
   nativePresentation,
-  nativeWindowGeometry,
   positive,
   projectDisplay,
   windowPresentation,
 } from "./geometry";
-import type { DisplaySize, NativeWindowGeometry, Viewport } from "./geometry";
+import type { DisplaySize } from "./geometry";
 import type { DisplayDecision, DisplayOutcome, DisplayStage } from "./policy";
-import type { DisplayViewport } from "./viewport";
+import type { PresentationReceipt } from "./viewport";
+import { DisplayPreparation } from "./preparation";
+import type { DisplaySnapshot, DisplayTarget } from "./preparation";
 import { frameTimeoutMs } from "./limits";
 
-export interface DisplayTarget {
-  readonly targetId: string;
-  readonly sessionId: string;
-  readonly current: () => boolean;
-  readonly geometry: DisplayViewport;
-}
+export type { DisplayTarget } from "./preparation";
 
 export interface DisplayEffects {
   readonly signal: AbortSignal;
@@ -65,19 +61,30 @@ function projection(
   return { size, projected: projectDisplay(windowId, size, layout) };
 }
 
+interface AppliedReceipt {
+  readonly windowId: number;
+  readonly prepared: ReturnType<typeof projection>;
+  readonly presentation: PresentationReceipt;
+}
+
 /** One selected lifetime's native effects and applied receipt, never window policy. */
 export class DisplayTransaction {
-  private applied: string | undefined;
-  private nativeWindow:
-    | { readonly windowId: number; readonly geometry: NativeWindowGeometry }
-    | undefined;
+  private applied: AppliedReceipt | undefined;
+  private readonly preparation: DisplayPreparation;
 
   constructor(
     private readonly client: CdpClient,
     private readonly target: DisplayTarget,
     private readonly host: DisplayEffects,
     private readonly ownsTarget: () => boolean,
-  ) {}
+  ) {
+    this.preparation = new DisplayPreparation(
+      client,
+      target,
+      host.windowId,
+      () => this.current(),
+    );
+  }
 
   private current(): boolean {
     return (
@@ -87,103 +94,45 @@ export class DisplayTransaction {
 
   private decision(
     policy: ExecutionPolicy,
-    revision: number,
-    windowId: number,
+    snapshot: DisplaySnapshot,
   ): DisplayDecision | null {
-    return this.current() && revision === this.target.geometry.revision
-      ? policy.decide(windowId)
-      : null;
-  }
-
-  private async readNativeWindow(revision: number, device: Viewport | null) {
-    const window = await this.client.request("Browser.getWindowForTarget", {
-      targetId: this.target.targetId,
-    });
-    if (
-      (!this.nativeWindow || this.nativeWindow.windowId !== window.windowId) &&
-      device &&
-      this.current() &&
-      revision === this.target.geometry.revision
-    ) {
-      this.assertWindow(window);
-      this.nativeWindow = {
-        windowId: window.windowId,
-        geometry: nativeWindowGeometry(device, window.bounds),
-      };
-    }
-    return window;
+    return snapshot.current() ? policy.decide(snapshot.window.windowId) : null;
   }
 
   async execute(policy: ExecutionPolicy): Promise<DisplayResult> {
     const { target, client, host } = this;
     let mutation: Mutation = { kind: "none" };
     try {
-      if (!this.nativeWindow) {
-        await target.geometry.waitForNativeFrame(
-          host.signal,
-          host.presentationTimeout,
-        );
-        if (!this.current()) return { kind: "retired" };
-      }
-      const revision = target.geometry.revision;
-      const device = target.geometry.nativeDevice;
-      if (!this.nativeWindow && !device) return { kind: "deferred" };
-      const [window, remote, layout] = await Promise.all([
-        this.readNativeWindow(revision, device),
-        this.evaluate(
-          "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
-        ),
-        client.request("Page.getLayoutMetrics", undefined, target.sessionId),
-      ]);
-      let decision = this.decision(policy, revision, window.windowId);
+      const snapshot = await this.preparation.acquire(
+        host.signal,
+        host.presentationTimeout,
+      );
+      if (!snapshot) return { kind: this.current() ? "deferred" : "retired" };
+      const { window, remote: remoteSize, layout } = snapshot;
+      let decision = this.decision(policy, snapshot);
       if (!decision) return { kind: this.current() ? "deferred" : "retired" };
-      this.assertWindow(window);
-      const value: unknown = remote.result.value;
-      if (
-        remote.exceptionDetails ||
-        !isRecord(value) ||
-        !positive(value.width) ||
-        !positive(value.height) ||
-        !positive(value.dpr)
-      )
-        throw new CdpFault(
-          "display",
-          "The page display metrics are unavailable.",
-        );
-      const remoteSize = {
-        width: value.width,
-        height: value.height,
-        dpr: value.dpr,
-      };
       const existing = projection(
         window.windowId,
         decision,
         remoteSize,
         layout,
       );
-      const nativeWindow = this.nativeWindow;
-      if (!nativeWindow) return { kind: "deferred" };
-      if (nativeWindow.windowId !== window.windowId)
-        throw new CdpFault(
-          "scope",
-          "The page moved during display synchronization.",
-        );
       const existingPresentation = windowPresentation(
-        nativeWindow.geometry,
+        snapshot.native,
         window.bounds,
         existing.projected.presentation.nativeDpr,
       );
       if (
-        this.applied === existing.projected.key &&
+        this.applied?.prepared.projected.key === existing.projected.key &&
         target.geometry.matches(existingPresentation, existing.projected.input)
       ) {
         if (!policy.prepared())
           return { kind: this.current() ? "deferred" : "retired" };
-        return this.completed(window.windowId, existing, "reused");
+        return this.completed(this.applied, "reused");
       }
 
       await host.capture();
-      decision = this.decision(policy, revision, window.windowId);
+      decision = this.decision(policy, snapshot);
       if (!decision) return { kind: this.current() ? "deferred" : "retired" };
       // Choose the latest local observation once. Later changes are separate work;
       // no dispatched payload can change while awaiting native acknowledgements.
@@ -200,6 +149,8 @@ export class DisplayTransaction {
         layout,
         projected.input,
       );
+      if (!snapshot.current())
+        return { kind: this.current() ? "deferred" : "retired" };
       const rejected = target.geometry.beginWrite();
       if (!policy.stage("writing")) {
         rejected();
@@ -217,39 +168,28 @@ export class DisplayTransaction {
       );
       mutation = { kind: "applied" };
       if (!this.current()) return { kind: "retired" };
-      const confirmed = await client.request("Browser.getWindowForTarget", {
-        targetId: target.targetId,
-      });
+      const confirmed = await this.preparation.confirm(window.windowId);
       if (!this.current()) return { kind: "retired" };
-      this.assertWindow(confirmed);
-      if (confirmed.windowId !== window.windowId)
-        throw new CdpFault(
-          "scope",
-          "The page moved during display synchronization.",
-        );
       let acknowledged = confirmed;
       if (decision.kind === "fit" || size.constrained) {
         await client.request("Browser.setContentsSize", projected.contents);
         if (!this.current()) return { kind: "retired" };
-        acknowledged = await client.request("Browser.getWindowForTarget", {
-          targetId: target.targetId,
-        });
+        acknowledged = await this.preparation.confirm(window.windowId);
         if (!this.current()) return { kind: "retired" };
-        this.assertWindow(acknowledged);
-        if (acknowledged.windowId !== window.windowId)
-          throw new CdpFault(
-            "scope",
-            "The page moved during display synchronization.",
-          );
       }
       if (!this.current()) return { kind: "retired" };
       const presentation = windowPresentation(
-        nativeWindow.geometry,
+        snapshot.native,
         acknowledged.bounds,
         projected.presentation.nativeDpr,
       );
       const freshCapture = needsCaptureFence(presentation);
-      target.geometry.apply(projected.input, presentation, freshCapture);
+      const receipt: AppliedReceipt = {
+        windowId: window.windowId,
+        prepared,
+        presentation: { transform: projected.input, expected: presentation },
+      };
+      target.geometry.apply(receipt.presentation, freshCapture);
       policy.stage("presenting");
       if (freshCapture) await this.fenceCapture();
       if (!this.current()) return { kind: "retired" };
@@ -268,7 +208,7 @@ export class DisplayTransaction {
         if (!this.current()) return { kind: "retired" };
         // A clipped static image may be the stream's last frame. Refresh once
         // on evidence, retiring queued decodes before stopping that stream.
-        target.geometry.apply(projected.input, presentation, true);
+        target.geometry.apply(receipt.presentation, true);
         await this.fenceCapture();
         if (!this.current()) return { kind: "retired" };
         await target.geometry.waitForPresentation(
@@ -277,7 +217,7 @@ export class DisplayTransaction {
         );
       }
       if (!this.current()) return { kind: "retired" };
-      return this.completed(window.windowId, prepared, "painted");
+      return this.completed(receipt, "painted");
     } catch (error) {
       if (!this.current()) return { kind: "retired" };
       const uncertain =
@@ -317,16 +257,15 @@ export class DisplayTransaction {
   }
 
   private completed(
-    windowId: number,
-    prepared: ReturnType<typeof projection>,
+    receipt: AppliedReceipt,
     proof: "reused" | "painted",
   ): Extract<DisplayOutcome, { readonly kind: "completed" }> {
-    this.applied = prepared.projected.key;
+    this.applied = receipt;
     return {
       kind: "completed",
       proof,
-      windowId,
-      dpr: prepared.size.dpr,
+      windowId: receipt.windowId,
+      dpr: receipt.prepared.size.dpr,
     };
   }
 
@@ -351,7 +290,10 @@ export class DisplayTransaction {
         target.sessionId,
       );
       if (!this.current()) return false;
-      target.geometry.apply(null, nativePresentation(layout), true);
+      target.geometry.apply(
+        { transform: null, expected: nativePresentation(layout) },
+        true,
+      );
       await this.fenceCapture();
       if (!this.current()) return false;
       await target.geometry.waitForPresentation(
@@ -428,21 +370,5 @@ export class DisplayTransaction {
         );
       target.geometry.fence(value.fence / 1000);
     });
-  }
-
-  private assertWindow(
-    window: Protocol.Browser.GetWindowForTargetResponse,
-  ): void {
-    if (
-      !Number.isSafeInteger(window.windowId) ||
-      (this.host.windowId !== undefined &&
-        window.windowId !== this.host.windowId)
-    )
-      throw new CdpFault("scope", "The page is outside this viewer's window.");
-    if (window.bounds.windowState && window.bounds.windowState !== "normal")
-      throw new CdpFault(
-        "display",
-        "Restore the browser window before synchronizing its display.",
-      );
   }
 }
