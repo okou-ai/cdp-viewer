@@ -54,10 +54,25 @@ rejects obsolete or incompatible images before changing the canvas. Native
 acknowledgements alone cannot finish a transaction or authorize fresh-layout
 fallback over old visible pixels.
 
+Native contents sizing and compositor dimensions are separate rounding
+boundaries. Before its first emulation write, the selected transaction calibrates
+native contents against the browser's outer window bounds. After a contents-size
+acknowledgement it reads and verifies that same window again, translating the
+contents by the observed outer-bounds delta. Presentation and no-op reuse use
+that native result rather than the requested integral DIP. Frame metadata and
+decoded-pixel tolerances remain unchanged; input still follows painted geometry.
+This constant-size reference belongs to one selected session and window. It must
+not be initialized from an already emulated layout or transferred to another
+selection. The translation assumes stable native window chrome; an incompatible
+content extent still cannot complete presentation. There is one additional
+browser-window read per native sizing operation and no per-frame read.
+
 Density changes with an unchanged logical viewport, same-raster transitions and
 rollback also need causal capture evidence. Compare the current logical viewport
 under both the previous and projected scale; different native dimensions alone
-do not guarantee a new static capture frame.
+do not guarantee a new static capture frame. Fence decisions retain pre-write
+observations until the acknowledged native extent is known, including when
+distinct requested sizes round to the same actual image.
 After acknowledged writes, the native executor establishes an elapsed timestamp
 fence in a private isolated world while the controller restarts the same bounded
 stream. The geometry owner rejects pre-fence images. Timing details and the

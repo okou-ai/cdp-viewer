@@ -399,11 +399,20 @@ export class FakeBrowser {
             (t) => t.id === command.params?.targetId,
           );
           if (this.unsupportedWindows || !target) socket.reject(command);
-          else
+          else {
+            const size = this.windowSizes.get(target.windowId) ?? {
+              width: 800,
+              height: 600,
+            };
             socket.reply(command, {
               windowId: target.windowId,
-              bounds: { windowState: this.windowState },
+              bounds: {
+                width: Math.round(size.width),
+                height: Math.round(size.height) + 87,
+                windowState: this.windowState,
+              },
             });
+          }
           break;
         }
         case "Emulation.setDeviceMetricsOverride":

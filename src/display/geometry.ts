@@ -78,6 +78,47 @@ export function nativePresentation(
   );
 }
 
+/** Native contents and outer bounds observed before this session emulates. */
+export interface NativeWindowGeometry {
+  readonly bounds: Viewport;
+  readonly device: Viewport;
+}
+
+function windowSize(bounds: Protocol.Browser.Bounds): Viewport {
+  if (!positive(bounds.width) || !positive(bounds.height))
+    throw new CdpFault("display", "The browser window size is unavailable.");
+  return { width: bounds.width, height: bounds.height };
+}
+
+export function nativeWindowGeometry(
+  layout: Protocol.Page.GetLayoutMetricsResponse,
+  bounds: Protocol.Browser.Bounds,
+): NativeWindowGeometry {
+  return {
+    bounds: windowSize(bounds),
+    device: nativePresentation(layout).device,
+  };
+}
+
+export function windowPresentation(
+  reference: NativeWindowGeometry,
+  bounds: Protocol.Browser.Bounds,
+  nativeDpr: number,
+): PresentationGeometry {
+  const current = windowSize(bounds);
+  // setContentsSize adjusts the outer window, whose native round trip can
+  // change the requested DIP. Keep the calibrated chrome inset; measure the
+  // actual window delta instead of widening frame or decoded-pixel tolerances.
+  return presentationGeometry(
+    {
+      width: reference.device.width + current.width - reference.bounds.width,
+      height:
+        reference.device.height + current.height - reference.bounds.height,
+    },
+    nativeDpr,
+  );
+}
+
 export const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
 

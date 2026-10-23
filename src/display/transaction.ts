@@ -5,10 +5,12 @@ import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import {
   constrainDisplay,
   nativePresentation,
+  nativeWindowGeometry,
   positive,
   projectDisplay,
+  windowPresentation,
 } from "./geometry";
-import type { DisplaySize } from "./geometry";
+import type { DisplaySize, NativeWindowGeometry } from "./geometry";
 import type { DisplayDecision, DisplayOutcome, DisplayStage } from "./policy";
 import type { DisplayViewport } from "./viewport";
 import { frameTimeoutMs } from "./limits";
@@ -66,6 +68,9 @@ function projection(
 /** One selected lifetime's native effects and applied receipt, never window policy. */
 export class DisplayTransaction {
   private applied: string | undefined;
+  private nativeWindow:
+    | { readonly windowId: number; readonly geometry: NativeWindowGeometry }
+    | undefined;
 
   constructor(
     private readonly client: CdpClient,
@@ -130,12 +135,23 @@ export class DisplayTransaction {
         remoteSize,
         layout,
       );
+      if (this.nativeWindow && this.nativeWindow.windowId !== window.windowId)
+        throw new CdpFault(
+          "scope",
+          "The page moved during display synchronization.",
+        );
+      const nativeWindow = this.nativeWindow ?? {
+        windowId: window.windowId,
+        geometry: nativeWindowGeometry(layout, window.bounds),
+      };
+      const existingPresentation = windowPresentation(
+        nativeWindow.geometry,
+        window.bounds,
+        existing.projected.presentation.nativeDpr,
+      );
       if (
         this.applied === existing.projected.key &&
-        target.geometry.matches(
-          existing.projected.presentation,
-          existing.projected.input,
-        )
+        target.geometry.matches(existingPresentation, existing.projected.input)
       ) {
         if (!policy.prepared())
           return { kind: this.current() ? "deferred" : "retired" };
@@ -156,9 +172,8 @@ export class DisplayTransaction {
       const { projected, size } = prepared;
       if (!policy.prepared())
         return { kind: this.current() ? "deferred" : "retired" };
-      const freshCapture = target.geometry.needsCaptureFence(
+      const needsCaptureFence = target.geometry.captureFence(
         layout,
-        projected.presentation,
         projected.input,
       );
       const rejected = target.geometry.beginWrite();
@@ -171,6 +186,7 @@ export class DisplayTransaction {
         return { kind: "retired" };
       }
       mutation = { kind: "pending", rejected };
+      this.nativeWindow = nativeWindow;
       await client.request(
         "Emulation.setDeviceMetricsOverride",
         projected.metrics,
@@ -188,33 +204,48 @@ export class DisplayTransaction {
           "scope",
           "The page moved during display synchronization.",
         );
-      if (decision.kind === "fit" || size.constrained)
+      let acknowledged = confirmed;
+      if (decision.kind === "fit" || size.constrained) {
         await client.request("Browser.setContentsSize", projected.contents);
+        if (!this.current()) return { kind: "retired" };
+        acknowledged = await client.request("Browser.getWindowForTarget", {
+          targetId: target.targetId,
+        });
+        if (!this.current()) return { kind: "retired" };
+        this.assertWindow(acknowledged);
+        if (acknowledged.windowId !== window.windowId)
+          throw new CdpFault(
+            "scope",
+            "The page moved during display synchronization.",
+          );
+      }
       if (!this.current()) return { kind: "retired" };
-      target.geometry.apply(
-        projected.input,
-        projected.presentation,
-        freshCapture,
+      const presentation = windowPresentation(
+        nativeWindow.geometry,
+        acknowledged.bounds,
+        projected.presentation.nativeDpr,
       );
+      const freshCapture = needsCaptureFence(presentation);
+      target.geometry.apply(projected.input, presentation, freshCapture);
       policy.stage("presenting");
       if (freshCapture) await this.fenceCapture();
       if (!this.current()) return { kind: "retired" };
       const started = performance.now();
       const budget = host.presentationTimeout ?? frameTimeoutMs;
-      const presentation = await target.geometry.waitForPresentation(
+      const outcome = await target.geometry.waitForPresentation(
         host.signal,
         budget,
         !freshCapture,
       );
       // Compatible pixels can paint after the mismatch wakes this continuation.
       if (
-        presentation === "inconsistent" &&
-        !target.geometry.matches(projected.presentation, projected.input)
+        outcome === "inconsistent" &&
+        !target.geometry.matches(presentation, projected.input)
       ) {
         if (!this.current()) return { kind: "retired" };
         // A clipped static image may be the stream's last frame. Refresh once
         // on evidence, retiring queued decodes before stopping that stream.
-        target.geometry.apply(projected.input, projected.presentation, true);
+        target.geometry.apply(projected.input, presentation, true);
         await this.fenceCapture();
         if (!this.current()) return { kind: "retired" };
         await target.geometry.waitForPresentation(

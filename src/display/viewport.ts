@@ -123,30 +123,29 @@ export class DisplayViewport {
     );
   }
 
-  needsCaptureFence(
+  captureFence(
     layout: Protocol.Page.GetLayoutMetricsResponse,
-    expected: PresentationGeometry,
     transform: DisplayTransform,
-  ): boolean {
+  ): (expected: PresentationGeometry) => boolean {
     const state = this.adaptation;
-    if (state.kind !== "native" && state.kind !== "presented") return true;
+    if (state.kind !== "native" && state.kind !== "presented")
+      return () => true;
     const viewport = layout.cssVisualViewport;
     const scale = (viewport.zoom ?? 1) * (viewport.scale ?? 1);
-    const unchanged = (viewportScale: number) =>
-      same(
-        {
-          width: viewport.clientWidth * scale * viewportScale,
-          height: viewport.clientHeight * scale * viewportScale,
-        },
-        expected.device,
-      );
-    return (
-      unchanged(state.scale) ||
-      // A density-only change keeps the logical viewport identical. Chrome may
-      // resize the native surface without producing a new static capture frame.
-      unchanged(transform.viewportScale) ||
-      (!!this.painted?.device && same(this.painted.device, expected.device))
-    );
+    const device = (viewportScale: number) => ({
+      width: viewport.clientWidth * scale * viewportScale,
+      height: viewport.clientHeight * scale * viewportScale,
+    });
+    const previous = device(state.scale);
+    const projected = device(transform.viewportScale);
+    const painted = this.painted?.device;
+    // Preserve pre-write facts until acknowledged native bounds are known.
+    return (expected) =>
+      same(previous, expected.device) ||
+      // An unchanged logical viewport can need a fresh static image even when
+      // its native extent changes under the projected density.
+      same(projected, expected.device) ||
+      (!!painted && same(painted, expected.device));
   }
 
   fence(timestamp: number): void {
