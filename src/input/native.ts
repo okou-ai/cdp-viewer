@@ -8,13 +8,22 @@ import type { Point } from "./geometry";
 import type { NativeInputPort } from "./port";
 import { sameDirection, samePointerState } from "./coalescing";
 
-interface ContinuousPointer {
-  input: NativeInputPort;
-  owner: InputOwner;
-  type: "mouseMoved" | "mouseWheel";
-  point: Point;
+type ContinuousSample = {
   details: Parameters<NativeInputPort["pointer"]>[2];
-}
+} & (
+  | {
+      type: "mouseMoved";
+      clientX: number;
+      clientY: number;
+      captured: boolean;
+    }
+  | { type: "mouseWheel"; point: Point }
+);
+
+type ContinuousPointer = ContinuousSample & {
+  readonly input: NativeInputPort;
+  readonly owner: InputOwner;
+};
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
 const buttonMasks = [1, 4, 2, 8, 16] as const;
@@ -192,8 +201,8 @@ export class NativeInput {
       this.continuous?.type === "mouseMoved" &&
       this.continuous.details.buttons === 0 &&
       this.continuous.details.modifiers === modifiers(event) &&
-      this.continuous.point.x === point.x &&
-      this.continuous.point.y === point.y
+      this.continuous.clientX === event.clientX &&
+      this.continuous.clientY === event.clientY
     )
       this.clearContinuous();
     this.flushContinuous();
@@ -226,63 +235,62 @@ export class NativeInput {
   private readonly pointerMove = (event: PointerEvent) => {
     if (event.pointerType !== "mouse") return;
     const held = this.ownedButtons(event.buttons);
-    const point = imagePoint(
-      this.canvas,
-      event.clientX,
-      event.clientY,
-      this.pointerId !== null,
-    );
-    if (point)
-      this.bufferContinuous("mouseMoved", point, {
+    this.bufferContinuous({
+      type: "mouseMoved",
+      clientX: event.clientX,
+      clientY: event.clientY,
+      captured: this.pointerId !== null,
+      details: {
         button:
           held & 1 ? "left" : held & 2 ? "right" : held & 4 ? "middle" : "none",
         buttons: held,
         modifiers: modifiers(event),
-      });
+      },
+    });
   };
 
-  private bufferContinuous(
-    type: ContinuousPointer["type"],
-    point: Point,
-    details: ContinuousPointer["details"],
-  ): void {
+  private bufferContinuous(sample: ContinuousSample): void {
     const input = this.input();
     const owner = input?.owner;
     if (!input || !owner) return;
     const previous = this.continuous;
+    const { details } = sample;
     if (
       previous?.input === input &&
       previous.owner === owner &&
-      previous.type === type &&
       samePointerState(previous.details, details)
     ) {
-      if (type === "mouseMoved") {
-        previous.point = point;
+      if (previous.type === "mouseMoved" && sample.type === "mouseMoved") {
+        previous.clientX = sample.clientX;
+        previous.clientY = sample.clientY;
+        previous.captured = sample.captured;
         previous.details = details;
         return;
       }
-      const deltaX = details.deltaX ?? 0;
-      const deltaY = details.deltaY ?? 0;
-      const previousX = previous.details.deltaX ?? 0;
-      const previousY = previous.details.deltaY ?? 0;
-      const combinedX = previousX + deltaX;
-      const combinedY = previousY + deltaY;
-      if (
-        previous.point.x === point.x &&
-        previous.point.y === point.y &&
-        sameDirection(previousX, deltaX) &&
-        sameDirection(previousY, deltaY) &&
-        [combinedX, combinedY].every(Number.isFinite)
-      ) {
-        previous.details.deltaX = combinedX;
-        previous.details.deltaY = combinedY;
-        return;
+      if (previous.type === "mouseWheel" && sample.type === "mouseWheel") {
+        const deltaX = details.deltaX ?? 0;
+        const deltaY = details.deltaY ?? 0;
+        const previousX = previous.details.deltaX ?? 0;
+        const previousY = previous.details.deltaY ?? 0;
+        const combinedX = previousX + deltaX;
+        const combinedY = previousY + deltaY;
+        if (
+          previous.point.x === sample.point.x &&
+          previous.point.y === sample.point.y &&
+          sameDirection(previousX, deltaX) &&
+          sameDirection(previousY, deltaY) &&
+          [combinedX, combinedY].every(Number.isFinite)
+        ) {
+          previous.details.deltaX = combinedX;
+          previous.details.deltaY = combinedY;
+          return;
+        }
       }
     }
     this.flushContinuous();
     // Flushing may synchronously fail and replace the current input owner.
     if (this.input() !== input || input.owner !== owner) return;
-    const pending = { input, owner, type, point, details };
+    const pending: ContinuousPointer = { ...sample, input, owner };
     this.continuous = pending;
     this.pointerFrame = requestAnimationFrame(() => {
       if (this.continuous === pending) this.flushContinuous();
@@ -293,11 +301,21 @@ export class NativeInput {
     const pending = this.continuous;
     this.clearContinuous();
     if (
-      pending &&
-      this.input() === pending.input &&
-      pending.input.owner === pending.owner
+      !pending ||
+      this.input() !== pending.input ||
+      pending.input.owner !== pending.owner
     )
-      pending.input.pointer(pending.type, pending.point, pending.details);
+      return;
+    const point =
+      pending.type === "mouseMoved"
+        ? imagePoint(
+            this.canvas,
+            pending.clientX,
+            pending.clientY,
+            pending.captured,
+          )
+        : pending.point;
+    if (point) pending.input.pointer(pending.type, point, pending.details);
   };
 
   private clearContinuous(): void {
@@ -349,11 +367,15 @@ export class NativeInput {
         : event.deltaMode === 2
           ? this.canvas.clientHeight
           : 1;
-    this.bufferContinuous("mouseWheel", point, {
-      buttons: this.ownedButtons(event.buttons),
-      modifiers: modifiers(event),
-      deltaX: event.deltaX * unit,
-      deltaY: event.deltaY * unit,
+    this.bufferContinuous({
+      type: "mouseWheel",
+      point,
+      details: {
+        buttons: this.ownedButtons(event.buttons),
+        modifiers: modifiers(event),
+        deltaX: event.deltaX * unit,
+        deltaY: event.deltaY * unit,
+      },
     });
   };
 

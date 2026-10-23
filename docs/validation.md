@@ -127,6 +127,10 @@ synchronization. Keep latency measurements in separate reproducible probes.
 Record conditions, samples and the measured boundary before claiming a gain;
 do not turn one machine's timings into a universal threshold.
 
+Verify native send ordering at the controlled protocol wire. Chromium can
+schedule wheel and keyboard DOM callbacks independently; check their remote
+effects separately when ordered sends intentionally do not await acknowledgement.
+
 The opt-in [adjacent-input experiment](../tests/experiments/README.md) compares
 guarded execution locations with an independently installed public consumer.
 It is separate from the normal browser correctness suite; its narrow prototype

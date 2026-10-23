@@ -68,9 +68,9 @@ function surface(input: NativeInputPort) {
   const proxy = document.createElement("textarea");
   canvas.width = 800;
   canvas.height = 600;
-  vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
-    new DOMRect(0, 0, 800, 600),
-  );
+  const bounds = vi
+    .spyOn(canvas, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(0, 0, 800, 600));
   vi.spyOn(canvas, "clientHeight", "get").mockReturnValue(600);
   stage.setPointerCapture = vi.fn();
   stage.hasPointerCapture = vi.fn(() => false);
@@ -83,6 +83,7 @@ function surface(input: NativeInputPort) {
     adapter,
     proxy,
     canvas,
+    bounds,
     replace: (replacement: NativeInputPort) => {
       current = replacement;
     },
@@ -190,6 +191,69 @@ it("batches separate wheel admissions before a frame and conserves normalized di
     deltaX: 600,
     deltaY: 600,
   });
+});
+
+it("resolves local geometry once when a compatible movement batch flushes", () => {
+  const frames = clock();
+  const { input } = port();
+  const native = surface(input);
+  const { bounds } = native;
+  bounds.mockClear();
+  for (let index = 0; index < 8; index++) native.move({ clientX: 100 + index });
+  expect(bounds).not.toHaveBeenCalled();
+  expect(input.pointer).not.toHaveBeenCalled();
+  frames.frame();
+  expect(bounds).toHaveBeenCalledOnce();
+  expect(input.pointer).toHaveBeenCalledExactlyOnceWith(
+    "mouseMoved",
+    { x: 107 / 800, y: 0.5 },
+    expect.objectContaining({ buttons: 0 }),
+  );
+});
+
+it("uses current contain geometry when a later key flushes pending movement", () => {
+  const frames = clock();
+  const { input } = port();
+  const native = surface(input);
+  const { bounds } = native;
+  bounds.mockClear();
+  native.move({ clientX: 200, clientY: 200 });
+  bounds.mockReturnValue(new DOMRect(0, 0, 400, 300));
+  native.proxy.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "ArrowLeft",
+      code: "ArrowLeft",
+    }),
+  );
+  expect(bounds).toHaveBeenCalledOnce();
+  expect(input.pointer).toHaveBeenCalledExactlyOnceWith(
+    "mouseMoved",
+    { x: 0.5, y: 2 / 3 },
+    expect.objectContaining({ buttons: 0 }),
+  );
+  expect(input.pointer.mock.invocationCallOrder[0]).toBeLessThan(
+    input.key.mock.invocationCallOrder[0]!,
+  );
+  expect(frames.frames.size).toBe(0);
+});
+
+it("discards stale and cancelled movement before reading local geometry", () => {
+  const frames = clock();
+  const { input, replaceOwner } = port();
+  const native = surface(input);
+  const { bounds } = native;
+  bounds.mockClear();
+  native.move();
+  replaceOwner();
+  frames.frame();
+  native.move();
+  const obsolete = [...frames.frames.values()][0]!;
+  native.adapter.reset("paused");
+  obsolete(0);
+  expect(bounds).not.toHaveBeenCalled();
+  expect(input.pointer).not.toHaveBeenCalled();
 });
 
 it.each([{ deltaY: -12 }, { deltaX: -1 }, { clientX: 401 }, { ctrlKey: true }])(

@@ -119,7 +119,7 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
-test("batches wheel tasks before a frame and flushes before a later key", async ({
+test("batches wheel tasks before a frame and admits them before a later key", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -130,7 +130,8 @@ test("batches wheel tasks before a frame and flushes before a later key", async 
     const { remote, windowId } = await editor(backend);
     await remote.evaluate(() => {
       document.body.dataset.wheel = "0";
-      document.body.dataset.order = "";
+      document.body.dataset.keys = "0";
+      document.body.dataset.releases = "0";
       document.addEventListener(
         "wheel",
         (event) => {
@@ -138,13 +139,19 @@ test("batches wheel tasks before a frame and flushes before a later key", async 
           document.body.dataset.wheel = String(
             Number(document.body.dataset.wheel) + event.deltaY,
           );
-          document.body.dataset.order += "wheel,";
         },
         { passive: false },
       );
       document.addEventListener("keydown", (event) => {
         event.preventDefault();
-        document.body.dataset.order += "key,";
+        document.body.dataset.keys = String(
+          Number(document.body.dataset.keys) + 1,
+        );
+      });
+      document.addEventListener("keyup", () => {
+        document.body.dataset.releases = String(
+          Number(document.body.dataset.releases) + 1,
+        );
       });
     });
     const commands: {
@@ -230,10 +237,10 @@ test("batches wheel tasks before a frame and flushes before a later key", async 
       }, position);
     expect(before).toBeGreaterThanOrEqual(1);
     await expect(remote.locator("body")).toHaveAttribute("data-wheel", "96");
-    await expect(remote.locator("body")).toHaveAttribute(
-      "data-order",
-      "wheel,key,",
-    );
+    await expect(remote.locator("body")).toHaveAttribute("data-keys", "1");
+    await expect(remote.locator("body")).toHaveAttribute("data-releases", "1");
+    // Chromium's wheel compositor barrier can deliver DOM callbacks after a
+    // later key. Verify ordered CDP admission and remote effects independently.
     expect(
       commands.map((command) => [command.method, command.params?.type]),
     ).toEqual([
