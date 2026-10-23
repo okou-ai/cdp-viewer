@@ -499,6 +499,61 @@ it("completes an already compatible paint without waiting on a redundant capture
   expect(model.getSnapshot().error).toBeNull();
 });
 
+it("requires a fresh compatible paint when recovery follows an invalidated presentation", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "initial", 0);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  browser.holdFrames = true;
+  controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  socket.emit(
+    "Page.screencastFrame",
+    {
+      sessionId: 888,
+      data: btoa(JSON.stringify({ width: 1600, height: 960 })),
+      metadata: { deviceWidth: 1600, deviceHeight: 1200, pageScaleFactor: 1 },
+    },
+    input.sessionId,
+  );
+  for (const deliver of browser.heldFrames.splice(0)) deliver();
+  // The compatible paint loses authority before the awakened transaction resumes.
+  socket.emit("Page.frameResized", {}, input.sessionId);
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      ),
+    ).toHaveLength(2),
+  );
+  expect(model.read(model.display$)).toMatchObject({
+    pending: true,
+    pointerBlocked: true,
+  });
+  input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, {});
+  await input.completion(input.owner!);
+  expect(
+    socket.commands.some(
+      (command) => command.method === "Input.dispatchMouseEvent",
+    ),
+  ).toBe(false);
+  browser.holdFrames = false;
+  for (const deliver of browser.heldFrames.splice(0)) deliver();
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: false,
+    }),
+  );
+  expect(model.getSnapshot().error).toBeNull();
+  expect(controller.input).toBe(input);
+});
+
 it("keeps the existing stream for stale metadata while a compatible static image is delayed", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "initial", 0);

@@ -213,7 +213,7 @@ export class DisplayTransaction {
         if (!this.current()) return { kind: "retired" };
         // A clipped static image may be the stream's last frame. Refresh once
         // on evidence, retiring queued decodes before stopping that stream.
-        target.geometry.fence(Infinity);
+        target.geometry.apply(projected.input, projected.presentation, true);
         await this.fenceCapture();
         if (!this.current()) return { kind: "retired" };
         await target.geometry.waitForPresentation(
