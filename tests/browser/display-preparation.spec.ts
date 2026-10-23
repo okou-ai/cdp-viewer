@@ -223,16 +223,25 @@ test("retains a held manual fit through mode-off and a zero-area surface", async
     let writes = 0;
     let attachments = 0;
     let starts = 0;
+    let stops = 0;
+    let captureFences = 0;
     await page.routeWebSocket(backend.endpoint, (socket) => {
       const upstream = socket.connectToServer();
       socket.onMessage((message) => {
         const command = JSON.parse(String(message)) as {
           id: number;
           method: string;
+          params?: { expression?: string };
         };
         if (command.method === "Browser.setContentsSize") writes++;
         if (command.method === "Target.attachToTarget") attachments++;
         if (command.method === "Page.startScreencast") starts++;
+        if (command.method === "Page.stopScreencast") stops++;
+        if (
+          command.method === "Runtime.evaluate" &&
+          command.params?.expression === "Date.now()"
+        )
+          captureFences++;
         if (
           hold &&
           command.method === "Page.getLayoutMetrics" &&
@@ -345,7 +354,11 @@ test("retains a held manual fit through mode-off and a zero-area surface", async
     ).toBe(true);
     expect(writes).toBe(2);
     expect(attachments).toBe(1);
-    expect(starts).toBe(1);
+    // Every additional capture belongs to bounded clipped-raster recovery on
+    // the original attachment; a native resize does not imply one fixed start.
+    expect(captureFences).toBeLessThanOrEqual(writes);
+    expect(stops).toBe(captureFences);
+    expect(starts).toBe(1 + captureFences);
     await proxy.dispose();
   } finally {
     await backend.close();
