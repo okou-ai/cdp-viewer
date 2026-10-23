@@ -98,10 +98,12 @@ supplementary local check; it does not establish real GitHub installation.
 Read [docs/state-architecture.md](docs/state-architecture.md) before changing state
 or React boundaries. Ordinary views read projections and dispatch commands from
 event handlers. Keep writable atoms private and preserve independent viewer
-Stores. Only named definition files have the individual primitive capabilities
-defined in `tools/eslint/policy.js`; do not add broad exemptions or inline
-suppressions. `pnpm lint`
-also runs the architecture rule regressions.
+Stores. Apply the same ownership rules in every file. Do not add filename
+allowlists, rule-disable overrides, directory exemptions or inline suppressions.
+Keep semantic state and stable bindings in ccstate; React only observes private
+projections and bridges committed lifetimes. Do not use useMemo, useCallback,
+useState, useRef, useEffect or useLayoutEffect in first-party runtime code.
+`pnpm lint` also runs the architecture rule regressions.
 
 Keep lint rules simple and focused on ordinary code and likely mistakes. Follow
 the documented rule design policy; a deliberately constructed bypass alone does

@@ -21,19 +21,33 @@ function isTypeQuery(node) {
   }
   return parent?.type === AST_NODE_TYPES.TSTypeQuery;
 }
+function privateInstanceStore(identifier, namespace) {
+  const callee = namespace ? identifier.parent : identifier;
+  const call = callee.parent;
+  const field = call?.parent;
+  return (
+    call?.type === AST_NODE_TYPES.CallExpression &&
+    call.callee === callee &&
+    field?.type === AST_NODE_TYPES.PropertyDefinition &&
+    field.value === call &&
+    !field.static &&
+    field.accessibility === "private" &&
+    field.readonly
+  );
+}
 export default createRule({
   name: "no-create-store",
   defaultOptions: [],
   meta: {
     type: "problem",
     docs: {
-      description: "Restrict ccstate Store creation to configured entry points",
+      description: "Keep each Store in a private readonly instance field",
       requiresTypeChecking: false,
     },
     schema: [],
     messages: {
       noCreateStore:
-        "Only the configured entry point may create a ccstate Store. Use the existing Store through computed/command composition; do not create or forward another Store factory.",
+        "Create a Store only as a private readonly instance field; compose existing computed/commands everywhere else.",
     },
   },
   create(context) {
@@ -82,6 +96,7 @@ export default createRule({
                   continue;
                 }
               }
+              if (privateInstanceStore(identifier, namespace)) continue;
               context.report({ node: identifier, messageId: "noCreateStore" });
             }
           }

@@ -1,8 +1,5 @@
 import { ASTUtils } from "@typescript-eslint/utils";
-import { relative } from "node:path";
-
-const modelFiles = new Set(["src/viewer/model.ts", "demo/model.ts"]);
-const contextFiles = new Set(["src/react/context.ts", "demo/context.ts"]);
+import { inView, owningFactory } from "./ownership.js";
 const factoryName = /^create(?:.*(?:Model|Signals)|Instance|Store)$/;
 
 function canonicalName(context, node, depth = 0) {
@@ -50,6 +47,13 @@ function isOwned(node) {
       ].includes(parent.type)
     ) {
       if (
+        ["MethodDefinition", "PropertyDefinition"].includes(
+          parent.parent.type,
+        ) &&
+        parent.parent.static
+      )
+        return false;
+      if (
         parent.parent.type === "CallExpression" &&
         parent.parent.callee === parent
       )
@@ -80,9 +84,9 @@ export const instanceBoundaries = {
       global:
         "Create each {{name}} in its instance owner, never at module/static scope.",
       factory:
-        "Only the viewer/demo model definition may call createInstance; views use their private scope.",
+        "Only a model factory may allocate an instance; views use their private scope.",
       context:
-        "Only the named context definition may create private React scope metadata.",
+        "Declare immutable private context metadata outside render and commands.",
       command:
         "Construct signal graphs before commands run; command execution must not create another graph.",
       model:
@@ -90,17 +94,23 @@ export const instanceBoundaries = {
     },
   },
   create(context) {
-    const filename = relative(context.cwd, context.filename).replaceAll(
-      "\\",
-      "/",
-    );
-    const matches = (set) => set.has(filename);
     return {
       CallExpression(node) {
         const name = canonicalName(context, node.callee);
-        if (name === "createScope" && !matches(contextFiles))
+        if (
+          name === "createScope" &&
+          (isOwned(node) || inCommand(context, node))
+        )
           context.report({ node, messageId: "context" });
-        if (name === "createInstance" && !matches(modelFiles))
+        if (
+          name === "createContext" &&
+          (inView(node) || inCommand(context, node))
+        )
+          context.report({ node, messageId: "context" });
+        if (
+          name === "createInstance" &&
+          !/^create.*Model$/.test(owningFactory(node))
+        )
           context.report({ node, messageId: "factory" });
         if (/^create.*Model$/.test(name ?? ""))
           context.report({ node, messageId: "model" });
@@ -185,6 +195,8 @@ export const viewWrites = {
         )
           continue;
         if (parent.parent.type === "ExportDefaultDeclaration") return true;
+        if (parent.parent.type === "MethodDefinition")
+          return parent.parent.key.name === "render";
         const name =
           parent.id?.name ??
           (parent.parent.type === "VariableDeclarator"
@@ -195,6 +207,13 @@ export const viewWrites = {
       return false;
     }
     return {
+      PropertyDefinition(node) {
+        if (
+          node.key.name === "state" &&
+          canonicalName(context, node.parent.parent.superClass) === "Component"
+        )
+          context.report({ node, messageId: "write" });
+      },
       CallExpression(node) {
         if (boundCommand(node.callee) && duringRender(node))
           context.report({ node, messageId: "write" });
@@ -202,15 +221,16 @@ export const viewWrites = {
           const name = node.callee.computed
             ? node.callee.property.value
             : node.callee.property.name;
-          if (methods.has(name)) context.report({ node, messageId: "write" });
+          if (methods.has(name) && inView(node))
+            context.report({ node, messageId: "write" });
         }
       },
       AssignmentExpression(node) {
-        if (node.left.type === "MemberExpression")
+        if (node.left.type === "MemberExpression" && inView(node))
           context.report({ node, messageId: "write" });
       },
       UpdateExpression(node) {
-        if (node.argument.type === "MemberExpression")
+        if (node.argument.type === "MemberExpression" && inView(node))
           context.report({ node, messageId: "write" });
       },
     };
@@ -225,7 +245,7 @@ export const signalImports = {
       canonical:
         "Import ccstate primitives by their canonical names; aliases/namespaces bypass syntax-based ownership checks.",
       owner:
-        "Define state/computed/commands in an approved model owner, not a view or runtime helper.",
+        "Construct state/computed/commands inside an instance signal/model factory.",
       subpath:
         "Use the ccstate root entry; runtime subpaths bypass the construction/ownership checks.",
       forwarding:
@@ -233,11 +253,16 @@ export const signalImports = {
     },
   },
   create(context) {
-    const filename = relative(context.cwd, context.filename).replaceAll(
-      "\\",
-      "/",
-    );
     return {
+      CallExpression(node) {
+        if (
+          ["state", "computed", "command"].includes(
+            canonicalName(context, node.callee),
+          ) &&
+          !/^create.*(?:Model|Signals)$/.test(owningFactory(node))
+        )
+          context.report({ node, messageId: "owner" });
+      },
       ExportNamedDeclaration(node) {
         if (
           node.exportKind === "type" ||
@@ -276,8 +301,6 @@ export const signalImports = {
           if (!["state", "computed", "command"].includes(name)) continue;
           if (item.local.name !== name)
             context.report({ node: item, messageId: "canonical" });
-          if (!modelFiles.has(filename))
-            context.report({ node: item, messageId: "owner" });
         }
       },
     };
@@ -337,7 +360,7 @@ export const noSuppression = {
     schema: [],
     messages: {
       suppression:
-        "Fix the production boundary instead of suppressing lint or type checks. Change a definition-site capability with regression evidence when necessary.",
+        "Fix the ownership boundary instead of suppressing checks or adding filename privileges.",
     },
   },
   create(context) {

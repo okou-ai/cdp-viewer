@@ -15,6 +15,18 @@ async function lint(code, file = model) {
 
 const rejected = [
   [
+    "class render microtask",
+    "import { Component } from 'react'; export class View extends Component { render() { queueMicrotask(work); return null; } }",
+    "ccstate/no-side-effect-in-render",
+    view,
+  ],
+  [
+    "class render model mutation",
+    "import { Component } from 'react'; export class View extends Component { render() { model.update({}); return null; } }",
+    "ccstate/view-writes",
+    view,
+  ],
+  [
     "microtask in default function render",
     "export default function() { queueMicrotask(work); return null; }",
     "ccstate/no-side-effect-in-render",
@@ -410,7 +422,7 @@ const accepted = [
   ],
   [
     "renamed cancellation checked await",
-    "import { command } from 'ccstate'; const work$ = command(async (_, lifetime: AbortSignal) => { await perform(); lifetime.throwIfAborted(); update(); });",
+    "import { command } from 'ccstate'; function createTaskSignals() { const work$ = command(async (_, lifetime: AbortSignal) => { await perform(); lifetime.throwIfAborted(); update(); }); return { work$ }; }",
   ],
   [
     "type-only resource in view",
@@ -420,7 +432,7 @@ const accepted = [
   [
     "runtime resource definition",
     "import { ViewerController } from '../viewer/controller.js';",
-    "src/react/runtime.tsx",
+    "src/react/binding.ts",
   ],
   [
     "one factory can construct independent instances",
@@ -436,15 +448,15 @@ const accepted = [
   ],
   [
     "cancellation propagated",
-    "import { command } from 'ccstate'; const work$ = command(async (_, signal: AbortSignal) => { await load(signal); });",
+    "import { command } from 'ccstate'; function createTaskSignals() { const work$ = command(async (_, signal: AbortSignal) => { await load(signal); }); return { work$ }; }",
   ],
   [
     "caught cancellation rethrown",
-    "import { command } from 'ccstate'; const work$ = command(async (_, signal: AbortSignal) => { try { await load(signal); } catch (error) { throw error; } });",
+    "import { command } from 'ccstate'; function createTaskSignals() { const work$ = command(async (_, signal: AbortSignal) => { try { await load(signal); } catch (error) { throw error; } }); return { work$ }; }",
   ],
   [
     "checked await",
-    "import { command } from 'ccstate'; const work$ = command(async (_, signal: AbortSignal) => { await load(); signal.throwIfAborted(); update(); });",
+    "import { command } from 'ccstate'; function createTaskSignals() { const work$ = command(async (_, signal: AbortSignal) => { await load(); signal.throwIfAborted(); update(); }); return { work$ }; }",
   ],
   [
     "event command dispatch",
@@ -462,53 +474,53 @@ const accepted = [
     "src/react/context.ts",
   ],
   [
-    "Store definition site",
-    "import { createStore } from 'ccstate'; export function createInstance() { return createStore(); }",
+    "private instance Store",
+    "import { createStore } from 'ccstate'; export class Instance { private readonly store = createStore(); }",
     "src/state/instance.ts",
   ],
   [
     "wire deferred primitive",
-    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "export class Wire { read() { return new Promise(resolve => resolve(1)); } }",
     "src/cdp/client.ts",
   ],
   [
     "wire cancellation primitive",
-    "export function lifetime() { return new AbortController(); }",
+    "export class Wire { private readonly lifetime = new AbortController(); }",
     "src/cdp/client.ts",
   ],
   [
     "selected-session presentation settlement primitive",
-    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "export class Presentation { wait() { return new Promise(resolve => resolve(1)); } }",
     "src/display/viewport.ts",
   ],
   [
     "selected-session presentation deadline primitive",
-    "export function lifetime() { return new AbortController(); }",
+    "export class Presentation { private readonly lifetime = new AbortController(); }",
     "src/display/viewport.ts",
   ],
   [
     "extension registration lifetime primitive",
-    "export function lifetime() { return new AbortController(); }",
+    "export class Registration { private readonly lifetime = new AbortController(); }",
     "src/extensions/runtime.ts",
   ],
   [
     "queued read settlement primitive",
-    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "export class Queue { read() { return new Promise(resolve => resolve(1)); } }",
     "src/input/queue.ts",
   ],
   [
     "clipboard representation primitive",
-    "export function deferred() { return new Promise(resolve => resolve(1)); }",
+    "export class Clipboard { copy() { return new Promise(resolve => resolve(1)); } }",
     "src/input/clipboard.ts",
   ],
   [
-    "narrow React bridge",
-    "import { useState } from 'react'; export function Provider() { const [model] = useState(createModel); return null; }",
+    "pure React bootstrap",
+    "import { Component } from 'react'; export class Provider extends Component { render() { return null; } }",
     "src/state/react.tsx",
   ],
   [
     "demo bootstrap StrictMode",
-    "import { StrictMode } from 'react'; document.getElementById('root');",
+    "import { StrictMode } from 'react'; export function Demo() { return <StrictMode><div /></StrictMode>; }",
     "demo/main.tsx",
   ],
 ];
@@ -516,6 +528,153 @@ const accepted = [
 for (const [name, code, file] of accepted) {
   await test(`permits ${name}`, async () =>
     assert.deepEqual(await lint(code, file), []));
+}
+
+// Identical syntax has identical treatment, including every former privilege path.
+for (const file of [
+  "src/state/instance.ts",
+  "src/cdp/client.ts",
+  "src/viewer/controller.ts",
+  "src/input/native.ts",
+  "src/extensions/runtime.ts",
+  "src/input/queue.ts",
+  "src/input/clipboard.ts",
+  "src/display/viewport.ts",
+  "src/ordinary-owner.ts",
+]) {
+  await test(`ownership is independent of ${file}`, async () => {
+    for (const [code, rule] of [
+      [
+        "function helper() { return new AbortController(); }",
+        "ccstate/no-new-abort-controller",
+      ],
+      [
+        "function helper() { return new Promise(resolve => resolve(1)); }",
+        "ccstate/no-new-promise",
+      ],
+      [
+        "class Owner { static lifetime = new AbortController(); }",
+        "ccstate/no-new-abort-controller",
+      ],
+      [
+        "class Owner { static read() { return Promise.withResolvers(); } }",
+        "ccstate/no-new-promise",
+      ],
+      [
+        "class Owner { render() { return new Promise(resolve => resolve(1)); } }",
+        "ccstate/no-new-promise",
+      ],
+      [
+        "import { createStore } from 'ccstate'; class Owner { readonly store = createStore(); }",
+        "ccstate/no-create-store",
+      ],
+      [
+        "import { createStore } from 'ccstate'; class Owner { private static readonly store = createStore(); }",
+        "ccstate/no-create-store",
+      ],
+      [
+        "import { command } from 'ccstate'; function createTaskSignals() { const work$ = command(() => { class Owner { lifetime = new AbortController(); } }); }",
+        "ccstate/no-new-abort-controller",
+      ],
+      [
+        "import { command } from 'ccstate'; function createTaskSignals() { const work$ = command(() => { try { load(); } catch (error) { report(error); } }); }",
+        "ccstate/no-catch-abort",
+      ],
+    ]) {
+      const messages = await lint(code, file);
+      assert.ok(
+        messages.some((m) => m.ruleId === rule),
+        JSON.stringify({ file, code, messages }),
+      );
+    }
+    assert.deepEqual(
+      await lint(
+        "import { createStore } from 'ccstate'; export class Owner { private readonly store = createStore(); private readonly lifetime = new AbortController(); read() { return new Promise(resolve => resolve(1)); } }",
+        file,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      await lint(
+        "import { state, computed } from 'ccstate'; function createOtherSignals() { const count$ = state(0); const value$ = computed(get => get(count$)); return { value$ }; }",
+        file,
+      ),
+      [],
+    );
+  });
+}
+
+for (const file of [
+  "src/state/react.tsx",
+  "src/react/runtime.tsx",
+  "src/react/ordinary.tsx",
+  "src/ordinary.ts",
+  "demo/main.tsx",
+]) {
+  await test(`React policy is independent of ${file}`, async () => {
+    for (const hook of [
+      "useMemo",
+      "useCallback",
+      "useState",
+      "useRef",
+      "useEffect",
+      "useLayoutEffect",
+    ]) {
+      const messages = await lint(`import { ${hook} } from 'react';`, file);
+      assert.ok(
+        messages.some(
+          (m) => m.ruleId === "@typescript-eslint/no-restricted-imports",
+        ),
+        hook,
+      );
+    }
+    assert.deepEqual(
+      await lint(
+        "import { useContext, useId, useSyncExternalStore, Component } from 'react';",
+        file,
+      ),
+      [],
+    );
+    for (const code of [
+      "import { Component } from 'react'; class View extends Component { state = { count: 0 }; render() { return null; } }",
+      "import { Component } from 'react'; class View extends Component { componentDidMount() { this.setState({ count: 1 }); } render() { return null; } }",
+      "import { Component } from 'react'; class View extends Component { componentDidMount() { this.forceUpdate(); } render() { return null; } }",
+    ])
+      assert.ok(
+        (await lint(code, file)).some((m) =>
+          ["ccstate/view-writes", "no-restricted-properties"].includes(
+            m.ruleId,
+          ),
+        ),
+        code,
+      );
+  });
+}
+
+for (const file of [
+  "src/react/context.ts",
+  "demo/context.ts",
+  "src/other-context.ts",
+]) {
+  await test(`private context metadata is independent of ${file}`, async () => {
+    assert.deepEqual(
+      await lint(
+        "import { createScope } from './scope'; export const scope = createScope(factory);",
+        file,
+      ),
+      [],
+    );
+    for (const code of [
+      "import { createScope } from './scope'; function View() { const scope = createScope(factory); return null; }",
+      "import { createContext } from 'react'; function View() { const context = createContext(null); return null; }",
+    ])
+      assert.ok(
+        (await lint(code, file)).some(
+          (m) => m.ruleId === "ccstate/instance-boundaries",
+        ),
+        code,
+      );
+  });
 }
 
 await test("inline suppressions cannot turn the architecture gate off", async () => {

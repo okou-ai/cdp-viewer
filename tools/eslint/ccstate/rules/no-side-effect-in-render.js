@@ -3,6 +3,11 @@
 import { createRule } from "../utils.js";
 const DEFAULT_FORBIDDEN_CALLS = ["detach", "queueMicrotask"];
 function isComponentOrHookFunction(node, filename) {
+  if (
+    node.parent?.type === "MethodDefinition" &&
+    node.parent.key.name === "render"
+  )
+    return true;
   // Default exports in TSX are components, including anonymous arrows and
   // functions whose local name does not follow the component convention.
   if (

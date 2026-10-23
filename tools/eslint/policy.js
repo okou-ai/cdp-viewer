@@ -7,63 +7,40 @@ const privateContextImport = Object.freeze({
     "Use the private instance scope so library state never binds to the host provider.",
 });
 
-// Capabilities are granted at primitive definition sites, never to directories.
-// See docs/state-architecture.md before changing an entry.
-const primitiveCapabilities = Object.freeze([
-  {
-    files: ["src/state/instance.ts"],
-    rules: { "ccstate/no-create-store": "off" },
-  },
-  {
-    files: ["src/cdp/client.ts"],
-    rules: {
-      "ccstate/no-new-abort-controller": "off",
-      "ccstate/no-new-promise": "off",
-    },
-  },
-  {
-    // Each named owner defines an independently abortable resource lifetime.
-    files: [
-      "src/viewer/controller.ts",
-      "src/input/native.ts",
-      "src/extensions/runtime.ts",
-    ],
-    rules: { "ccstate/no-new-abort-controller": "off" },
-  },
-  {
-    // These owners settle canceled queued reads and deferred ClipboardItem data.
-    files: ["src/input/queue.ts", "src/input/clipboard.ts"],
-    rules: { "ccstate/no-new-promise": "off" },
-  },
-  {
-    // One selected session settles its painted-image barrier and owns its deadline.
-    files: ["src/display/viewport.ts"],
-    rules: {
-      "ccstate/no-new-promise": "off",
-      "ccstate/no-new-abort-controller": "off",
-    },
-  },
-]);
-
+// One contract for every production file; capabilities never depend on a filename.
 export const architecture = [
   {
     files: ["src/**/*.{ts,tsx}", "demo/**/*.{ts,tsx}"],
     plugins: { ccstate: plugin },
     rules: {
       ...Object.fromEntries(
-        Object.keys(plugin.rules)
-          .filter((name) => !["no-catch-abort", "view-writes"].includes(name))
-          .map((name) => ["ccstate/" + name, "error"]),
+        Object.keys(plugin.rules).map((name) => ["ccstate/" + name, "error"]),
       ),
+      "no-restricted-properties": [
+        "error",
+        { property: "setState", message: "Keep semantic state in ccstate." },
+        {
+          property: "forceUpdate",
+          message: "Observe ccstate through the external-store subscription.",
+        },
+      ],
       "@typescript-eslint/no-restricted-imports": [
         "error",
         {
           paths: [
             {
               name: "react",
+              allowImportNames: [
+                "Component",
+                "createContext",
+                "useContext",
+                "useId",
+                "useSyncExternalStore",
+                "StrictMode",
+              ],
               allowTypeImports: true,
               message:
-                "React primitives belong to the exact private bridge/runtime definitions.",
+                "Keep semantic state in ccstate and resources in committed instance lifetimes.",
             },
             privateContextImport,
           ],
@@ -77,76 +54,32 @@ export const architecture = [
       ],
     },
   },
-  // Async signal commands use AbortSignal cancellation; the wire/native engines
-  // use their documented captured owners and protocol-specific recovery instead.
-  {
-    files: ["src/viewer/model.ts", "demo/model.ts", "src/state/instance.ts"],
-    rules: { "ccstate/no-catch-abort": "error" },
-  },
-  ...primitiveCapabilities,
-  ...[
-    [
-      "src/state/react.tsx",
-      [
-        "createContext",
-        "useCallback",
-        "useContext",
-        "useId",
-        "useState",
-        "useSyncExternalStore",
-      ],
-    ],
-    [
-      "src/react/runtime.tsx",
-      [
-        "createContext",
-        "useContext",
-        "useEffect",
-        "useLayoutEffect",
-        "useMemo",
-        "useRef",
-      ],
-    ],
-  ].map(([file, hooks]) => ({
-    files: [file],
-    rules: {
-      "@typescript-eslint/no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            { name: "react", allowImportNames: hooks, allowTypeImports: true },
-            privateContextImport,
-          ],
-          patterns: [
-            {
-              group: ["react/*", "ccstate/*", "ccstate-react/*"],
-              allowTypeImports: true,
-            },
-          ],
-        },
-      ],
-    },
-  })),
   {
     files: ["src/**/*.tsx", "demo/**/*.tsx"],
-    ignores: ["src/state/react.tsx", "src/react/runtime.tsx"],
     rules: {
-      "ccstate/view-writes": "error",
       "@typescript-eslint/no-restricted-imports": [
         "error",
         {
           paths: [
             {
               name: "react",
+              allowImportNames: [
+                "Component",
+                "createContext",
+                "useContext",
+                "useId",
+                "useSyncExternalStore",
+                "StrictMode",
+              ],
               allowTypeImports: true,
               message:
-                "Use private ccstate scope reads/commands. React state/effects belong only to the named bootstrap/runtime adapters.",
+                "Keep semantic state in ccstate and resources in committed instance lifetimes.",
             },
             {
               name: "ccstate",
               allowTypeImports: true,
               message:
-                "Construct signal graphs in their model owner, outside views.",
+                "Construct signal graphs in their model factory, outside views.",
             },
             privateContextImport,
           ],
@@ -181,44 +114,8 @@ export const architecture = [
         ].map((name) => ({
           name,
           message:
-            "Keep browser resources in their owned primitive, not a view.",
+            "Keep browser resources in a committed owner, outside views.",
         })),
-      ],
-    },
-  },
-  {
-    files: ["demo/main.tsx"],
-    rules: {
-      "@typescript-eslint/no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "react",
-              allowImportNames: ["StrictMode"],
-              allowTypeImports: true,
-            },
-            { name: "ccstate", allowTypeImports: true },
-            privateContextImport,
-          ],
-          patterns: [
-            {
-              group: ["react/*", "ccstate/*", "ccstate-react/*"],
-              allowTypeImports: true,
-            },
-          ],
-        },
-      ],
-      "no-restricted-globals": [
-        "error",
-        ...[
-          "window",
-          "globalThis",
-          "fetch",
-          "WebSocket",
-          "localStorage",
-          "sessionStorage",
-        ].map((name) => ({ name })),
       ],
     },
   },

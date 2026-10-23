@@ -449,6 +449,8 @@ export function createViewerModel() {
     read: instance.read,
     watch: instance.watch,
     run: instance.run,
+    bindValue: instance.bindValue,
+    bindCommand: instance.bindCommand,
     getSnapshot: () => instance.read(instance.signals.snapshot$),
     subscribe: (listener: () => void) =>
       instance.watch(instance.signals.snapshot$, listener),
