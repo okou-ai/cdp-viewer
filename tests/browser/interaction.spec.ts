@@ -471,13 +471,14 @@ test("continuous wheel input survives delayed replies without dropping focus or 
     const view = await host(page, backend, windowId);
     await clickRemote(page, view, remote, "#plain");
     const position = await imagePosition(view, 500, 300, remote);
-    // Each message is a client task, letting input sends drain between events
-    // without driver round trips extending the hold past the request deadline.
+    // Cross real frame boundaries so early batching still fills the native
+    // reply budget. Separate client tasks can all fit in one frame.
     await view.locator("canvas").evaluate(async (canvas, point) => {
-      await new Promise<void>((resolve) => {
-        const tasks = new MessageChannel();
-        let sent = 0;
-        tasks.port1.onmessage = () => {
+      for (let frame = 0; frame < 40; frame++) {
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        for (let event = 0; event < 4; event++)
           canvas.dispatchEvent(
             new WheelEvent("wheel", {
               bubbles: true,
@@ -487,18 +488,10 @@ test("continuous wheel input survives delayed replies without dropping focus or 
               deltaY: 12,
             }),
           );
-          if (++sent === 160) {
-            tasks.port1.close();
-            tasks.port2.close();
-            resolve();
-          } else tasks.port2.postMessage(null);
-        };
-        tasks.port2.postMessage(null);
-      });
+      }
     }, position);
-    await expect.poll(() => replies.length).toBeGreaterThan(1);
-    expect(wheels.length).toBeGreaterThan(1);
-    expect(wheels.length).toBeLessThanOrEqual(64);
+    await expect.poll(() => replies.length).toBe(32);
+    expect(wheels).toHaveLength(32);
     await expect(view.getByRole("alert")).toHaveCount(0);
     await expect(
       view.getByRole("textbox", { name: "Remote browser input" }),
