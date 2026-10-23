@@ -146,7 +146,7 @@ session IDs are excluded. This console shows viewer callbacks; it does not colle
 the remote page's JavaScript console.
 
 `onWindowSizeSyncChange` records only the mode requested by the browser menu.
-Each viewer retains at most twelve events. Connection replacement, disconnect
+Each viewer retains at most 64 events. Connection replacement, disconnect
 and removal retire only that viewer's observations and reject its late callbacks.
 
 Usage shows the applied window/extensions with the current live controls. The

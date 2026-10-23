@@ -116,7 +116,7 @@ export type CallbackEvent = { readonly sequence: number } & (
   | { readonly name: "onError"; readonly value: ViewerError }
   | { readonly name: "onWindowSizeSyncChange"; readonly value: WindowSizeSync }
 );
-export const callbackLimit = 12;
+export const callbackLimit = 64;
 
 export function usageCode(
   options: PlaygroundOptions,
