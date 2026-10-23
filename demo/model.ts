@@ -4,6 +4,7 @@ import type {
   ViewerError,
   ViewerExtension,
   ViewerSnapshot,
+  WindowSizeSync,
 } from "cdp-viewer";
 import { createInstance } from "../src/state/instance";
 import { parseConnection } from "./connection";
@@ -317,6 +318,31 @@ function createDemoSignals() {
       );
     },
   );
+  const observeWindowSizeSync$ = command(
+    ({ get, set }, id: number, generation: number, mode: WindowSizeSync) => {
+      const owner = get(internalPanels$).find((item) => item.id === id);
+      if (!owner?.connection || owner.connection.generation !== generation)
+        return;
+      const sequence = owner.sequence + 1;
+      const event: CallbackEvent = {
+        sequence,
+        name: "onWindowSizeSyncChange",
+        value: mode,
+      };
+      set(internalPanels$, (values) =>
+        values.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                options: { ...item.options, windowSizeSync: mode },
+                sequence,
+                activity: [...item.activity, event].slice(-callbackLimit),
+              }
+            : item,
+        ),
+      );
+    },
+  );
   const observeError$ = command(
     ({ get, set }, id: number, generation: number, error: ViewerError) => {
       const owner = get(internalPanels$).find((item) => item.id === id);
@@ -359,6 +385,7 @@ function createDemoSignals() {
     nudgeResize$,
     clearActivity$,
     observeStatus$,
+    observeWindowSizeSync$,
     observeError$,
   };
 }

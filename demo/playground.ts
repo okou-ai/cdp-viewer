@@ -3,6 +3,7 @@ import type {
   CdpViewerStyle,
   ViewerError,
   ViewerSnapshot,
+  WindowSizeSync,
 } from "cdp-viewer";
 import type { Connection } from "./connection";
 
@@ -12,8 +13,8 @@ export const propGuide = {
   windowId: "Connection options",
   paused: "Pause / resume",
   interactive: "Control mode",
-  windowSizeSync: "Browser menu / controlled usage guide",
-  onWindowSizeSyncChange: "Controlled usage guide",
+  windowSizeSync: "Appearance & layout / browser menu",
+  onWindowSizeSyncChange: "State & events / controlled Usage",
   extensions: "Connection options",
   colorScheme: "Viewer theme",
   className: "Framed presentation preset",
@@ -25,6 +26,7 @@ export const propGuide = {
 export interface PlaygroundOptions {
   readonly paused: boolean;
   readonly interactive: boolean;
+  readonly windowSizeSync: WindowSizeSync;
   readonly theme: "inherit" | NonNullable<CdpViewerProps["colorScheme"]>;
   readonly height: number;
   readonly width: number;
@@ -42,6 +44,7 @@ export const sizeLimits = {
 export const defaultOptions = Object.freeze<PlaygroundOptions>({
   paused: false,
   interactive: true,
+  windowSizeSync: "off",
   theme: "inherit",
   height: 360,
   width: 100,
@@ -81,6 +84,7 @@ export type SnapshotSummary = ReturnType<typeof summarizeSnapshot>;
 export type CallbackEvent = { readonly sequence: number } & (
   | { readonly name: "onStatusChange"; readonly value: SnapshotSummary }
   | { readonly name: "onError"; readonly value: ViewerError }
+  | { readonly name: "onWindowSizeSyncChange"; readonly value: WindowSizeSync }
 );
 export const callbackLimit = 12;
 
@@ -92,28 +96,43 @@ export function usageCode(
     (value) => value.id === "browser-use",
   );
   return [
+    'import { useState } from "react";',
     'import { CdpViewer } from "cdp-viewer";',
+    'import type { CdpViewerProps, WindowSizeSync } from "cdp-viewer";',
     'import "cdp-viewer/style.css";',
     ...(extension
       ? ['import { browserUse } from "cdp-viewer/extensions/browser-use";']
       : []),
     "",
-    "// Supply cdpUrl and callback handlers from your application.",
-    "<CdpViewer",
-    "  cdpUrl={cdpUrl}",
+    "type BrowserPreviewProps = Required<",
+    '  Pick<CdpViewerProps, "cdpUrl" | "onStatusChange" | "onError">',
+    ">;",
+    "",
+    "export function BrowserPreview({",
+    "  cdpUrl, onStatusChange, onError,",
+    "}: BrowserPreviewProps) {",
+    `  const [windowSizeSync, setWindowSizeSync] = useState<WindowSizeSync>(${JSON.stringify(options.windowSizeSync)});`,
+    "",
+    "  return (",
+    "    <CdpViewer",
+    "      cdpUrl={cdpUrl}",
     ...(connection?.windowId === undefined
       ? []
-      : [`  windowId={${connection.windowId}}`]),
-    `  paused={${options.paused}}`,
-    `  interactive={${options.interactive}}`,
-    `  extensions={${extension ? "[browserUse()]" : "[]"}}`,
+      : [`      windowId={${connection.windowId}}`]),
+    `      paused={${options.paused}}`,
+    `      interactive={${options.interactive}}`,
+    "      windowSizeSync={windowSizeSync}",
+    "      onWindowSizeSyncChange={setWindowSizeSync}",
+    `      extensions={${extension ? "[browserUse()]" : "[]"}}`,
     ...(options.theme === "inherit"
       ? []
-      : [`  colorScheme=${JSON.stringify(options.theme)}`]),
-    `  className={${JSON.stringify(viewerClassName(options))}}`,
-    `  style={${JSON.stringify(viewerStyle(options), null, 2).replaceAll("\n", "\n  ")}}`,
-    "  onStatusChange={handleStatusChange}",
-    "  onError={handleError}",
-    "/>",
+      : [`      colorScheme=${JSON.stringify(options.theme)}`]),
+    `      className={${JSON.stringify(viewerClassName(options))}}`,
+    `      style={${JSON.stringify(viewerStyle(options), null, 2).replaceAll("\n", "\n      ")}}`,
+    "      onStatusChange={onStatusChange}",
+    "      onError={onError}",
+    "    />",
+    "  );",
+    "}",
   ].join("\n");
 }

@@ -83,17 +83,28 @@ display to the new page surface.
 | `paused`                 | Pause stream / Resume stream                   | Immediately, without replacing the connection                           |
 | `interactive`            | Control mode                                   | Immediately; restarts this viewer using its applied connection settings |
 | `colorScheme`            | Appearance & layout → Viewer theme             | Immediately; Inherit page omits the prop, while System follows the OS   |
-| `style`                  | Height, width, corner radius and custom accent | Immediately; remote display adaptation follows the browser-menu mode    |
+| `style`                  | Height, width, corner radius and custom accent | Immediately; remote adaptation follows Window size sync                 |
 | `className`              | Framed presentation preset                     | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
 | `onStatusChange`         | State & events                                 | Always observed while connected                                         |
 | `onError`                | State & events                                 | Always observed while connected                                         |
-| `windowSizeSync`         | Browser menu / controlled usage guide          | Omitted in the playground so each viewer's menu owns its mode           |
-| `onWindowSizeSyncChange` | Controlled usage guide                         | The host accepts a requested mode by updating its controlled prop       |
+| `windowSizeSync`         | Appearance & layout → Window size sync         | Immediately, without replacing the connection; off by default           |
+| `onWindowSizeSyncChange` | State & events / controlled Usage              | Accepts browser-menu requests and updates the owning panel's mode       |
 
-The address-bar menu offers **Do not sync automatically**, **Sync once on opening**,
-**Sync continuously** and one combined size/DPR **Sync now** action. The playground
-uses menu-owned state. The [controlled usage example](../README.md#display-adaptation)
-shows how a host supplies `windowSizeSync` and accepts `onWindowSizeSyncChange`.
+**Window size sync** and the address-bar menu share the same controlled mode:
+
+- **Do not sync automatically** (`off`, default) stops automatic updates while
+  keeping the last applied remote size and pixel density. It does not restore
+  the window's previous dimensions.
+- **Sync once on opening** (`initial`) fits each selected real window once per
+  connection, using the viewer's page-surface size and client pixel density.
+- **Sync continuously** (`live`) also adapts the remote display when you resize
+  the viewer with its corner or Height/Width controls.
+
+The setting is available before connecting, remains independent in each panel,
+and changes immediately without reconnecting. Menu changes update the right-hand
+control and Usage through `onWindowSizeSyncChange`. The menu's combined size/DPR
+**Sync now** action remains available without changing the automatic mode.
+See the [library contract](../README.md#display-adaptation) for sizing limits.
 
 The demo initially enables interaction, while the library's default remains
 view-only. Changing control mode creates a fresh viewer generation, using the last
@@ -104,13 +115,16 @@ offscreen/document visibility behavior still applies.
 State & events retains only semantic summaries: status, tab count, selection
 presence, navigation availability/history capabilities and diagnostic category.
 It omits target IDs/titles and page addresses before storing observations. Error
-events show the public fixed diagnostic. Each panel retains at most twelve events;
+events show the public fixed diagnostic. `onWindowSizeSyncChange` records only
+the mode requested by the browser menu. Each panel retains at most twelve events;
 Clear removes activity while retaining its latest state. Connection replacement,
 disconnect and removal retire the old observations and reject late callbacks.
 
 Usage shows the applied window/extensions with the current live controls. The
-endpoint is represented by a host-provided `cdpUrl` variable. Callback handlers
-are also supplied by the integrating application. The framed preset requires
+endpoint and status/error handlers are supplied as host component props. The
+example initializes `useState<WindowSizeSync>` from the current selection and
+passes its setter to `onWindowSizeSyncChange`, demonstrating how to accept menu
+requests in a controlled integration. The framed preset requires
 host-defined CSS; it is an integration example, not an additional library theme.
 The example is selectable text. Neither code nor observations are saved.
 

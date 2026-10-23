@@ -144,6 +144,9 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
   const configure = demoScope.useCommand(model.configure$);
   const observeStatus = demoScope.useCommand(model.observeStatus$);
   const observeError = demoScope.useCommand(model.observeError$);
+  const observeWindowSizeSync = demoScope.useCommand(
+    model.observeWindowSizeSync$,
+  );
   const { id, connection, options } = panel;
   const identity = `${demoScope.useIdentity()}-${id}`;
   const status =
@@ -218,6 +221,10 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 extensions={connection.extensions}
                 interactive={options.interactive}
                 paused={options.paused}
+                windowSizeSync={options.windowSizeSync}
+                onWindowSizeSyncChange={(mode) =>
+                  observeWindowSizeSync(id, connection.generation, mode)
+                }
                 className={viewerClassName(options)}
                 style={viewerStyle(options)}
                 {...(connection.windowId === undefined
