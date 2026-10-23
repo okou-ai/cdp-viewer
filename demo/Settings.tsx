@@ -202,6 +202,33 @@ function AppearanceSettings({
             />
           </div>
         ))}
+        <div className="demo-field">
+          <label htmlFor={`${identity}-window-sync`}>
+            Window size sync <code>windowSizeSync</code>
+          </label>
+          <select
+            id={`${identity}-window-sync`}
+            value={options.windowSizeSync}
+            aria-describedby={`${identity}-window-sync-hint`}
+            onChange={(event) => {
+              const windowSizeSync = event.target.value;
+              if (
+                windowSizeSync === "off" ||
+                windowSizeSync === "initial" ||
+                windowSizeSync === "live"
+              )
+                configure(panel.id, { windowSizeSync });
+            }}
+          >
+            <option value="off">Do not sync automatically</option>
+            <option value="initial">Sync once on opening</option>
+            <option value="live">Sync continuously</option>
+          </select>
+          <p className="demo-hint" id={`${identity}-window-sync-hint`}>
+            Fit the remote display to the viewer’s size and pixel density. Off
+            keeps the last applied size. Sync now is in the browser menu.
+          </p>
+        </div>
         <div className="demo-accent-control">
           <label>
             <input
@@ -239,7 +266,7 @@ function AppearanceSettings({
         </label>
         <p className="demo-hint">
           Size and colors use <code>style</code>; the frame uses demo-defined
-          CSS. Neither changes the remote viewport.
+          CSS. Remote sizing follows Window size sync.
         </p>
       </div>
     </details>
@@ -260,8 +287,9 @@ function CallbackInspector({ panel }: { panel: Panel }) {
       </summary>
       <div className="demo-group-content">
         <p className="demo-hint">
-          <code>onStatusChange</code> and <code>onError</code>, live. Page
-          titles, target IDs and addresses are omitted.
+          <code>onStatusChange</code>, <code>onError</code> and{" "}
+          <code>onWindowSizeSyncChange</code>, live. Page titles, target IDs and
+          addresses are omitted.
         </p>
         <pre className="demo-snapshot" aria-label="Current status summary">
           {panel.snapshot
@@ -291,7 +319,9 @@ function CallbackInspector({ panel }: { panel: Panel }) {
                 <p>
                   {event.name === "onStatusChange"
                     ? `${event.value.status} · ${event.value.targetCount} tabs`
-                    : `${event.value.kind}: ${event.value.message}`}
+                    : event.name === "onWindowSizeSyncChange"
+                      ? `Mode requested: ${event.value}`
+                      : `${event.value.kind}: ${event.value.message}`}
                 </p>
               </li>
             ))}

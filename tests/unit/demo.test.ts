@@ -175,6 +175,65 @@ it("bounds semantic callback activity and rejects retired, disconnected and remo
   expect(model.read(model.panels$)).toBe(removed);
 });
 
+it("shares a controlled sync mode without replacing live ownership or sibling options", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  const [first, sibling] = model.read(model.panels$);
+  expect(first?.options.windowSizeSync).toBe("off");
+  expect(sibling?.options.windowSizeSync).toBe("off");
+  model.run(model.configure$, 1, { windowSizeSync: "live" });
+  model.run(model.observeStatus$, 1, 1, snapshot);
+  const summary = model.read(model.panels$)[0]?.snapshot;
+  for (let index = 0; index < callbackLimit + 5; index++)
+    model.run(
+      model.observeWindowSizeSync$,
+      1,
+      1,
+      index % 2 === 0 ? "initial" : "off",
+    );
+  const current = model.read(model.panels$)[0]!;
+  expect(current.options.windowSizeSync).toBe("initial");
+  expect(current.connection).toBe(first?.connection);
+  expect(current.generation).toBe(first?.generation);
+  expect(current.snapshot).toBe(summary);
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  expect(current.activity).toHaveLength(callbackLimit);
+  expect(current.activity.at(-1)).toEqual({
+    sequence: callbackLimit + 6,
+    name: "onWindowSizeSyncChange",
+    value: "initial",
+  });
+  expect(JSON.stringify(current.activity)).not.toMatch(/private/i);
+  model.run(model.clearActivity$, 1);
+  model.run(model.configure$, 1, { theme: "dark", height: 500 });
+  expect(model.read(model.panels$)[0]?.options.windowSizeSync).toBe("initial");
+  expect(model.read(model.panels$)[0]?.activity).toEqual([]);
+});
+
+it("rejects retired sync requests after connection and interactive ownership changes", () => {
+  const model = connectedModel();
+  model.run(model.configure$, 1, { windowSizeSync: "live" });
+  model.run(model.reconnect$, 1);
+  let unchanged = model.read(model.panels$);
+  model.run(model.observeWindowSizeSync$, 1, 1, "off");
+  expect(model.read(model.panels$)).toBe(unchanged);
+  model.run(model.observeWindowSizeSync$, 1, 2, "initial");
+  expect(model.read(model.panels$)[0]?.options.windowSizeSync).toBe("initial");
+  model.run(model.configure$, 1, { interactive: false });
+  unchanged = model.read(model.panels$);
+  model.run(model.observeWindowSizeSync$, 1, 2, "off");
+  expect(model.read(model.panels$)).toBe(unchanged);
+  expect(unchanged[0]?.options.windowSizeSync).toBe("initial");
+  model.run(model.disconnect$, 1);
+  unchanged = model.read(model.panels$);
+  model.run(model.observeWindowSizeSync$, 1, 3, "off");
+  expect(model.read(model.panels$)).toBe(unchanged);
+  model.run(model.remove$, 1);
+  unchanged = model.read(model.panels$);
+  model.run(model.observeWindowSizeSync$, 1, 3, "off");
+  expect(model.read(model.panels$)).toBe(unchanged);
+});
+
 it("generates valid JSX from applied options without endpoints or draft metadata", () => {
   const model = connectedModel();
   model.run(model.edit$, 1, "windowDraft", "42");
@@ -184,6 +243,7 @@ it("generates valid JSX from applied options without endpoints or draft metadata
     customAccent: true,
     accent: "#123456",
     framed: true,
+    windowSizeSync: "live",
   });
   const panel = model.read(model.panels$)[0]!;
   const code = usageCode(panel.options, panel.connection);
@@ -192,6 +252,9 @@ it("generates valid JSX from applied options without endpoints or draft metadata
   expect(code).toContain("demo-viewer-framed");
   expect(code).toContain('colorScheme="dark"');
   expect(code).toContain('"--cdpv-accent": "#123456"');
+  expect(code).toContain('useState<WindowSizeSync>("live")');
+  expect(code).toContain("windowSizeSync={windowSizeSync}");
+  expect(code).toContain("onWindowSizeSyncChange={setWindowSizeSync}");
   expect(code).not.toMatch(/private|token=|browser\.invalid|windowId=\{42\}/);
   expect(
     transpileModule(code, {

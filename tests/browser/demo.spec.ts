@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { launchBackend, serveConsumer } from "./backend";
+import { launchBackend, launchNativeBackend, serveConsumer } from "./backend";
 
 let server: Awaited<ReturnType<typeof serveConsumer>>;
 let demoUrl: string;
@@ -397,6 +397,181 @@ test("playground changes live props independently and observes safe callbacks", 
   } finally {
     await backend.close();
   }
+});
+
+test.describe("controlled window-size synchronization", () => {
+  test.use({ deviceScaleFactor: 2 });
+
+  test("demo controls and menu share the mode while live resizing preserves input ownership", async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await openDemo(page);
+    const backend = await launchNativeBackend(new URL(demoUrl).origin, true, 1);
+    let sockets = 0;
+    page.on("websocket", () => {
+      sockets++;
+    });
+    try {
+      const created = backend.context.waitForEvent("page");
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+      });
+      const remote = await created;
+      await remote.setContent(`<!doctype html><title>Window sync fixture</title>
+        <style>html,body{height:100%;margin:0}body{display:grid;place-items:center}input{width:240px;height:40px;font:20px sans-serif}</style>
+        <input aria-label="Fixture input">`);
+      const scope = await backend.session.send("Browser.getWindowForTarget", {
+        targetId: target.targetId,
+      });
+      const a = panel(page, 1);
+      await a
+        .locator("summary")
+        .filter({ hasText: "Appearance & layout" })
+        .click();
+      const mode = a.getByLabel(/^Window size sync/);
+      await expect(mode).toHaveValue("off");
+      await configure(a, backend.endpoint, scope.windowId);
+      const view = a.getByRole("region", { name: "Remote browser viewer" });
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      const input = await view
+        .getByLabel("Remote browser input")
+        .elementHandle();
+      const opened = sockets;
+      const canvas = view.locator("canvas");
+      const menu = view.getByRole("button", { name: "Browser menu" });
+      const remoteSize = () =>
+        remote.evaluate(() => ({
+          width: innerWidth,
+          height: innerHeight,
+          dpr: devicePixelRatio,
+        }));
+      const expectFit = async () => {
+        const box = (await canvas.boundingBox())!;
+        const logical = {
+          width: Math.floor(box.width),
+          height: Math.floor(box.height),
+          dpr: 2,
+        };
+        await expect.poll(remoteSize).toEqual(logical);
+        await expect
+          .poll(() =>
+            canvas.evaluate((element: HTMLCanvasElement) => ({
+              width: element.width,
+              height: element.height,
+            })),
+          )
+          .toEqual({ width: logical.width * 2, height: logical.height * 2 });
+        return logical;
+      };
+      await menu.click();
+      await expect(
+        view.getByRole("menuitemradio", { name: "Do not sync automatically" }),
+      ).toHaveAttribute("aria-checked", "true");
+      await view
+        .getByRole("menuitemradio", { name: "Sync once on opening" })
+        .click();
+      await expect(mode).toHaveValue("initial");
+      await expectFit();
+      await a.locator("summary").filter({ hasText: "Usage" }).click();
+      await expect(a.getByLabel("Component code")).toContainText(
+        'useState<WindowSizeSync>("initial")',
+      );
+      await expect(a.getByLabel("Component code")).toContainText(
+        "onWindowSizeSyncChange={setWindowSizeSync}",
+      );
+      await a.locator("summary").filter({ hasText: "State & events" }).click();
+      const activity = a.getByRole("list", {
+        name: "Callback activity",
+        exact: true,
+      });
+      await expect(activity).toContainText("onWindowSizeSyncChange");
+      await expect(activity).toContainText("Mode requested: initial");
+
+      await mode.selectOption("live");
+      await menu.click();
+      await expect(
+        view.getByRole("menuitemradio", { name: "Sync continuously" }),
+      ).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("Escape");
+      await expect(a.getByLabel("Component code")).toContainText(
+        'useState<WindowSizeSync>("live")',
+      );
+      const handle = a.getByRole("button", {
+        name: "Resize viewer 1",
+        exact: true,
+      });
+      const corner = (await handle.boundingBox())!;
+      const initial = (await view.boundingBox())!;
+      const start = {
+        x: corner.x + corner.width / 2,
+        y: corner.y + corner.height / 2,
+      };
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x - initial.width * 0.2, start.y + 83, {
+        steps: 8,
+      });
+      await page.mouse.up();
+      await expect(view).toHaveCSS("height", "443px");
+      const fitted = await expectFit();
+
+      await menu.click();
+      await view
+        .getByRole("menuitemradio", { name: "Do not sync automatically" })
+        .click();
+      await expect(mode).toHaveValue("off");
+      await expect(activity).toContainText("Mode requested: off");
+      await expect(a.getByLabel("Component code")).toContainText(
+        'useState<WindowSizeSync>("off")',
+      );
+      await handle.press("ArrowLeft");
+      await handle.press("Shift+ArrowDown");
+      await expect(view).toHaveCSS("height", "483px");
+      expect(await remoteSize()).toEqual(fitted);
+      await menu.click();
+      await view
+        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .click();
+      await expectFit();
+      await expect(mode).toHaveValue("off");
+
+      await expect(view.getByLabel("Remote browser input")).toBeEnabled();
+      expect(
+        await view
+          .getByLabel("Remote browser input")
+          .evaluate((node, original) => node === original, input),
+      ).toBe(true);
+      await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+        "data-target-id",
+        target.targetId,
+      );
+      expect(sockets).toBe(opened);
+      await view.getByRole("img", { name: "Live browser view" }).click();
+      await page.keyboard.insertText("after sync");
+      await expect(remote.getByLabel("Fixture input")).toHaveValue(
+        "after sync",
+      );
+      await page.keyboard.press("F8");
+      await page.getByRole("button", { name: "Add viewer" }).click();
+      const b = panel(page, 2);
+      await b
+        .locator("summary")
+        .filter({ hasText: "Appearance & layout" })
+        .click();
+      await expect(b.getByLabel(/^Window size sync/)).toHaveValue("off");
+      await b.getByLabel(/^Window size sync/).selectOption("initial");
+      await expect(mode).toHaveValue("off");
+      expect(sockets).toBe(opened);
+      await page.screenshot({
+        path: info.outputPath("controlled-window-sync.png"),
+        fullPage: true,
+      });
+    } finally {
+      await backend.close();
+    }
+  });
 });
 
 test("corner dragging resizes the live viewer without remote input or reconnection", async ({
