@@ -137,20 +137,16 @@ export class InputSession {
     reason: Exclude<InputStop, "disconnected"> = "disposed",
   ): Promise<void> {
     if (this.retirement) return this.retirement;
-    let owner = this.lifecycle.owner;
-    const document = owner.document;
     this.retirement = Promise.resolve().then(async () => {
       try {
-        if (owner.document !== document) throw new Error("Input cancelled");
-        await this.queue.completion(owner, () => this.effects.completion());
+        await this.queue.settle();
       } finally {
         this.dispose(reason);
+        await this.effects.completion();
       }
-      await this.effects.completion();
     });
     // Publish retirement before reset callbacks can reenter input admission.
     this.transition("blur");
-    owner = this.lifecycle.owner;
     return this.retirement;
   }
 

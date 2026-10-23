@@ -151,48 +151,90 @@ it.each([undefined, { ...metadata, pageScaleFactor: 0 }])(
   },
 );
 
-it("keeps text behind fresh scope verification without a DOM focus guard", async () => {
+it("sends scoped text and keys while background membership is pending", async () => {
   const { browser, input, socket } = await mount(0);
   browser.holdMethod = "Browser.getWindowForTarget";
+  socket.emit("Target.targetInfoChanged", {});
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
   const before = socket.commands.length;
   input.text("a");
-  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-  expect(
-    socket.commands.slice(before).some((c) => c.method.startsWith("Runtime.")),
-  ).toBe(false);
-  expect(socket.commands.some((c) => c.method === "Input.insertText")).toBe(
-    false,
-  );
-  const held = browser.heldCommands[0]!;
-  browser.holdMethod = null;
-  held.socket.reply(held.command, { windowId: 0 });
+  input.key({ type: "rawKeyDown", key: "Backspace", code: "Backspace" });
+  input.key({ type: "keyUp", key: "Backspace", code: "Backspace" });
+  input.text("bc");
   await vi.waitFor(() =>
-    expect(socket.commands.some((c) => c.method === "Input.insertText")).toBe(
-      true,
-    ),
+    expect(
+      socket.commands
+        .slice(before)
+        .filter((c) => c.method.startsWith("Input."))
+        .map((c) => [c.method, c.params?.text]),
+    ).toEqual([
+      ["Input.insertText", "a"],
+      ["Input.dispatchKeyEvent", undefined],
+      ["Input.dispatchKeyEvent", undefined],
+      ["Input.insertText", "bc"],
+    ]),
   );
+  expect(
+    socket.commands
+      .slice(before)
+      .some((c) => c.method === "Runtime.callFunctionOn"),
+  ).toBe(false);
+  expect(
+    socket.commands
+      .slice(before)
+      .some((c) => c.method === "Browser.getWindowForTarget"),
+  ).toBe(false);
+  browser.holdMethod = null;
+  for (const held of browser.heldCommands)
+    held.socket.reply(held.command, {
+      windowId: held.command.params?.targetId === "page-a" ? 0 : 2,
+    });
 });
 
-it("rejects a text write when its fresh window scope check fails", async () => {
-  const { browser, input, socket, model } = await mount(0);
-  browser.targets[0]!.windowId = 2;
-  input.text("discard");
-  await vi.waitFor(() => expect(model.getSnapshot().error?.kind).toBe("input"));
-  expect(socket.commands.some((c) => c.method === "Input.insertText")).toBe(
-    false,
-  );
-});
+it.each(["moved", "failed"])(
+  "cancels unsent input after background scope is %s",
+  async (outcome) => {
+    const { browser, input, socket, model, controller } = await mount(0);
+    browser.holdMethod = "Page.getLayoutMetrics";
+    input.pointer("mouseMoved", point, { buttons: 0 });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    input.text("queued old owner");
+    if (outcome === "moved") browser.targets[0]!.windowId = 2;
+    else browser.unsupportedWindows = true;
+    socket.emit("Target.targetInfoChanged", {});
+    await vi.waitFor(() => expect(controller.input).toBeNull());
+    expect(model.getSnapshot()).toMatchObject({
+      status: "unavailable",
+      selectedTargetId: null,
+    });
+    input.text("after detected loss");
+    const held = browser.heldCommands[0]!;
+    browser.holdMethod = null;
+    held.socket.reply(held.command, {
+      cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+    });
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.some((c) => c.method === "Target.detachFromTarget"),
+      ).toBe(true),
+    );
+    expect(socket.commands.some((c) => c.method.startsWith("Input."))).toBe(
+      false,
+    );
+  },
+);
 
-it("revalidates geometry invalidated while a scope guard is pending", async () => {
-  const { browser, input, socket, frame, sessionId } = await mount(0);
-  frame(metadata);
-  browser.holdMethod = "Browser.getWindowForTarget";
+it("revalidates geometry invalidated while layout preparation is pending", async () => {
+  const { browser, input, socket, sessionId } = await mount(0);
+  browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseMoved", point, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   socket.emit("Page.frameResized", {}, sessionId);
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, { windowId: 0 });
+  held.socket.reply(held.command, {
+    cssVisualViewport: { clientWidth: 1000, clientHeight: 700 },
+  });
   await vi.waitFor(() =>
     expect(
       socket.commands.filter((c) => c.method === "Input.dispatchMouseEvent"),

@@ -80,15 +80,18 @@ it("sends native text while optional caret metadata is still pending", async () 
   held.socket.reply(held.command, focusResult());
 });
 
-it("preserves distinct text commits while fresh window membership is pending", async () => {
+it("preserves distinct text commits behind pending pointer preparation", async () => {
   const { browser, socket, input } = await mount(0);
-  browser.holdMethod = "Browser.getWindowForTarget";
-  input.text("a");
+  browser.holdMethod = "Page.getLayoutMetrics";
+  input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.text("a");
   input.text("bc");
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, { windowId: 0 });
+  held.socket.reply(held.command, {
+    cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+  });
   await vi.waitFor(() =>
     expect(
       socket.commands
@@ -137,20 +140,24 @@ it("preserves text/key send order while input acknowledgements are held", async 
 
 it("does not merge a preflight text batch across a queued key", async () => {
   const { browser, socket, input } = await mount(0);
-  browser.holdMethod = "Browser.getWindowForTarget";
-  input.text("a");
+  browser.holdMethod = "Page.getLayoutMetrics";
+  input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.text("a");
   input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
   input.text("bc");
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, { windowId: 0 });
+  held.socket.reply(held.command, {
+    cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+  });
   await vi.waitFor(() =>
     expect(
       socket.commands
         .filter((c) => c.method.startsWith("Input."))
         .map((c) => [c.method, c.params?.text]),
     ).toEqual([
+      ["Input.dispatchMouseEvent", undefined],
       ["Input.insertText", "a"],
       ["Input.dispatchKeyEvent", undefined],
       ["Input.insertText", "bc"],
@@ -160,14 +167,17 @@ it("does not merge a preflight text batch across a queued key", async () => {
 
 it("discards queued old-owner text while retaining the per-payload bound", async () => {
   const { browser, socket, input } = await mount(0);
-  browser.holdMethod = "Browser.getWindowForTarget";
-  input.text("a".repeat(64 * 1024));
+  browser.holdMethod = "Page.getLayoutMetrics";
+  input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.text("a".repeat(64 * 1024));
   input.text("b");
   input.blur();
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, { windowId: 0 });
+  held.socket.reply(held.command, {
+    cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+  });
   input.focus();
   input.text("new owner");
   await vi.waitFor(() =>
@@ -181,13 +191,16 @@ it("discards queued old-owner text while retaining the per-payload bound", async
 
 it("keeps commits bounded and separate during scoped preparation", async () => {
   const { browser, socket, input } = await mount(0);
-  browser.holdMethod = "Browser.getWindowForTarget";
-  input.text("a".repeat(64 * 1024 - 1));
+  browser.holdMethod = "Page.getLayoutMetrics";
+  input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  input.text("a".repeat(64 * 1024 - 1));
   input.text("bc");
   const held = browser.heldCommands[0]!;
   browser.holdMethod = null;
-  held.socket.reply(held.command, { windowId: 0 });
+  held.socket.reply(held.command, {
+    cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+  });
   await vi.waitFor(() =>
     expect(
       socket.commands

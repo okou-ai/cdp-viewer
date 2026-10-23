@@ -387,6 +387,70 @@ describe("viewer lifecycle", () => {
     ).toBe(false);
   });
 
+  it.each(["moved", "failed"])(
+    "rejects an attached session whose post-attach scope is %s",
+    async (outcome) => {
+      const browser = new FakeBrowser();
+      browser.holdAttach = true;
+      const { controller, model, sink } = mount(browser, 0, undefined, true);
+      await vi.waitFor(() => expect(browser.held).toHaveLength(1));
+      if (outcome === "moved") browser.targets[0]!.windowId = 2;
+      else browser.unsupportedWindows = true;
+      const attached = browser.held[0]!;
+      attached.socket.reply(attached.command, {
+        sessionId: attached.sessionId,
+      });
+      await vi.waitFor(() => expect(model.getSnapshot().status).toBe("error"));
+      expect(controller.input).toBeNull();
+      expect(sink.push).not.toHaveBeenCalled();
+      expect(
+        attached.socket.commands.some(
+          (c) =>
+            c.method === "Target.detachFromTarget" &&
+            c.params?.sessionId === attached.sessionId,
+        ),
+      ).toBe(true);
+      expect(
+        attached.socket.commands.some(
+          (c) =>
+            c.sessionId === attached.sessionId &&
+            [
+              "Page.enable",
+              "Page.startScreencast",
+              "Page.getFrameTree",
+            ].includes(c.method),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("does not enable an obsolete session after post-attach verification returns", async () => {
+    const browser = new FakeBrowser();
+    browser.holdAttach = true;
+    const { controller, model } = mount(browser, 0, undefined, true);
+    await vi.waitFor(() => expect(browser.held).toHaveLength(1));
+    const old = browser.held[0]!;
+    browser.holdAttach = false;
+    browser.holdMethod = "Browser.getWindowForTarget";
+    old.socket.reply(old.command, { sessionId: old.sessionId });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    browser.holdMethod = null;
+    controller.setPaused(true);
+    controller.setPaused(false);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const check = browser.heldCommands[0]!;
+    check.socket.reply(check.command, { windowId: 0 });
+    await Promise.resolve();
+    expect(
+      old.socket.commands.some(
+        (c) => c.sessionId === old.sessionId && c.method === "Page.enable",
+      ),
+    ).toBe(false);
+    expect(controller.input).not.toBeNull();
+  });
+
   it("does not attach a stale selection after its activation completes", async () => {
     const browser = new FakeBrowser();
     browser.holdMethod = "Target.activateTarget";

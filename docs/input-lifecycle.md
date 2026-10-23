@@ -33,6 +33,14 @@ Cleanup is explicit and idempotent. Separate releasing an owned external
 resource from clearing local bookkeeping. Release only resources the library
 owns; disposing one instance must not affect a sibling or its host.
 
+Keep local input ownership separate from remote window discovery. The public
+controller verifies scope around selection/attachment, then checks the selected
+session locally for input. Background discovery invalidates it after an observed
+window mismatch or lookup failure. A pending discovery query does not block stable
+input. External movement may precede detection; this policy cannot provide atomic
+scope-and-dispatch or cross-client admission. Test cancellation after detection
+and validate any destination owner after confirmed original cleanup.
+
 ## Concurrency and bounded work
 
 Order preparation and sends that act on the same external resource. Independent
@@ -78,6 +86,17 @@ without acquiring membership or permission to send another input. Retirement
 publishes terminal admission first, cancels unsent preparation, joins dispatched
 work and its late cleanup, and completes through the original connection. Unknown
 cleanup remains unavailable; it cannot authorize replacement or replay.
+Retirement observes the original send lane and its receipts independently of
+focus/document generations. Navigation may invalidate write authority and cancel
+unsent jobs without cancelling this cleanup wait; late composition cleanup still
+requires its original document.
+
+The public controller stops obsolete streams immediately and retains retiring
+input sessions until original effects settle before detaching. It forwards their
+document events and fences same-target
+reuse within that controller. Other targets keep independent admission. This
+local fence is not a lease shared by separate viewers or clients, and connection
+teardown cannot guarantee remote cleanup.
 
 Test lifecycle transitions independently from DOM and network adapters. Verify
 ownership across replacement, delayed replies and cancellation through the

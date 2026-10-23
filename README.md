@@ -90,8 +90,13 @@ Omit `windowId` to list page targets across windows. Supply an integer, includin
 `0`, to list/select only targets with verified membership. Scoped operation uses
 the experimental `Browser.getWindowForTarget`; unsupported/failed lookup produces
 an unavailable state, never an unscoped fallback. Membership is refreshed on
-target events and every two seconds plus lookup latency to detect external moves.
-Queries are serialized/coalesced; scoped lookup failure clears unverified targets.
+target events and every two seconds to detect external moves; lookup and refresh
+latency add to detection time, so this interval is not a maximum deadline.
+Selection/activation and completed attachment verify membership. Interactive input
+then sends directly to the selected session, without a window query per event.
+An external move can precede detection. Observed mismatch or lookup failure clears
+the selection/image and cancels unsent input; it never silently replaces the target.
+Discovery is serialized/coalesced; scoped lookup failure clears unverified targets.
 This is presentation scope, **not a server authorization boundary**.
 
 A new connection initially chooses its first confirmed page. Losing an established
