@@ -1,6 +1,6 @@
 import { timeout } from "signal-timers";
 import type { CdpClient } from "../cdp/client";
-import { CdpFault } from "../cdp/errors";
+import { CdpFault, requestDetails } from "../cdp/errors";
 import type { WindowSizeSync } from "../viewer/types";
 import type { DisplaySize } from "./geometry";
 import {
@@ -105,7 +105,7 @@ export class DisplaySync {
     timeout(
       () => {
         this.scheduled = false;
-        this.drain().catch(() => {
+        this.drain().catch((error: unknown) => {
           const intent = activeDisplayIntent(this.policy);
           if (!intent) return;
           this.dispatch({
@@ -118,6 +118,8 @@ export class DisplaySync {
               new CdpFault(
                 "display",
                 "The browser display could not be synchronized. Try again.",
+                undefined,
+                requestDetails(error),
               ),
             );
         });

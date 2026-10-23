@@ -1,6 +1,6 @@
 import type { ViewerTarget } from "../viewer/types";
 import { CdpClient } from "./client";
-import { CdpFault, isRecord } from "./errors";
+import { CdpFault, isRecord, requestDetails } from "./errors";
 
 export class TargetDirectory {
   constructor(
@@ -21,6 +21,8 @@ export class TargetDirectory {
           ? "unsupported-capability"
           : "scope",
         "Window membership could not be verified. Scoped viewing is unavailable.",
+        undefined,
+        requestDetails(error),
       );
     }
     if (!isRecord(result) || !Number.isSafeInteger(result.windowId)) {
@@ -109,6 +111,8 @@ export class TargetDirectory {
           ? "unsupported-capability"
           : "scope",
         "Window membership could not be verified. Scoped viewing is unavailable.",
+        undefined,
+        requestDetails(error),
       );
     }
   }

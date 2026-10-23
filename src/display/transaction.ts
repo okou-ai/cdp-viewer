@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol";
 import type { CdpClient } from "../cdp/client";
-import { CdpFault, isRecord } from "../cdp/errors";
+import { CdpFault, isRecord, requestDetails } from "../cdp/errors";
 import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import {
   constrainDisplay,
@@ -223,6 +223,8 @@ export class DisplayTransaction {
           ? new CdpFault(
               "display",
               "Display recovery could not be confirmed. Try synchronizing again.",
+              undefined,
+              requestDetails(error),
             )
           : error instanceof CdpFault &&
               ["scope", "display"].includes(error.kind)
@@ -232,6 +234,8 @@ export class DisplayTransaction {
                   ? "unsupported-capability"
                   : "display",
                 "The browser display could not be synchronized. Check window support and try again.",
+                undefined,
+                requestDetails(error),
               ),
       };
     }

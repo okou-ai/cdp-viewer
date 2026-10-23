@@ -290,6 +290,7 @@ describe("viewer lifecycle", () => {
     expect(model.getSnapshot().error).toEqual({
       kind: "unsupported-capability",
       message: "The browser does not support a required CDP viewer command.",
+      request: { method: "Page.startScreencast", code: -32601 },
     });
   });
   it("keeps window zero scoped, acknowledges numeric frame IDs in the owning session", async () => {
@@ -337,6 +338,10 @@ describe("viewer lifecycle", () => {
     expect(JSON.stringify(unsupported.model.getSnapshot())).not.toContain(
       "private",
     );
+    expect(unsupported.model.getSnapshot().error?.request).toEqual({
+      method: "Browser.getWindowForTarget",
+      code: -32601,
+    });
     browser.unsupportedWindows = false;
     const missing = mount(browser, 99);
     await vi.waitFor(() =>
@@ -550,6 +555,7 @@ describe("viewer lifecycle", () => {
     expect(model.getSnapshot().error).toEqual({
       kind: "unsupported-capability",
       message: "The browser does not support a required CDP viewer command.",
+      request: { method: "Target.activateTarget", code: -32601 },
     });
     expect(
       activation.socket.commands.some(

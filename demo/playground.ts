@@ -79,6 +79,24 @@ export function viewerClassName(options: PlaygroundOptions) {
   return options.framed ? "demo-viewer-framed" : "";
 }
 
+/** Retain the public diagnostic without adding raw protocol or page data. */
+export function summarizeError(error: ViewerError): ViewerError {
+  return {
+    kind: error.kind,
+    message: error.message,
+    ...(error.request
+      ? {
+          request: {
+            method: error.request.method,
+            ...(error.request.code === undefined
+              ? {}
+              : { code: error.request.code }),
+          },
+        }
+      : {}),
+  };
+}
+
 /** Discard page metadata before retaining a callback observation. */
 export function summarizeSnapshot(snapshot: ViewerSnapshot) {
   return {
@@ -88,7 +106,7 @@ export function summarizeSnapshot(snapshot: ViewerSnapshot) {
     navigationAvailable: snapshot.navigation != null,
     canGoBack: snapshot.navigation?.canGoBack ?? false,
     canGoForward: snapshot.navigation?.canGoForward ?? false,
-    errorKind: snapshot.error?.kind ?? null,
+    error: snapshot.error ? summarizeError(snapshot.error) : null,
   };
 }
 

@@ -1428,6 +1428,122 @@ test("demo validates without navigation, preserves zero, and forgets settings on
   }
 });
 
+test("demo keeps actionable current errors and expands safe event details", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await openDemo(page);
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  try {
+    const target = await backend.session.send("Target.createTarget", {
+      url: server.origin + "/fixture/red",
+      newWindow: true,
+    });
+    const scope = await backend.session.send("Browser.getWindowForTarget", {
+      targetId: target.targetId,
+    });
+    let failDiscovery = true;
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+        };
+        if (failDiscovery && command.method === "Target.getTargets") {
+          failDiscovery = false;
+          socket.send(
+            JSON.stringify({
+              id: command.id,
+              error: {
+                code: -32000,
+                message: "private provider token=synthetic",
+                data: { private: "fixture" },
+              },
+            }),
+          );
+        } else upstream.send(message);
+      });
+    });
+    const a = panel(page, 1);
+    await configure(a, backend.endpoint);
+    const view = a.getByRole("region", { name: "Remote browser viewer" });
+    await expect(view).toHaveAttribute("data-status", "unavailable");
+    const initial = (await a.locator(".demo-preview").boundingBox())!;
+    await a.locator("summary").filter({ hasText: "State & events" }).click();
+    const current = a.getByRole("region", { name: "Current viewer error" });
+    await expect(current).toContainText("CDP request failed.");
+    await expect(current).toContainText("Target.getTargets");
+    await expect(current).toContainText("-32000");
+    const activity = a.getByRole("list", {
+      name: "Callback activity",
+      exact: true,
+    });
+    const errorEvent = activity.locator("li").filter({ hasText: "onError" });
+    await errorEvent.getByText("Event details", { exact: true }).click();
+    await expect(errorEvent.getByLabel("onError event details")).toContainText(
+      '"method": "Target.getTargets"',
+    );
+    await expect(errorEvent.getByLabel("onError event details")).toContainText(
+      '"code": -32000',
+    );
+    const statusEvent = activity
+      .locator("li")
+      .filter({ hasText: "onStatusChange" })
+      .first();
+    await statusEvent.getByText("Event details", { exact: true }).click();
+    await expect(
+      statusEvent.getByLabel("onStatusChange event details"),
+    ).toContainText('"targetCount": 0');
+    await expect(a.getByLabel("Current status summary")).toContainText(
+      '"method": "Target.getTargets"',
+    );
+    await expect(a.locator(".demo-settings")).not.toContainText(
+      /private|token=|sessionId|params/,
+    );
+    expect(
+      Math.abs(
+        (await a.locator(".demo-preview").boundingBox())!.height -
+          initial.height,
+      ),
+    ).toBeLessThan(1);
+    await page.screenshot({
+      path: info.outputPath("error-details-desktop.png"),
+      fullPage: true,
+    });
+    await a.getByRole("button", { name: "Clear callback activity" }).click();
+    await expect(activity).toHaveCount(0);
+    await expect(current).toContainText("Target.getTargets");
+    await page.getByRole("button", { name: "Add viewer" }).click();
+    const b = panel(page, 2);
+    await configure(b, backend.endpoint, scope.windowId);
+    await expectColor(
+      b.getByRole("region", { name: "Remote browser viewer" }),
+      [232, 32, 48],
+    );
+    await expect(
+      b.getByRole("region", { name: "Current viewer error" }),
+    ).toHaveCount(0);
+    await expect(current).toContainText("-32000");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(current).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: info.outputPath("error-details-mobile.png"),
+      fullPage: true,
+    });
+  } finally {
+    await backend.close();
+  }
+});
+
 test("demo reports real Origin denial without echoing the endpoint", async ({
   page,
 }, info) => {

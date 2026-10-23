@@ -390,6 +390,34 @@ function CallbackInspector({ panel }: { panel: Panel }) {
           <code>onWindowSizeSyncChange</code>, live. Page titles, target IDs and
           addresses are omitted.
         </p>
+        {panel.snapshot?.error && (
+          <section
+            className="demo-current-error"
+            aria-label="Current viewer error"
+          >
+            <strong>Current error</strong>
+            <p>
+              <code>{panel.snapshot.error.kind}</code> ·{" "}
+              {panel.snapshot.error.message}
+            </p>
+            {panel.snapshot.error.request && (
+              <dl>
+                <div>
+                  <dt>Command</dt>
+                  <dd>
+                    <code>{panel.snapshot.error.request.method}</code>
+                  </dd>
+                </div>
+                {panel.snapshot.error.request.code !== undefined && (
+                  <div>
+                    <dt>Error code</dt>
+                    <dd>{panel.snapshot.error.request.code}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+          </section>
+        )}
         <pre className="demo-snapshot" aria-label="Current status summary">
           {panel.snapshot
             ? JSON.stringify(panel.snapshot, null, 2)
@@ -422,11 +450,26 @@ function CallbackInspector({ panel }: { panel: Panel }) {
                       ? `Mode requested: ${event.value}`
                       : `${event.value.kind}: ${event.value.message}`}
                 </p>
+                <details className="demo-event-details">
+                  <summary>
+                    Event details <ChevronDown size={12} aria-hidden="true" />
+                  </summary>
+                  <pre
+                    className="demo-snapshot"
+                    aria-label={`${event.name} event details`}
+                  >
+                    {JSON.stringify(event.value, null, 2)}
+                  </pre>
+                </details>
               </li>
             ))}
           </ol>
         ) : (
-          <p className="demo-hint">Callbacks appear here after you connect.</p>
+          <p className="demo-hint">
+            {panel.connection
+              ? "No recent events."
+              : "Callbacks appear here after you connect."}
+          </p>
         )}
       </div>
     </details>

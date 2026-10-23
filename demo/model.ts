@@ -13,6 +13,7 @@ import {
   callbackLimit,
   defaultOptions,
   sizeLimits,
+  summarizeError,
   summarizeSnapshot,
 } from "./playground";
 import type {
@@ -352,7 +353,7 @@ function createDemoSignals() {
       const event: CallbackEvent = {
         sequence,
         name: "onError",
-        value: { kind: error.kind, message: error.message },
+        value: summarizeError(error),
       };
       set(internalPanels$, (values) =>
         values.map((item) =>

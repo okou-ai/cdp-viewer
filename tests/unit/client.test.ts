@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CdpClient } from "../../src/cdp/client";
+import { diagnostic } from "../../src/cdp/errors";
 import { FakeSocket } from "./wire";
 
 const clients: CdpClient[] = [];
@@ -101,6 +102,67 @@ describe("CDP transport ownership", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it("correlates safe error context with each failed request and independent client", async () => {
+    const a = await connected();
+    const b = await connected();
+    const first = a.client
+      .request("Input.insertText", { text: "private input" }, "private-session")
+      .catch(diagnostic);
+    const second = a.client
+      .request("Browser.getVersion", undefined)
+      .catch(diagnostic);
+    const sibling = b.client
+      .request("Target.getTargets", undefined)
+      .catch(diagnostic);
+    a.socket.reject(a.socket.commands[1]!, -32601);
+    b.socket.reject(b.socket.commands[0]!, -32002);
+    a.socket.reject(a.socket.commands[0]!, -32000);
+    const errors = await Promise.all([first, second, sibling]);
+    expect(errors).toEqual([
+      {
+        kind: "protocol",
+        message: "CDP request failed.",
+        request: { method: "Input.insertText", code: -32000 },
+      },
+      {
+        kind: "unsupported-capability",
+        message: "The browser does not support a required CDP viewer command.",
+        request: { method: "Browser.getVersion", code: -32601 },
+      },
+      {
+        kind: "protocol",
+        message: "CDP request failed.",
+        request: { method: "Target.getTargets", code: -32002 },
+      },
+    ]);
+    expect(JSON.stringify(errors)).not.toMatch(
+      /private|params|sessionId|fixture.invalid/,
+    );
+  });
+
+  it.each([undefined, "private invalid code", 1.5, Infinity])(
+    "omits invalid or missing public response codes: %s",
+    async (code) => {
+      const { client, socket } = await connected();
+      const result = client
+        .request("Browser.getVersion", undefined)
+        .catch(diagnostic);
+      socket.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            id: socket.commands[0]!.id,
+            error: { code, message: "provider private data" },
+          }),
+        }),
+      );
+      expect(await result).toEqual({
+        kind: "protocol",
+        message: "CDP request failed.",
+        request: { method: "Browser.getVersion" },
+      });
+    },
+  );
+
   it("rejects timeouts while retaining bounded late attachment cleanup", async () => {
     vi.useFakeTimers();
     const { client, socket } = await connected(30);
@@ -114,6 +176,9 @@ describe("CDP transport ownership", () => {
     const rejected = expect(result).rejects.toThrow("timed out");
     await vi.advanceTimersByTimeAsync(30);
     await rejected;
+    await expect(result).rejects.toHaveProperty("request", {
+      method: "Target.attachToTarget",
+    });
     socket.reply(socket.commands[0]!, { sessionId: "late-session" });
     await Promise.resolve();
     expect(released).toHaveBeenCalledWith({ sessionId: "late-session" });

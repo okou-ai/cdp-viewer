@@ -24,6 +24,11 @@ export interface ViewerError {
     | "frame";
   /** A fixed diagnostic, excluding endpoint credentials and provider payloads. */
   readonly message: string;
+  /** Original failed request, when known. Never includes parameters or session IDs. */
+  readonly request?: {
+    readonly method: string;
+    readonly code?: number;
+  };
 }
 
 export interface ViewerTarget {

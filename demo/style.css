@@ -916,6 +916,56 @@ body {
   margin: 5px 0 0;
   overflow-wrap: anywhere;
 }
+.demo-current-error {
+  padding: 12px;
+  border: 1px solid var(--demo-border);
+  border-left: 3px solid var(--demo-danger);
+  border-radius: 8px;
+  background: var(--demo-control);
+  overflow-wrap: anywhere;
+}
+.demo-current-error > strong {
+  color: var(--demo-danger);
+  font-size: 12px;
+}
+.demo-current-error p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.demo-current-error dl {
+  margin: 10px 0 0;
+  font-size: 11px;
+}
+.demo-current-error dl > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+.demo-current-error dt {
+  color: var(--demo-muted);
+}
+.demo-current-error dd {
+  margin: 0;
+}
+.demo-event-details {
+  margin-top: 8px;
+}
+.demo-event-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--demo-muted);
+  font-size: 10px;
+}
+.demo-event-details[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.demo-event-details > pre {
+  margin-top: 8px;
+  max-height: 220px;
+}
 .demo-prop-reference > summary {
   color: var(--demo-muted);
   font-size: 10px;

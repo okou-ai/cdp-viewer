@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol";
 import type { CdpClient, CdpEvent } from "../cdp/client";
-import { CdpFault, isRecord } from "../cdp/errors";
+import { CdpFault, isRecord, requestDetails } from "../cdp/errors";
 import type { ViewerNavigation } from "../viewer/types";
 import { navigationAddress } from "./address";
 import { InputEffects } from "./effects";
@@ -648,6 +648,8 @@ export class InputSession {
         : new CdpFault(
             "input",
             "Remote input could not be completed. Unsent input was discarded; it will not be replayed.",
+            undefined,
+            requestDetails(error),
           ),
     );
   }

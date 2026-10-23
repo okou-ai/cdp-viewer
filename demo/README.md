@@ -126,9 +126,15 @@ can still change the remote viewport and actual image dimensions. Preferences
 remain in this panel's memory and are cleared on refresh.
 
 State & events retains only semantic summaries: status, tab count, selection
-presence, navigation availability/history capabilities and diagnostic category.
+presence, navigation availability/history capabilities and the current public diagnostic.
 It omits target IDs/titles and page addresses before storing observations. Error
-events show the public fixed diagnostic. `onWindowSizeSyncChange` records only
+events show the public fixed diagnostic, including the original CDP command and
+response error code when available. Request timeouts have a command but no
+response code. The **Current error** card and snapshot retain this information
+after activity is cleared or its older entries are evicted. Expand an event's
+**Event details** to inspect all of its retained fields as JSON. Command parameters,
+raw provider payloads, endpoint credentials and session IDs are excluded.
+`onWindowSizeSyncChange` records only
 the mode requested by the browser menu. Each panel retains at most twelve events;
 Clear removes activity while retaining its latest state. Connection replacement,
 disconnect and removal retire the old observations and reject late callbacks.

@@ -191,6 +191,51 @@ it("bounds semantic callback activity and rejects retired, disconnected and remo
   expect(model.read(model.panels$)).toBe(removed);
 });
 
+it("retains current request diagnostics after clearing or evicting safe callback details", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  const sibling = model.read(model.panels$)[1];
+  const error = {
+    kind: "protocol" as const,
+    message: "CDP request failed.",
+    request: {
+      method: "Page.startScreencast",
+      code: -32000,
+      params: { token: "private payload" },
+    },
+    raw: "private provider message",
+  };
+  const expected = {
+    kind: "protocol",
+    message: "CDP request failed.",
+    request: { method: "Page.startScreencast", code: -32000 },
+  };
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
+  model.run(model.observeError$, 1, 1, error);
+  expect(model.read(model.panels$)[0]?.activity.at(-1)?.value).toEqual(
+    expected,
+  );
+  model.run(model.clearActivity$, 1);
+  expect(model.read(model.panels$)[0]?.snapshot?.error).toEqual(expected);
+  for (let index = 0; index < callbackLimit + 1; index++)
+    model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
+  const current = model.read(model.panels$)[0]!;
+  expect(current.activity).toHaveLength(callbackLimit);
+  expect(
+    current.activity.every((event) => event.name === "onStatusChange"),
+  ).toBe(true);
+  expect(current.snapshot?.error).toEqual(expected);
+  expect(JSON.stringify([current.snapshot, current.activity])).not.toMatch(
+    /private|params|raw/,
+  );
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  model.run(model.reconnect$, 1);
+  const replacement = model.read(model.panels$);
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
+  model.run(model.observeError$, 1, 1, error);
+  expect(model.read(model.panels$)).toBe(replacement);
+});
+
 it("shares a controlled sync mode without replacing live ownership or sibling options", () => {
   const model = connectedModel();
   model.run(model.add$);

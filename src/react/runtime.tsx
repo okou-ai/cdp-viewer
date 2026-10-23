@@ -276,9 +276,22 @@ export function ViewerRuntime({
   }, [snapshot]);
   const errorKind = snapshot.error?.kind;
   const errorMessage = snapshot.error?.message;
+  const errorMethod = snapshot.error?.request?.method;
+  const errorCode = snapshot.error?.request?.code;
   useEffect(() => {
     if (errorKind && errorMessage)
-      committed.current.onError?.({ kind: errorKind, message: errorMessage });
-  }, [errorKind, errorMessage]);
+      committed.current.onError?.({
+        kind: errorKind,
+        message: errorMessage,
+        ...(errorMethod
+          ? {
+              request: {
+                method: errorMethod,
+                ...(errorCode === undefined ? {} : { code: errorCode }),
+              },
+            }
+          : {}),
+      });
+  }, [errorKind, errorMessage, errorMethod, errorCode]);
   return <ElementsContext value={elements}>{children}</ElementsContext>;
 }
