@@ -1064,6 +1064,9 @@ body {
   outline: 2px solid var(--demo-accent);
   outline-offset: 3px;
 }
+.demo .demo-console summary:focus-visible {
+  outline-offset: -3px;
+}
 .demo-footer {
   display: flex;
   justify-content: space-between;
