@@ -200,6 +200,7 @@ export class NativeInput {
     this.pointerId = event.pointerId;
     this.pointerInput = input;
     this.proxy.focus({ preventScroll: true });
+    if (!input.owner) return;
     this.canvas.parentElement?.setPointerCapture(event.pointerId);
   };
 

@@ -740,6 +740,19 @@ it("retains the pointerdown binding through a compatibility mousedown", async ()
   ).toHaveLength(0);
 });
 
+it("does not acquire pointer capture when the adapter retires during proxy focus", () => {
+  clock();
+  const { input } = port();
+  const native = surface(input);
+  native.proxy.blur();
+  native.proxy.addEventListener("focus", () => native.adapter.dispose(), {
+    once: true,
+  });
+  native.press();
+  expect(native.canvas.parentElement?.setPointerCapture).not.toHaveBeenCalled();
+  expect(input.pointer).not.toHaveBeenCalled();
+});
+
 it.each(["copy", "paste", "cut"])(
   "cancels %s admission when its capture-phase flush replaces input",
   async (action) => {
