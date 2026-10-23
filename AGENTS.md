@@ -120,7 +120,10 @@ through implementation, behavioral tests and review.
   attachment; a failed lookup must never expose an unfiltered target list.
 - Window filtering is presentation scope. Endpoint access and browser provisioning
   belong to the host; browser-native WebSocket cannot add arbitrary auth headers.
-- Clear old pixels when a selection is lost or replaced. Do not silently choose
+- During tab replacement, already displayed pixels may remain only as a blurred,
+  noninteractive connecting backdrop until the replacement is ready. Invalidate
+  old decode work immediately. Clear pixels on selection loss, pause, failure,
+  disconnect and teardown. Do not silently choose
   another page after losing an established selection. Release stale/late attach
   results through their owning connection without affecting a replacement.
 - Route flattened CDP session IDs separately from numeric screencast frame IDs.

@@ -127,6 +127,11 @@ native keys and release of already-owned buttons retain their input ownership.
 
 The controller retains target/session lifetime and frame acknowledgement. DOM
 observation and the effective host/menu mode remain in the runtime/model layers.
+An intentional tab replacement may retain already displayed pixels as a blurred,
+blocked connecting backdrop. This presentation fact belongs to the private model;
+it grants no input or session authority. Renderer invalidation still retires old
+decodes immediately. All other selection-loss and cleanup paths clear pixels,
+and actual replacement paint/readiness removes the backdrop.
 Capture transitions also belong to the controller. Bounded restoration preserves
 the previous capture policy, distinguishes a rejected stop from an uncertain
 stop/start, and confirms a stopped stream before repeating a possible start.
