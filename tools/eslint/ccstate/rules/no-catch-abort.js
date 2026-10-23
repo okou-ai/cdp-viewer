@@ -2,6 +2,7 @@
 /** Signal graph commands propagate caught failures, including cancellation. */
 import { AST_NODE_TYPES } from "@typescript-eslint/utils";
 import { createRule } from "../utils.js";
+import { inCommand } from "../../ownership.js";
 function propagatesCaughtError(node) {
   const first = node.body.body[0];
   return (
@@ -29,7 +30,7 @@ export default createRule({
   create(context) {
     return {
       CatchClause: (block) => {
-        if (!propagatesCaughtError(block)) {
+        if (inCommand(block) && !propagatesCaughtError(block)) {
           context.report({
             node: block,
             messageId: "noCatchAbort",

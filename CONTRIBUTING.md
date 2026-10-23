@@ -7,10 +7,12 @@ an independently GitHub-installed consumer. Do not depend on private Okou worksp
 
 Follow [the state architecture](docs/state-architecture.md): ordinary React views
 read per-instance ccstate projections and invoke commands; resource lifetimes
-belong to the named runtime definitions. Preserve multiple independent viewers
+belong to committed instance lifetimes. Preserve multiple independent viewers
 and host-provider isolation. `pnpm lint` includes strict boundary checks and
 their positive/negative policy regressions (`pnpm test:lint`). Do not suppress
-production lint or type errors, or exempt an infrastructure directory.
+production lint or type errors, add filename privileges, or exempt infrastructure.
+Use ccstate for semantic state and stable bindings; React observation and
+commit-lifecycle integration follow one uniform production rule.
 
 See [engineering documentation](docs/README.md) for documentation scope and the
 architecture and validation guides. Demo usage and interaction instructions live

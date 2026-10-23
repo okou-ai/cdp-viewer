@@ -507,6 +507,12 @@ test.describe("controlled window-size synchronization", () => {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await openDemo(page);
     const backend = await launchNativeBackend(new URL(demoUrl).origin, true, 1);
+    // Retain native sizing and frame messages in failure traces without changing them.
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => upstream.send(message));
+      upstream.onMessage((message) => socket.send(message));
+    });
     let sockets = 0;
     page.on("websocket", () => {
       sockets++;

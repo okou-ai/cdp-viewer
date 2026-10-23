@@ -403,5 +403,7 @@ export function createDemoModel() {
     read: instance.read,
     watch: instance.watch,
     run: instance.run,
+    bindValue: instance.bindValue,
+    bindCommand: instance.bindCommand,
   };
 }

@@ -16,8 +16,8 @@ adapters connect committed UI lifetimes to external resources.
 
 Keep dependency direction explicit. Models must not depend on React or acquire
 DOM resources. Views must not reach through their model to control a transport.
-The bridge and runtime adapters are narrow infrastructure boundaries, not
-general exemptions from code-quality rules.
+The bridge and runtime adapters follow the same ownership checks as every other
+file. Their names and locations grant no lint privileges.
 
 ## Instance ownership
 
@@ -30,6 +30,12 @@ Bootstrap allocation must be pure: no I/O, listeners, watchers or timers before
 commit. Abandoned renders, repeated initialization under Strict Mode and server
 rendering must be harmless. Subscriptions and external resources belong to
 committed consumers and must have matching cleanup.
+
+Each Store is a private readonly instance field. Stable snapshot/subscription
+and command bindings belong to that same instance and signal identity. React
+observes them through its external-store contract; ordinary rerenders must not
+recreate subscriptions or command identities. Context metadata stays immutable,
+and useId preserves server/client accessibility identity.
 
 Keep writable atoms private. Expose computed projections for reads and commands
 for transitions. Create graph identities during instance initialization, not
@@ -126,9 +132,18 @@ Capture timestamps order images; they do not identify an adaptation generation
 or make native sizing, emulation and painting atomic.
 
 Views invoke bound commands from event handlers. Keep semantic transitions in
-the model rather than synchronizing duplicate state through React effects.
-Use React effects only in the runtime adapter to synchronize external resources
-with committed props and instance state.
+the ccstate model. React observation is limited to context, identity and external
+Store subscription. Do not use useMemo, useCallback, useState, useRef, useEffect
+or useLayoutEffect in first-party runtime code. A pure instance bootstrap and a
+mount/update/unmount bridge connect committed props/projections to the DOM owner;
+the bridge holds no alternate application state. Runtime owners allocate stable
+element references and reconcile resources only after commit.
+
+Deferred operations and cancellation controllers belong to non-static instance
+resource members outside render and signal commands. Every operation still
+needs bounded settlement and original-owner cleanup; syntactic ownership alone
+does not prove these behaviors. Commands inherit cancellation and propagate
+caught failures. These requirements apply to every file equally.
 
 Express related visible-state changes as semantic transitions owned by the model.
 Derive shared interaction capabilities from committed configuration and runtime
@@ -166,10 +181,11 @@ rules are errors; warnings also fail the command. Keep React hook, accessibility
 and strict type checks enabled. Fix violations rather than adding inline lint
 or type suppressions.
 
-Use canonical ccstate imports and the signal naming convention. Keep primitive
-construction in its named definition site. Grant capabilities to the smallest
-necessary boundary rather than exempting a directory. The
-[lint configuration](../tools/eslint/policy.js) defines the exact capabilities;
+Use canonical ccstate imports and the signal naming convention. Construct
+graphs inside instance signal/model factories and keep writable state private.
+Do not add filename allowlists, disabled-rule overrides or infrastructure
+exemptions. Necessary operations must satisfy one uniform ownership contract.
+The [lint configuration](../tools/eslint/policy.js) defines that contract;
 [plugin notes](../tools/eslint/README.md) record rule provenance and adaptations.
 
 ### Rule design and review

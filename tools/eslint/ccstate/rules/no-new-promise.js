@@ -2,6 +2,7 @@
 /** Library policy: no-new-promise. See docs/state-architecture.md. */
 import { AST_NODE_TYPES } from "@typescript-eslint/utils";
 import { createRule } from "../utils.js";
+import { inInstanceMember } from "../../ownership.js";
 export default createRule({
   name: "no-new-promise",
   defaultOptions: [],
@@ -9,15 +10,15 @@ export default createRule({
     type: "problem",
     docs: {
       description:
-        "Disallow `new Promise()` and `Promise.withResolvers()`. Use signal-aware helpers or existing abstractions instead.",
+        "Deferred work requires a non-static instance resource owner",
       recommended: true,
     },
     schema: [],
     messages: {
       noNewPromise:
-        "Use an existing owner-bound operation. Only the CDP wire deferred definition may construct Promise.",
+        "Construct deferred work only in a non-static instance resource member, outside render and commands.",
       noPromiseWithResolvers:
-        "Use an existing owner-bound operation. Only the CDP wire deferred definition may construct a deferred promise.",
+        "Construct deferred work only in a non-static instance resource member, outside render and commands.",
     },
   },
   create(context) {
@@ -25,7 +26,8 @@ export default createRule({
       NewExpression(node) {
         if (
           node.callee.type === AST_NODE_TYPES.Identifier &&
-          node.callee.name === "Promise"
+          node.callee.name === "Promise" &&
+          !inInstanceMember(node)
         ) {
           context.report({
             node,
@@ -39,7 +41,8 @@ export default createRule({
           node.callee.object.type === AST_NODE_TYPES.Identifier &&
           node.callee.object.name === "Promise" &&
           node.callee.property.type === AST_NODE_TYPES.Identifier &&
-          node.callee.property.name === "withResolvers"
+          node.callee.property.name === "withResolvers" &&
+          !inInstanceMember(node)
         ) {
           context.report({
             node,
