@@ -15,10 +15,26 @@ import type {
   Viewport,
 } from "./geometry";
 
-interface PaintedFrame {
+interface FrameGeometry {
   readonly viewport: Viewport | null;
   readonly device: Viewport | null;
   readonly raster: Viewport;
+}
+
+type Presentation = "presented" | "inconsistent";
+
+function same(actual: Viewport, wanted: Viewport): boolean {
+  return (
+    Math.abs(actual.width - wanted.width) <= 1 &&
+    Math.abs(actual.height - wanted.height) <= 1
+  );
+}
+
+function presentationTimeout(): CdpFault {
+  return new CdpFault(
+    "display",
+    "The synchronized image did not arrive. Try synchronizing again.",
+  );
 }
 
 type Adaptation =
@@ -31,24 +47,17 @@ type Adaptation =
     };
 
 function compatible(
-  frame: PaintedFrame,
+  frame: FrameGeometry,
   expected: PresentationGeometry,
   capture: Viewport,
 ): boolean {
   // Allow native DIP rounding, then validate pixels against the frame's actual
   // metadata and native density. Projected rounding cannot excuse a stale JPEG.
-  const same = (actual: Viewport, wanted: Viewport, tolerance: number) =>
-    Math.abs(actual.width - wanted.width) <= tolerance &&
-    Math.abs(actual.height - wanted.height) <= tolerance;
   return (
     !!frame.viewport &&
     !!frame.device &&
-    same(frame.device, expected.device, 1) &&
-    same(
-      frame.raster,
-      captureRaster(frame.device, expected.nativeDpr, capture),
-      1,
-    )
+    same(frame.device, expected.device) &&
+    same(frame.raster, captureRaster(frame.device, expected.nativeDpr, capture))
   );
 }
 
@@ -57,10 +66,14 @@ export class DisplayViewport {
   private version = 0;
   private timestamp = -Infinity;
   private captureAfter = -Infinity;
-  private painted: PaintedFrame | null = null;
+  private painted: FrameGeometry | null = null;
+  private decoded: FrameGeometry | null = null;
   private adaptation: Adaptation = { kind: "native", scale: 1 };
   private transform: DisplayTransform | null = null;
-  private waiting: { finish: (error?: CdpFault) => void } | null = null;
+  private waiting: {
+    finish: (result: Presentation | CdpFault) => void;
+    recoverInconsistent: boolean;
+  } | null = null;
   private capture: Viewport = {
     width: maximumFrameDimension,
     height: maximumFrameDimension,
@@ -134,11 +147,13 @@ export class DisplayViewport {
     this.captureAfter = timestamp;
     this.version++;
     this.painted = null;
+    this.decoded = null;
   }
 
   invalidate(): void {
     this.version++;
     this.painted = null;
+    this.decoded = null;
     this.transform = null;
     // External resize/navigation recalibrates native units. A transaction still
     // awaiting its image keeps the presentation barrier across invalidation.
@@ -207,45 +222,52 @@ export class DisplayViewport {
     )
       return;
     this.adaptation = { ...state, kind: "presented" };
-    this.waiting?.finish();
+    this.waiting?.finish("presented");
+  }
+
+  private inconsistent(): boolean {
+    const state = this.adaptation;
+    return (
+      state.kind === "presenting" &&
+      !!this.decoded?.viewport &&
+      !!this.decoded.device &&
+      same(this.decoded.device, state.expected.device) &&
+      !compatible(this.decoded, state.expected, this.capture)
+    );
   }
 
   /** The same bounded stream budget applies when a resize stops producing images. */
   waitForPresentation(
     signal: AbortSignal,
     budget = frameTimeoutMs,
-  ): Promise<void> {
-    if (this.available) return Promise.resolve();
+    recoverInconsistent = false,
+  ): Promise<Presentation> {
+    if (budget <= 0) return Promise.reject(presentationTimeout());
+    if (this.available) return Promise.resolve("presented");
+    if (recoverInconsistent && this.inconsistent())
+      return Promise.resolve("inconsistent");
     return new Promise((resolve, reject) => {
       const deadline = new AbortController();
       const aborted = () =>
         finish(
           new CdpFault("display", "Display synchronization was cancelled."),
         );
-      const finish = (error?: CdpFault) => {
+      const finish = (result: Presentation | CdpFault) => {
         deadline.abort();
         signal.removeEventListener("abort", aborted);
         this.waiting = null;
-        if (error) reject(error);
-        else resolve();
+        if (result instanceof CdpFault) reject(result);
+        else resolve(result);
       };
-      this.waiting = { finish };
+      this.waiting = { finish, recoverInconsistent };
       if (signal.aborted) {
         aborted();
         return;
       }
       signal.addEventListener("abort", aborted, { once: true });
-      timeout(
-        () =>
-          finish(
-            new CdpFault(
-              "display",
-              "The synchronized image did not arrive. Try synchronizing again.",
-            ),
-          ),
-        budget,
-        { signal: deadline.signal },
-      );
+      timeout(() => finish(presentationTimeout()), budget, {
+        signal: deadline.signal,
+      });
     });
   }
 
@@ -308,16 +330,15 @@ export class DisplayViewport {
         : null;
     const version = this.version;
     const accept = (raster: Viewport) => {
+      if (version !== this.version) return false;
       const state = this.adaptation;
-      return (
-        version === this.version &&
-        ((state.kind !== "presenting" && state.kind !== "presented") ||
-          compatible(
-            { viewport, device, raster },
-            state.expected,
-            this.capture,
-          ))
-      );
+      this.decoded = { viewport, device, raster };
+      const accepted =
+        (state.kind !== "presenting" && state.kind !== "presented") ||
+        compatible(this.decoded, state.expected, this.capture);
+      if (this.waiting?.recoverInconsistent && this.inconsistent())
+        this.waiting.finish("inconsistent");
+      return accepted;
     };
     return {
       accept,

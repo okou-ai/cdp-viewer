@@ -306,6 +306,15 @@ it("requires compatible painted pixels after native acknowledgements while retai
     pending: true,
     pointerBlocked: true,
   });
+  // The inconsistent raster requests one fenced refresh. Release its frame,
+  // rather than relying on now-obsolete frames from before that fence.
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      ),
+    ).toHaveLength(3),
+  );
   for (const deliver of browser.heldFrames.splice(0)) deliver();
   await vi.waitFor(() =>
     expect(model.read(model.display$)).toMatchObject({
@@ -343,6 +352,389 @@ it("retires an awaiting-presentation transaction when its target is replaced", a
     expect(model.read(model.display$).pending).toBe(false),
   );
   expect(model.getSnapshot().error).toBeNull();
+});
+
+it.each(["before", "after"] as const)(
+  "refreshes a clipped static image observed %s the final acknowledgement and drains the latest live size",
+  async (timing) => {
+    const browser = new FakeBrowser();
+    const painted = vi.fn();
+    const { controller, model } = mount(
+      browser,
+      "initial",
+      0,
+      undefined,
+      painted,
+    );
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    const starts = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      );
+    const before = starts().length;
+    browser.holdFrames = true;
+    if (timing === "before") socket.holdReplyMethod = "Browser.setContentsSize";
+    controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+    controller.setWindowSizeSync("live");
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+    const paints = painted.mock.calls.length;
+    socket.emit(
+      "Page.screencastFrame",
+      {
+        sessionId: 888,
+        data: btoa(JSON.stringify({ width: 1600, height: 960 })),
+        metadata: { deviceWidth: 1600, deviceHeight: 1200, pageScaleFactor: 1 },
+      },
+      input.sessionId,
+    );
+    if (timing === "before") {
+      socket.holdReplyMethod = null;
+      const held = socket.heldReplies.shift()!;
+      socket.reply(held.command, held.result);
+    } else expect(painted).toHaveBeenCalledTimes(paints);
+    await vi.waitFor(() => expect(starts()).toHaveLength(before + 1));
+    expect(model.read(model.display$)).toMatchObject({
+      pending: true,
+      pointerBlocked: true,
+    });
+    expect(resizes(browser)).toHaveLength(2);
+    input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, {});
+    input.text("while refreshing clipped pixels");
+    await input.completion(input.owner!);
+    expect(
+      socket.commands.some(
+        (command) => command.method === "Input.dispatchMouseEvent",
+      ),
+    ).toBe(false);
+    expect(
+      socket.commands.find((command) => command.method === "Input.insertText")
+        ?.params,
+    ).toEqual({ text: "while refreshing clipped pixels" });
+    controller.measureDisplay({ width: 900, height: 650, dpr: 2 });
+    const fresh = browser.heldFrames.pop()!;
+    for (const deliver of browser.heldFrames.splice(0)) deliver();
+    expect(model.read(model.display$).pointerBlocked).toBe(true);
+    browser.holdFrames = false;
+    fresh();
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(3));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(resizes(browser)[2]!.params).toEqual({
+      windowId: 0,
+      width: 1800,
+      height: 1300,
+    });
+    expect(starts()).toHaveLength(before + 1);
+    expect(controller.input).toBe(input);
+    expect(browser.sockets).toHaveLength(1);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ).toHaveLength(1);
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
+it("keeps the existing stream for stale metadata while a compatible static image is delayed", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "initial", 0);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  browser.holdFrames = true;
+  controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  socket.emit(
+    "Page.screencastFrame",
+    {
+      sessionId: 888,
+      data: btoa(JSON.stringify({ width: 1280, height: 800 })),
+      metadata: { deviceWidth: 1280, deviceHeight: 960, pageScaleFactor: 1 },
+    },
+    input.sessionId,
+  );
+  await input.completion(input.owner!);
+  expect(model.read(model.display$)).toMatchObject({
+    pending: true,
+    pointerBlocked: true,
+  });
+  for (const deliver of browser.heldFrames.splice(0)) deliver();
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    ),
+  ).toHaveLength(1);
+  expect(model.getSnapshot().error).toBeNull();
+});
+
+it.each([false, true])(
+  "bounds persistent clipped images to one refresh and rollback with same-raster=%s",
+  async (sameRaster) => {
+    const browser = new FakeBrowser();
+    const { controller, model } = mount(browser, "initial", 0, 100);
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    const socket = browser.sockets[0]!;
+    const emit = socket.emit.bind(socket);
+    vi.spyOn(socket, "emit").mockImplementation((method, params, sessionId) => {
+      if (method === "Page.screencastFrame") {
+        const frame = params as { metadata?: { deviceWidth: number } };
+        if (frame.metadata)
+          params = {
+            ...params,
+            data: btoa(
+              JSON.stringify({ width: frame.metadata.deviceWidth, height: 1 }),
+            ),
+          };
+      }
+      emit(method, params, sessionId);
+    });
+    controller.measureDisplay(
+      sameRaster
+        ? { width: 320, height: 240, dpr: 4 }
+        : { width: 800, height: 600, dpr: 2 },
+    );
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().error?.message).toContain(
+        "recovery could not be confirmed",
+      ),
+    );
+    expect(model.read(model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: true,
+    });
+    expect(resizes(browser)).toHaveLength(2);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      ),
+    ).toHaveLength(3);
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+      ),
+    ).toHaveLength(1);
+  },
+);
+
+it("charges a conditional capture refresh to the original presentation budget", async () => {
+  vi.useFakeTimers();
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "initial", 0, 1000);
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resizes(browser)).toHaveLength(1);
+    expect(model.read(model.display$).pending).toBe(false);
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    browser.holdFrames = true;
+    controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+    controller.syncDisplay();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(resizes(browser)).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(600);
+    socket.holdReplyMethod = "Page.stopScreencast";
+    socket.emit(
+      "Page.screencastFrame",
+      {
+        sessionId: 888,
+        data: btoa(JSON.stringify({ width: 1600, height: 960 })),
+        metadata: { deviceWidth: 1600, deviceHeight: 1200, pageScaleFactor: 1 },
+      },
+      input.sessionId,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.heldReplies).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(300);
+    socket.holdReplyMethod = null;
+    const held = socket.heldReplies.shift()!;
+    socket.reply(held.command, held.result);
+    await vi.advanceTimersByTimeAsync(0);
+    const rollbacks = () =>
+      socket.commands.filter(
+        (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+      );
+    await vi.advanceTimersByTimeAsync(99);
+    expect(rollbacks()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(rollbacks()).toHaveLength(1);
+    for (const deliver of browser.heldFrames.splice(0)) deliver();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(model.read(model.display$).pending).toBe(false);
+    expect(model.getSnapshot().error?.message).toContain(
+      "synchronized image did not arrive",
+    );
+  } finally {
+    controller.close();
+    vi.useRealTimers();
+  }
+});
+
+it.each(["replace", "pause", "close"] as const)(
+  "retires a clipped-image refresh on selection %s before its stop acknowledgement",
+  async (action) => {
+    const browser = new FakeBrowser();
+    browser.targets.push({ id: "page-c", windowId: 0, title: "Replacement" });
+    const { controller, model } = mount(browser, "initial", 0);
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    browser.holdFrames = true;
+    socket.holdReplyMethod = "Page.stopScreencast";
+    controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+    socket.emit(
+      "Page.screencastFrame",
+      {
+        sessionId: 888,
+        data: btoa(JSON.stringify({ width: 1600, height: 960 })),
+        metadata: { deviceWidth: 1600, deviceHeight: 1200, pageScaleFactor: 1 },
+      },
+      input.sessionId,
+    );
+    await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+    if (action === "replace") controller.select("page-c");
+    else if (action === "pause") controller.setPaused(true);
+    else controller.close();
+    browser.holdFrames = false;
+    socket.holdReplyMethod = null;
+    const held = socket.heldReplies.shift()!;
+    socket.reply(held.command, held.result);
+    for (const deliver of browser.heldFrames.splice(0)) deliver();
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.some(
+          (command) =>
+            command.method === "Target.detachFromTarget" &&
+            command.params?.sessionId === input.sessionId,
+        ),
+      ).toBe(true),
+    );
+    expect(
+      socket.commands.filter(
+        (command) =>
+          command.method === "Page.startScreencast" &&
+          command.sessionId === input.sessionId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      socket.commands.some(
+        (command) =>
+          command.method === "Page.createIsolatedWorld" &&
+          command.sessionId === input.sessionId,
+      ),
+    ).toBe(false);
+    if (action === "replace") {
+      await vi.waitFor(() =>
+        expect(controller.input?.sessionId).toBe("session-2"),
+      );
+      expect(model.getSnapshot().error).toBeNull();
+    } else expect(controller.input).toBeNull();
+  },
+);
+
+it("retains capture preferences and zoom while a sibling progresses through a clipped-image refresh", async () => {
+  const browser = new FakeBrowser();
+  browser.nativeDpr = 2;
+  browser.browserZoom = 1.25;
+  const a = mount(browser, "initial", 0);
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
+  await vi.waitFor(() =>
+    expect(a.model.read(a.model.display$).pending).toBe(false),
+  );
+  const input = a.controller.input!,
+    socket = browser.sockets[0]!;
+  a.controller.setCapture({ quality: 37, maxWidth: 700, maxHeight: 500 });
+  await vi.waitFor(() =>
+    expect(
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      ),
+    ).toHaveLength(2),
+  );
+  browser.holdFrames = true;
+  socket.holdReplyMethod = "Page.stopScreencast";
+  a.controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
+  a.controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  socket.emit(
+    "Page.screencastFrame",
+    {
+      sessionId: 888,
+      data: btoa(JSON.stringify({ width: 667, height: 400 })),
+      metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1 },
+    },
+    input.sessionId,
+  );
+  await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
+  a.controller.setCapture({ quality: 31, maxWidth: 650, maxHeight: 400 });
+  browser.holdFrames = false;
+  const b = mount(browser, "initial", 2);
+  await vi.waitFor(() => expect(browser.windowSizes.has(2)).toBe(true));
+  await vi.waitFor(() =>
+    expect(b.model.read(b.model.display$).pending).toBe(false),
+  );
+  b.controller.input!.text("independent sibling");
+  await b.controller.input!.completion(b.controller.input!.owner!);
+  expect(
+    browser.sockets[1]!.commands.some(
+      (command) => command.method === "Input.insertText",
+    ),
+  ).toBe(true);
+  expect(a.model.read(a.model.display$)).toMatchObject({
+    pending: true,
+    pointerBlocked: true,
+  });
+  socket.holdReplyMethod = null;
+  const held = socket.heldReplies.shift()!;
+  socket.reply(held.command, held.result);
+  await vi.waitFor(() =>
+    expect(a.model.read(a.model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: false,
+    }),
+  );
+  const starts = socket.commands.filter(
+    (command) => command.method === "Page.startScreencast",
+  );
+  expect(starts).toHaveLength(3);
+  expect(starts[2]!.params).toEqual({
+    format: "jpeg",
+    quality: 31,
+    maxWidth: 650,
+    maxHeight: 400,
+  });
+  expect(
+    emulations(browser).find((command) => command.sessionId === input.sessionId)
+      ?.params,
+  ).toMatchObject({ deviceScaleFactor: 1.6, scale: 0.8 });
+  expect(a.controller.input).toBe(input);
+  expect(a.model.getSnapshot().error).toBeNull();
+  expect(b.model.getSnapshot().error).toBeNull();
 });
 
 it("does not await a nonexistent new image for an already presented manual size", async () => {

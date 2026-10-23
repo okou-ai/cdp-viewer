@@ -180,6 +180,167 @@ for (const dpr of [1, 2]) {
   test.describe(`local DPR ${dpr}`, () => {
     test.use({ deviceScaleFactor: dpr });
 
+    test("refreshes a clipped static image once on the existing session", async ({
+      page,
+    }) => {
+      const backend = await launchNativeBackend(server.origin, true, 1);
+      try {
+        const created = backend.context.waitForEvent("page");
+        const target = await backend.session.send("Target.createTarget", {
+          url: "about:blank",
+          newWindow: true,
+        });
+        const remote = await created;
+        await remote.setContent(
+          '<style>html,body{margin:0;background:#eee}</style><input id="plain">',
+        );
+        const { windowId } = await backend.session.send(
+          "Browser.getWindowForTarget",
+          { targetId: target.targetId },
+        );
+        let previousImage = "";
+        let inject = false;
+        let clipped = false;
+        let starts = 0;
+        let stops = 0;
+        let writes = 0;
+        let pointers = 0;
+        let attachments = 0;
+        const held: (() => void)[] = [];
+        const desired = { width: 698, height: 410, dpr };
+        await page.routeWebSocket(backend.endpoint, (socket) => {
+          const upstream = socket.connectToServer();
+          socket.onMessage((message) => {
+            const command = JSON.parse(String(message)) as { method?: string };
+            if (command.method === "Page.startScreencast") starts++;
+            if (command.method === "Page.stopScreencast") stops++;
+            if (command.method === "Browser.setContentsSize") writes++;
+            if (command.method === "Input.dispatchMouseEvent") pointers++;
+            if (command.method === "Target.attachToTarget") attachments++;
+            upstream.send(message);
+          });
+          upstream.onMessage((message) => {
+            const event = JSON.parse(String(message)) as {
+              method?: string;
+              params?: {
+                data: string;
+                metadata: { deviceWidth: number; deviceHeight: number };
+              };
+            };
+            if (event.method === "Page.screencastFrame" && event.params) {
+              if (inject && clipped) {
+                if (held.length >= 8)
+                  throw Error("Owned held-frame bound exceeded.");
+                held.push(() => socket.send(message));
+                return;
+              }
+              if (
+                inject &&
+                event.params.metadata.deviceWidth === desired.width * dpr &&
+                event.params.metadata.deviceHeight === desired.height * dpr
+              ) {
+                // Keep the new native metadata/clock, but substitute preceding
+                // pixels. No internal viewer API or page mutation supplies recovery.
+                clipped = true;
+                socket.send(
+                  JSON.stringify({
+                    ...event,
+                    params: { ...event.params, data: previousImage },
+                  }),
+                );
+                return;
+              }
+              if (!inject) previousImage = event.params.data;
+            }
+            socket.send(message);
+          });
+        });
+        await page.goto(server.origin);
+        await page.addStyleTag({
+          content:
+            "#panels{display:block!important}#viewer-a .cdpv-root{width:620px;height:460px}",
+        });
+        await page.waitForFunction(
+          () => typeof window.configureViewers === "function",
+        );
+        await page.evaluate(
+          async (settings) => window.configureViewers!(settings),
+          {
+            cdpUrl: backend.endpoint,
+            windowA: windowId,
+            second: false,
+            interactive: true,
+          },
+        );
+        const view = page.locator("#viewer-a .cdpv-root"),
+          canvas = view.locator("canvas");
+        await expect(view).toHaveAttribute("data-status", "streaming");
+        const sync = async () => {
+          await view.getByRole("button", { name: "Browser menu" }).click();
+          await view
+            .getByRole("menuitem", { name: "Sync now", exact: true })
+            .click();
+        };
+        await sync();
+        await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+        const raster = () =>
+          canvas.evaluate((element: HTMLCanvasElement) => ({
+            width: element.width,
+            height: element.height,
+          }));
+        await expect
+          .poll(raster)
+          .toEqual({ width: 618 * dpr, height: 370 * dpr });
+        const original = await view
+          .getByLabel("Remote browser input")
+          .elementHandle();
+        const before = { starts, stops };
+        inject = true;
+        await view.evaluate((element: HTMLElement) => {
+          element.style.width = "700px";
+          element.style.height = "500px";
+        });
+        await sync();
+        await expect.poll(() => clipped).toBe(true);
+        await expect.poll(() => starts).toBe(before.starts + 1);
+        await expect.poll(() => held.length).toBeGreaterThan(0);
+        await expect(view.locator(".cdpv-spinning")).toHaveCount(1);
+        expect(await raster()).toEqual({ width: 618 * dpr, height: 370 * dpr });
+        const box = (await canvas.boundingBox())!;
+        await page.mouse.click(box.x + 30, box.y + 20);
+        expect(pointers).toBe(0);
+        inject = false;
+        for (const deliver of held.splice(0)) deliver();
+        await expect.poll(raster).toEqual({
+          width: desired.width * dpr,
+          height: desired.height * dpr,
+        });
+        await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
+        expect(
+          await remote.evaluate(() => ({
+            width: innerWidth,
+            height: innerHeight,
+            dpr: devicePixelRatio,
+          })),
+        ).toEqual(desired);
+        expect(
+          await view
+            .getByLabel("Remote browser input")
+            .evaluate((node, input) => node === input, original),
+        ).toBe(true);
+        expect(starts).toBe(before.starts + 1);
+        expect(stops).toBe(before.stops + 1);
+        expect(writes).toBe(2);
+        expect(attachments).toBe(1);
+        await test.info().attach("conditional-refresh", {
+          body: JSON.stringify({ dpr, starts, stops, writes, attachments }),
+          contentType: "application/json",
+        });
+      } finally {
+        await backend.close();
+      }
+    });
+
     test("keeps synchronization pending until a compatible image paints", async ({
       page,
     }) => {

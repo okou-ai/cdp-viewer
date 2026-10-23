@@ -98,7 +98,13 @@ capture evidence: the native executor reads a clock in a private isolated world
 after acknowledged writes while the controller stops/starts the same bounded
 stream. The geometry owner rejects pre-fence timestamps and decodes. This adds
 no per-frame reads, React updates or refreshes during ordinary distinct-size
-updates. New pointer gestures remain suspended through the transition; text,
+updates. Target-size metadata with an incompatible decoded raster can request
+that same fenced refresh once during presentation. Decoded facts can diagnose
+this mismatch before or after the final acknowledgement, but only painted facts
+can complete presentation. Invalidations retire both. Conditional recovery
+consumes the remaining presentation wait rather than starting a new full budget;
+capture effects retain their bounded request deadlines and serialized owner.
+New pointer gestures remain suspended through the transition; text,
 native keys and release of already-owned buttons retain their input ownership.
 
 The controller retains target/session lifetime and frame acknowledgement. DOM
