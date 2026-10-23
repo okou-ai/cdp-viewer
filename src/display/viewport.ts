@@ -91,8 +91,9 @@ export class DisplayViewport {
     return this.version;
   }
 
-  get device(): Viewport | null {
-    return this.painted?.device ?? null;
+  /** Native facts can change while the previous presentation still blocks paint. */
+  get nativeDevice(): Viewport | null {
+    return this.decoded?.device ?? null;
   }
 
   get available(): boolean {
@@ -275,7 +276,7 @@ export class DisplayViewport {
     request: FrameWait,
   ): Promise<Presentation> {
     if (budget <= 0) return Promise.reject(presentationTimeout());
-    if (request.kind === "native" ? this.device !== null : this.available)
+    if (request.kind === "native" ? this.nativeDevice !== null : this.available)
       return Promise.resolve("presented");
     if (
       request.kind === "presentation" &&

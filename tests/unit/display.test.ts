@@ -282,39 +282,52 @@ it("discards a native frame/window pairing invalidated before the window read re
   expect(model.getSnapshot().error).toBeNull();
 });
 
-it("establishes a fresh native reference when an unscoped selected page moves before the next sync", async () => {
-  const browser = new FakeBrowser();
-  browser.windowSizes.set(0, { width: 800, height: 600 });
-  browser.windowSizes.set(2, { width: 900, height: 700 });
-  const { controller, model } = mount(browser);
-  await vi.waitFor(() => expect(controller.input).not.toBeNull());
-  controller.syncDisplay();
-  await vi.waitFor(() =>
-    expect(model.read(model.display$).pending).toBe(false),
-  );
-  const input = controller.input!,
-    socket = browser.sockets[0]!;
-  browser.targets[0]!.windowId = 2;
-  socket.emit("Page.frameResized", {}, input.sessionId);
-  browser.frame(socket, input.sessionId);
-  controller.measureDisplay({ width: 700, height: 500, dpr: 1.5 });
-  controller.syncDisplay();
-  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
-  await vi.waitFor(() =>
-    expect(model.read(model.display$)).toMatchObject({
-      pending: false,
-      pointerBlocked: false,
-    }),
-  );
-  expect(resizes(browser)[1]!.params).toEqual({
-    windowId: 2,
-    width: 1050,
-    height: 750,
-  });
-  expect(browser.windowSizes.get(0)).toEqual({ width: 1280, height: 960 });
-  expect(controller.input).toBe(input);
-  expect(model.getSnapshot().error).toBeNull();
-});
+it.each([false, true])(
+  "establishes a fresh native reference when an unscoped selected page moves with resize event=%s",
+  async (resizeEvent) => {
+    const browser = new FakeBrowser();
+    browser.windowSizes.set(0, { width: 800, height: 600 });
+    browser.windowSizes.set(2, { width: 900, height: 700 });
+    const painted = vi.fn();
+    const { controller, model } = mount(
+      browser,
+      "off",
+      undefined,
+      undefined,
+      painted,
+    );
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    browser.targets[0]!.windowId = 2;
+    const before = painted.mock.calls.length;
+    if (resizeEvent) socket.emit("Page.frameResized", {}, input.sessionId);
+    browser.frame(socket, input.sessionId);
+    if (!resizeEvent) expect(painted).toHaveBeenCalledTimes(before);
+    controller.measureDisplay({ width: 700, height: 500, dpr: 1.5 });
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(resizes(browser)[1]!.params).toEqual({
+      windowId: 2,
+      width: 1050,
+      height: 750,
+    });
+    expect(browser.windowSizes.get(0)).toEqual({ width: 1280, height: 960 });
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().error).toBeNull();
+    expect(painted).toHaveBeenLastCalledWith({ width: 1050, height: 750 });
+  },
+);
 
 it("rejects old geometry and clipped pixels at the acknowledged fractional native extent before one refresh", async () => {
   const browser = new FakeBrowser();

@@ -126,7 +126,7 @@ export class DisplayTransaction {
         if (!this.current()) return { kind: "retired" };
       }
       const revision = target.geometry.revision;
-      const device = target.geometry.device;
+      const device = target.geometry.nativeDevice;
       if (!this.nativeWindow && !device) return { kind: "deferred" };
       const [window, remote, layout] = await Promise.all([
         this.readNativeWindow(revision, device),

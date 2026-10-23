@@ -56,7 +56,7 @@ fallback over old visible pixels.
 
 Native contents sizing and compositor dimensions are separate rounding
 boundaries. Before its first emulation write, the selected transaction calibrates
-the current frame's native device extent against the browser's outer window
+the current decoded frame's native device extent against the browser's outer window
 bounds. Initial page layout may already be emulated and cannot substitute for
 that native frame. An unavailable first frame waits within the geometry owner's
 existing single settlement slot and deadline, without polling or another waiter.
@@ -65,6 +65,11 @@ read validates that revision before retaining the reference, independently of
 later layout reads. A stable move before a new operation in an unscoped viewer
 replaces the old window's reference using the current frame and observed bounds;
 scoped membership and mid-operation window identity checks still apply.
+Under emulation, a native window move can change compositor dimensions without
+a page resize event. The previous presentation can reject that new-size frame
+from painting while its decoded native metadata remains a calibration fact.
+Painted geometry alone still authorizes presentation and input; native calibration
+does not make rejected pixels usable.
 After a contents-size
 acknowledgement it reads and verifies that same window again, translating the
 contents by the observed outer-bounds delta. Presentation and no-op reuse use
