@@ -116,8 +116,10 @@ viewer-managed persistent cache.
 The host loads the image normally at low priority. Missing URLs, pending loads and
 failures (including host CSP, authentication or reachability) show Globe; only a
 successful load replaces it. Exact Chrome favicon selection is not promised.
-If the optional metadata command fails, favicon discovery stops until reconnecting;
-normal viewing and input continue.
+Failed metadata reads are not retried; a later selected document can be inspected
+after a definite session/context rejection. An unsupported command or uncertain
+failure (including a request timeout) stops favicon discovery until reconnecting. Normal
+viewing and input continue.
 
 ## API
 

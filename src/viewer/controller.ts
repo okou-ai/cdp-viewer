@@ -892,11 +892,17 @@ export class ViewerController {
           url,
         });
       })
-      .catch(() => {
-        // Optional metadata failure never changes viewing/input diagnostics or retries.
-        // A timed-out command can still own a late reply; stop this connection's
-        // optional reads so tombstones cannot accumulate against the CDP budget.
-        this.faviconAvailable = false;
+      .catch((error: unknown) => {
+        // A definite session/context rejection retires its request slot, so a
+        // newer document can still be inspected. Never retry this failed read.
+        // Unsupported or uncertain failures (including timeouts with a late
+        // reply owner) stop further reads on this connection to bound that work.
+        if (
+          !(error instanceof CdpFault) ||
+          error.code === undefined ||
+          error.code === -32601
+        )
+          this.faviconAvailable = false;
         if (selection.favicon === document) {
           document.ready = true;
           document.waiting = false;

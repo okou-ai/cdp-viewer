@@ -153,7 +153,12 @@ it("waits for document readiness without polling and treats failure as optional"
   socket.emit("Page.domContentEventFired", {}, sessionId);
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   const held = browser.heldCommands.shift()!;
+  model.run(model.setFavicon$, {
+    targetId: "page-a",
+    url: "https://cached.invalid/icon.svg",
+  });
   held.socket.reject(held.command);
+  await vi.waitFor(() => expect(model.read(model.favicons$).size).toBe(0));
   await vi.waitFor(() =>
     expect(model.getSnapshot()).toMatchObject({
       status: "streaming",
@@ -162,6 +167,8 @@ it("waits for document readiness without polling and treats failure as optional"
   );
   socket.emit("Page.domContentEventFired", {}, sessionId);
   socket.emit("Target.targetInfoChanged", {});
+  socket.emit("Page.frameNavigated", { frame: { id: "main" } }, sessionId);
+  socket.emit("Page.domContentEventFired", {}, sessionId);
   expect(reads(socket)).toHaveLength(2);
   expect(model.read(model.favicons$).size).toBe(0);
 });
@@ -227,6 +234,82 @@ it("keeps a replacement selection responsive while one old metadata read is pend
       "https://new.invalid/icon.svg",
     ),
   );
+});
+
+it.each(["selection", "navigation"] as const)(
+  "does not disable a new %s after the old session rejects its metadata read",
+  async (replacement) => {
+    const browser = new FakeBrowser();
+    browser.holdFavicon = true;
+    const { model, controller, socket, sessionId } = await mount(browser);
+    const old = browser.heldCommands.shift()!;
+    const targetId = replacement === "selection" ? "page-b" : "page-a";
+    if (replacement === "selection") {
+      controller.select(targetId);
+      await vi.waitFor(() =>
+        expect(model.getSnapshot()).toMatchObject({
+          status: "streaming",
+          selectedTargetId: targetId,
+        }),
+      );
+    } else {
+      socket.emit("Page.frameNavigated", { frame: { id: "main" } }, sessionId);
+      socket.emit("Page.domContentEventFired", {}, sessionId);
+    }
+    expect(reads(socket)).toHaveLength(1);
+    expect(browser.heldCommands).toHaveLength(0);
+    // The old execution context/session can disappear during navigation or
+    // detach. A definitive error reply has already retired its request slot.
+    old.socket.reject(old.command, -32000);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const current = browser.heldCommands.shift()!;
+    current.socket.reply(current.command, {
+      result: { type: "string", value: "https://current.invalid/icon.svg" },
+    });
+    await vi.waitFor(() =>
+      expect(model.read(model.favicons$).get(targetId)?.url).toBe(
+        "https://current.invalid/icon.svg",
+      ),
+    );
+    expect(reads(socket)).toHaveLength(2);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      error: null,
+    });
+  },
+);
+
+it("does not retry a rejected document and admits the next document after a definitive failure", async () => {
+  const browser = new FakeBrowser();
+  browser.holdFavicon = true;
+  const { model, socket, sessionId } = await mount(browser);
+  const old = browser.heldCommands.shift()!;
+  model.run(model.setFavicon$, {
+    targetId: "page-a",
+    url: "https://cached.invalid/icon.svg",
+  });
+  old.socket.reject(old.command, -32000);
+  await vi.waitFor(() => expect(model.read(model.favicons$).size).toBe(0));
+  socket.emit("Page.domContentEventFired", {}, sessionId);
+  socket.emit("Target.targetInfoChanged", {});
+  expect(reads(socket)).toHaveLength(1);
+  socket.emit("Page.frameNavigated", { frame: { id: "main" } }, sessionId);
+  socket.emit("Page.domContentEventFired", {}, sessionId);
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  const current = browser.heldCommands.shift()!;
+  current.socket.reply(current.command, {
+    result: { type: "string", value: "https://current.invalid/icon.svg" },
+  });
+  await vi.waitFor(() =>
+    expect(model.read(model.favicons$).get("page-a")?.url).toBe(
+      "https://current.invalid/icon.svg",
+    ),
+  );
+  expect(reads(socket)).toHaveLength(2);
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    error: null,
+  });
 });
 
 it("refreshes a restored document without waiting for an event that will not fire again", async () => {
