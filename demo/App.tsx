@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { demoScope } from "./context";
+import { Console } from "./Console";
 import type { Panel } from "./model";
 import { viewerClassName, viewerStyle } from "./playground";
 import { Settings } from "./Settings";
@@ -127,6 +128,7 @@ function DemoView() {
             <p>Add a viewer to connect to a browser.</p>
           </div>
         )}
+        <Console />
         <footer className="demo-footer">
           <span>
             <span className="demo-dot" /> Built with the public React component

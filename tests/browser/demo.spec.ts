@@ -397,19 +397,14 @@ test("playground changes live props independently and observes safe callbacks", 
       "data-target-id",
       selected!,
     );
-    await a.locator("summary").filter({ hasText: "State & events" }).click();
-    await expect(a.getByLabel("Current status summary")).toContainText(
-      '"status": "streaming"',
-    );
-    await expect(a.getByLabel("Current status summary")).toContainText(
-      '"targetCount": 1',
-    );
-    await expect(a.getByLabel("Current status summary")).not.toContainText(
-      target.targetId,
-    );
-    await expect(a.getByLabel("Current status summary")).not.toContainText(
-      server.origin,
-    );
+    const logs = page.locator(".demo-console");
+    await logs.locator(":scope > summary").click();
+    await logs.getByText("Viewer 1 current state", { exact: true }).click();
+    const summary = logs.getByLabel("Viewer 1 current status summary");
+    await expect(summary).toContainText('"status": "streaming"');
+    await expect(summary).toContainText('"targetCount": 1');
+    await expect(summary).not.toContainText(target.targetId);
+    await expect(summary).not.toContainText(server.origin);
     await a.locator("summary").filter({ hasText: "Usage" }).click();
     await expect(a.getByLabel("Component code")).toContainText(
       `windowId={${scope.windowId}}`,
@@ -534,9 +529,10 @@ test.describe("controlled window-size synchronization", () => {
       await expect(a.getByLabel("Component code")).toContainText(
         "onWindowSizeSyncChange={setWindowSizeSync}",
       );
-      await a.locator("summary").filter({ hasText: "State & events" }).click();
-      const activity = a.getByRole("list", {
-        name: "Callback activity",
+      const logs = page.locator(".demo-console");
+      await logs.locator(":scope > summary").click();
+      const activity = logs.getByRole("list", {
+        name: "Console logs",
         exact: true,
       });
       await expect(activity).toContainText("onWindowSizeSyncChange");
@@ -1428,15 +1424,23 @@ test("demo validates without navigation, preserves zero, and forgets settings on
   }
 });
 
-test("demo keeps actionable current errors and expands safe event details", async ({
+test("bottom console combines viewer logs with collapsible safe error details", async ({
   page,
 }, info) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await openDemo(page);
+  const logs = page.locator(".demo-console");
+  const toggle = logs.locator(":scope > summary");
+  await expect(logs).not.toHaveAttribute("open");
+  await expect(page.getByText("State & events", { exact: true })).toHaveCount(
+    0,
+  );
   const backend = await launchBackend(
     info.outputPath("backend"),
     new URL(demoUrl).origin,
   );
+  let sockets = 0;
+  page.on("websocket", () => sockets++);
   try {
     const target = await backend.session.send("Target.createTarget", {
       url: server.origin + "/fixture/red",
@@ -1445,8 +1449,12 @@ test("demo keeps actionable current errors and expands safe event details", asyn
     const scope = await backend.session.send("Browser.getWindowForTarget", {
       targetId: target.targetId,
     });
-    let failDiscovery = true;
+    let firstConnection = true;
     await page.routeWebSocket(backend.endpoint, (socket) => {
+      // Keep only the original viewer's discovery failed until it reconnects.
+      // Sibling target events must not recover this controlled error fixture.
+      const failDiscovery = firstConnection;
+      firstConnection = false;
       const upstream = socket.connectToServer();
       socket.onMessage((message) => {
         const command = JSON.parse(String(message)) as {
@@ -1454,7 +1462,6 @@ test("demo keeps actionable current errors and expands safe event details", asyn
           method: string;
         };
         if (failDiscovery && command.method === "Target.getTargets") {
-          failDiscovery = false;
           socket.send(
             JSON.stringify({
               id: command.id,
@@ -1472,73 +1479,160 @@ test("demo keeps actionable current errors and expands safe event details", asyn
     await configure(a, backend.endpoint);
     const view = a.getByRole("region", { name: "Remote browser viewer" });
     await expect(view).toHaveAttribute("data-status", "unavailable");
+    await page.getByRole("button", { name: "Add viewer" }).click();
+    const b = panel(page, 2);
+    await configure(b, backend.endpoint, scope.windowId);
+    const sibling = b.getByRole("region", { name: "Remote browser viewer" });
+    await expectColor(sibling, [232, 32, 48]);
+    const originalInput = await sibling
+      .getByLabel("Remote browser input")
+      .elementHandle();
+    const opened = sockets;
     const initial = (await a.locator(".demo-preview").boundingBox())!;
-    await a.locator("summary").filter({ hasText: "State & events" }).click();
-    const current = a.getByRole("region", { name: "Current viewer error" });
+    const siblingInitial = (await b.locator(".demo-preview").boundingBox())!;
+    const panelBounds = (await page.locator(".demo-panels").boundingBox())!;
+    const consoleBounds = (await logs.boundingBox())!;
+    expect(consoleBounds.y).toBeGreaterThanOrEqual(
+      panelBounds.y + panelBounds.height - 1,
+    );
+    expect(Math.abs(consoleBounds.width - panelBounds.width)).toBeLessThan(1);
+    await expect(toggle).toContainText("1 error");
+    await expect(logs).not.toHaveAttribute("open");
+    await toggle.focus();
+    await toggle.press("Enter");
+    await expect(logs).toHaveAttribute("open", "");
+    const current = logs.getByRole("region", {
+      name: "Viewer 1 current error",
+      exact: true,
+    });
     await expect(current).toContainText("CDP request failed.");
     await expect(current).toContainText("Target.getTargets");
     await expect(current).toContainText("-32000");
-    const activity = a.getByRole("list", {
-      name: "Callback activity",
+    await expect(
+      logs.getByRole("region", { name: "Viewer 2 current error", exact: true }),
+    ).toHaveCount(0);
+    const activity = logs.getByRole("list", {
+      name: "Console logs",
       exact: true,
     });
-    const errorEvent = activity.locator("li").filter({ hasText: "onError" });
-    await errorEvent.getByText("Event details", { exact: true }).click();
-    await expect(errorEvent.getByLabel("onError event details")).toContainText(
-      '"method": "Target.getTargets"',
-    );
-    await expect(errorEvent.getByLabel("onError event details")).toContainText(
-      '"code": -32000',
-    );
+    await expect(activity).toContainText("Viewer 1");
+    await expect(activity).toContainText("Viewer 2");
+    const errorRow = activity
+      .locator("li")
+      .filter({ hasText: "onError" })
+      .first();
+    const errorSequence = await errorRow
+      .locator(".demo-console-sequence")
+      .innerText();
+    const errorEvent = activity
+      .locator("li")
+      .filter({
+        has: page.getByText(errorSequence, { exact: true }),
+      })
+      .filter({ hasText: "onError" });
+    await errorEvent.locator("summary").click();
+    await expect(
+      errorEvent.getByLabel("Viewer 1 onError event details"),
+    ).toContainText('"method": "Target.getTargets"');
+    await expect(
+      errorEvent.getByLabel("Viewer 1 onError event details"),
+    ).toContainText('"code": -32000');
     const statusEvent = activity
       .locator("li")
+      .filter({ hasText: "Viewer 1" })
       .filter({ hasText: "onStatusChange" })
       .first();
-    await statusEvent.getByText("Event details", { exact: true }).click();
+    await statusEvent.locator("summary").click();
     await expect(
-      statusEvent.getByLabel("onStatusChange event details"),
+      statusEvent.getByLabel("Viewer 1 onStatusChange event details"),
     ).toContainText('"targetCount": 0');
-    await expect(a.getByLabel("Current status summary")).toContainText(
-      '"method": "Target.getTargets"',
-    );
-    await expect(a.locator(".demo-settings")).not.toContainText(
-      /private|token=|sessionId|params/,
-    );
+    await logs.getByText("Viewer 1 current state", { exact: true }).click();
+    await expect(
+      logs.getByLabel("Viewer 1 current status summary"),
+    ).toContainText('"method": "Target.getTargets"');
+    await expect(logs).not.toContainText(/private|token=|sessionId|params/);
     expect(
       Math.abs(
         (await a.locator(".demo-preview").boundingBox())!.height -
           initial.height,
       ),
     ).toBeLessThan(1);
+    expect(
+      Math.abs(
+        (await b.locator(".demo-preview").boundingBox())!.height -
+          siblingInitial.height,
+      ),
+    ).toBeLessThan(1);
     await page.screenshot({
-      path: info.outputPath("error-details-desktop.png"),
+      path: info.outputPath("console-desktop.png"),
       fullPage: true,
     });
-    await a.getByRole("button", { name: "Clear callback activity" }).click();
+
+    await toggle.press("Space");
+    await expect(logs).not.toHaveAttribute("open");
+    await b.getByRole("button", { name: "Pause stream", exact: true }).click();
+    await expect(sibling).toHaveAttribute("data-status", "paused");
+    await expect(logs).not.toHaveAttribute("open");
+    await b.getByRole("button", { name: "Resume stream", exact: true }).click();
+    await expectColor(sibling, [232, 32, 48]);
+    expect(sockets).toBe(opened);
+    expect(
+      await sibling
+        .getByLabel("Remote browser input")
+        .evaluate((element, old) => element === old, originalInput),
+    ).toBe(true);
+    await toggle.press("Space");
+    await expect(logs).toHaveAttribute("open", "");
+    await expect(errorEvent.locator("details")).toHaveAttribute("open", "");
+    await logs.getByRole("button", { name: "Clear console" }).click();
     await expect(activity).toHaveCount(0);
-    await expect(current).toContainText("Target.getTargets");
-    await page.getByRole("button", { name: "Add viewer" }).click();
-    const b = panel(page, 2);
-    await configure(b, backend.endpoint, scope.windowId);
-    await expectColor(
-      b.getByRole("region", { name: "Remote browser viewer" }),
-      [232, 32, 48],
-    );
     await expect(
-      b.getByRole("region", { name: "Current viewer error" }),
-    ).toHaveCount(0);
-    await expect(current).toContainText("-32000");
+      logs.getByRole("button", { name: "Clear console" }),
+    ).toBeDisabled();
+    await expect(current).toContainText("Target.getTargets");
+    await expect(toggle).toContainText("1 error");
+    await expect(
+      logs.getByLabel("Viewer 1 current status summary"),
+    ).toContainText("-32000");
+
     await page.setViewportSize({ width: 390, height: 844 });
+    await current.scrollIntoViewIfNeeded();
     await expect(current).toBeVisible();
+    expect(
+      await logs
+        .locator(".demo-console-body")
+        .evaluate((element) => element.clientHeight),
+    ).toBeLessThanOrEqual(360);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
     await page.screenshot({
-      path: info.outputPath("error-details-mobile.png"),
+      path: info.outputPath("console-mobile.png"),
       fullPage: true,
     });
+    await a.getByRole("button", { name: "Reconnect", exact: true }).click();
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect(current).toHaveCount(0);
+    await expect(toggle).not.toContainText("1 error");
+    await expect(activity).not.toContainText("onError");
+    await expect(logs).toHaveAttribute("open", "");
+    await page
+      .getByRole("button", { name: "Remove viewer 1", exact: true })
+      .click();
+    await expect(
+      logs.locator(".demo-console-entry").filter({ hasText: "Viewer 1" }),
+    ).toHaveCount(0);
+    await expect(
+      logs.getByText("Viewer 1 current state", { exact: true }),
+    ).toHaveCount(0);
+    await expectColor(sibling, [232, 32, 48]);
+    expect(
+      await sibling
+        .getByLabel("Remote browser input")
+        .evaluate((element, old) => element === old, originalInput),
+    ).toBe(true);
   } finally {
     await backend.close();
   }
@@ -1559,16 +1653,15 @@ test("demo reports real Origin denial without echoing the endpoint", async ({
     await expect(view).toHaveAttribute("data-status", "error");
     await expect(view.getByRole("alert")).toContainText("Origin and TLS");
     await expect(view).not.toContainText(backend.endpoint);
-    await a.locator("summary").filter({ hasText: "State & events" }).click();
-    await expect(
-      a.getByRole("list", { name: "Callback activity", exact: true }),
-    ).toContainText("onError");
-    await expect(
-      a.getByRole("list", { name: "Callback activity", exact: true }),
-    ).toContainText("Origin and TLS");
-    await expect(
-      a.getByRole("list", { name: "Callback activity", exact: true }),
-    ).not.toContainText(backend.endpoint);
+    const logs = page.locator(".demo-console");
+    await logs.locator(":scope > summary").click();
+    const activity = logs.getByRole("list", {
+      name: "Console logs",
+      exact: true,
+    });
+    await expect(activity).toContainText("onError");
+    await expect(activity).toContainText("Origin and TLS");
+    await expect(activity).not.toContainText(backend.endpoint);
     expect(page.url()).toBe(demoUrl);
   } finally {
     await backend.close();

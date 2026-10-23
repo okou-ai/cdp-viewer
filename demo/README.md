@@ -86,10 +86,10 @@ display to the new page surface.
 | `colorScheme`            | Appearance & layout → Viewer theme                 | Immediately; Inherit page omits the prop, while System follows the OS   |
 | `style`                  | Height, width, corner radius and custom accent     | Immediately; remote adaptation follows Window size sync                 |
 | `className`              | Framed presentation preset                         | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
-| `onStatusChange`         | State & events                                     | Always observed while connected                                         |
-| `onError`                | State & events                                     | Always observed while connected                                         |
+| `onStatusChange`         | Console                                            | Always observed while connected                                         |
+| `onError`                | Console                                            | Always observed while connected                                         |
 | `windowSizeSync`         | Appearance & layout → Window size sync             | Immediately, without replacing the connection; off by default           |
-| `onWindowSizeSyncChange` | State & events / controlled Usage                  | Accepts browser-menu requests and updates the owning panel's mode       |
+| `onWindowSizeSyncChange` | Console / controlled Usage                         | Accepts browser-menu requests and updates the owning panel's mode       |
 
 **Window size sync** and the address-bar menu share the same controlled mode:
 
@@ -125,19 +125,28 @@ preview dimensions keeps the selected capture limits. Window-size synchronizatio
 can still change the remote viewport and actual image dimensions. Preferences
 remain in this panel's memory and are cleared on refresh.
 
-State & events retains only semantic summaries: status, tab count, selection
-presence, navigation availability/history capabilities and the current public diagnostic.
-It omits target IDs/titles and page addresses before storing observations. Error
-events show the public fixed diagnostic, including the original CDP command and
+The **Console** sits below all viewers and starts collapsed. Its header shows the
+retained event count and current errors. Click it or use Enter/Space to expand or
+collapse it; this does not resize or reconnect viewers. Logs from all viewers are
+combined newest first and labelled with their viewer and callback. Expand a log
+row for its JSON, or a viewer's **current state** for its latest safe snapshot.
+New callbacks preserve your disclosure choices. The expanded body scrolls within
+a bounded height on desktop and mobile.
+
+Only semantic summaries are retained: status, tab count, selection presence,
+navigation availability/history capabilities and the current public diagnostic.
+Target IDs/titles and page addresses are omitted before storing observations.
+Errors show the public fixed diagnostic, including the original CDP command and
 response error code when available. Request timeouts have a command but no
-response code. The **Current error** card and snapshot retain this information
-after activity is cleared or its older entries are evicted. Expand an event's
-**Event details** to inspect all of its retained fields as JSON. Command parameters,
-raw provider payloads, endpoint credentials and session IDs are excluded.
-`onWindowSizeSyncChange` records only
-the mode requested by the browser menu. Each panel retains at most twelve events;
-Clear removes activity while retaining its latest state. Connection replacement,
-disconnect and removal retire the old observations and reject late callbacks.
+response code. **Clear** removes logs from all viewers while retaining their
+current state and **Current error** details, including after older logs are
+evicted. Command parameters, raw provider payloads, endpoint credentials and
+session IDs are excluded. This console shows viewer callbacks; it does not collect
+the remote page's JavaScript console.
+
+`onWindowSizeSyncChange` records only the mode requested by the browser menu.
+Each viewer retains at most twelve events. Connection replacement, disconnect
+and removal retire only that viewer's observations and reject its late callbacks.
 
 Usage shows the applied window/extensions with the current live controls. The
 endpoint and status/error handlers are supplied as host component props. The

@@ -15,14 +15,14 @@ export const propGuide = {
   paused: "Pause / resume",
   interactive: "Control mode",
   windowSizeSync: "Appearance & layout / browser menu",
-  onWindowSizeSyncChange: "State & events / controlled Usage",
+  onWindowSizeSyncChange: "Console / controlled Usage",
   capture: "Image detail",
   extensions: "Connection options",
   colorScheme: "Viewer theme",
   className: "Framed presentation preset",
   style: "Size, radius and accent",
-  onStatusChange: "State & events",
-  onError: "State & events",
+  onStatusChange: "Console",
+  onError: "Console",
 } satisfies Record<keyof CdpViewerProps, string>;
 
 export interface PlaygroundOptions {
@@ -111,7 +111,10 @@ export function summarizeSnapshot(snapshot: ViewerSnapshot) {
 }
 
 export type SnapshotSummary = ReturnType<typeof summarizeSnapshot>;
-export type CallbackEvent = { readonly sequence: number } & (
+export type CallbackEvent = {
+  readonly sequence: number;
+  readonly order: number;
+} & (
   | { readonly name: "onStatusChange"; readonly value: SnapshotSummary }
   | { readonly name: "onError"; readonly value: ViewerError }
   | { readonly name: "onWindowSizeSyncChange"; readonly value: WindowSizeSync }
