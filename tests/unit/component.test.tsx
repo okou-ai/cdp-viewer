@@ -137,6 +137,114 @@ it("exposes wrapped request context and context-only error changes without repla
   );
 });
 
+it("toggles the settings menu independently without replacing live viewer ownership", async () => {
+  const fake = browser();
+  const viewers = (showSettingsMenu: boolean) => (
+    <>
+      <div data-testid="settings-owner">
+        <CdpViewer
+          cdpUrl="wss://fixture.invalid"
+          interactive
+          showSettingsMenu={showSettingsMenu}
+        />
+      </div>
+      <div data-testid="settings-sibling">
+        <CdpViewer cdpUrl="wss://fixture.invalid" interactive />
+      </div>
+    </>
+  );
+  const view = render(viewers(false));
+  const ownerElement = screen.getByTestId("settings-owner");
+  const owner = within(ownerElement);
+  const sibling = within(screen.getByTestId("settings-sibling"));
+  await waitFor(() =>
+    expect(owner.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  await waitFor(() =>
+    expect(sibling.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  expect(owner.queryByRole("button", { name: "Browser menu" })).toBeNull();
+  const siblingMenu = sibling.getByRole("button", { name: "Browser menu" });
+  const proxy = owner.getByLabelText("Remote browser input");
+  const address = owner.getByLabelText("Remote page address");
+  const canvas = ownerElement.querySelector("canvas");
+  const sockets = [...fake.sockets];
+  const attachments = sockets.flatMap((socket) =>
+    socket.commands.filter(
+      (command) => command.method === "Target.attachToTarget",
+    ),
+  );
+
+  view.rerender(viewers(true));
+  await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
+  await userEvent.click(
+    owner.getByRole("menuitemradio", { name: "Sync continuously" }),
+  );
+  await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
+  expect(
+    owner.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-checked", "true");
+
+  view.rerender(viewers(false));
+  expect(owner.queryByRole("button", { name: "Browser menu" })).toBeNull();
+  await waitFor(() => expect(owner.queryByRole("menu")).toBeNull());
+  view.rerender(viewers(true));
+  await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
+  expect(
+    owner.getByRole("menuitemradio", { name: "Sync continuously" }),
+  ).toHaveAttribute("aria-checked", "true");
+  expect(sibling.getByRole("button", { name: "Browser menu" })).toBe(
+    siblingMenu,
+  );
+  expect(owner.getByLabelText("Remote browser input")).toBe(proxy);
+  expect(proxy).toBeEnabled();
+  expect(owner.getByLabelText("Remote page address")).toBe(address);
+  expect(ownerElement.querySelector("canvas")).toBe(canvas);
+  expect(fake.sockets).toEqual(sockets);
+  expect(
+    sockets.flatMap((socket) =>
+      socket.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ),
+    ),
+  ).toEqual(attachments);
+});
+
+it("keeps host-controlled synchronization working with the settings menu hidden", async () => {
+  const fake = browser();
+  vi.spyOn(
+    HTMLCanvasElement.prototype,
+    "getBoundingClientRect",
+  ).mockReturnValue(new DOMRect(0, 0, 640, 480));
+  const view = render(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      showSettingsMenu={false}
+      windowSizeSync="off"
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  expect(screen.queryByRole("button", { name: "Browser menu" })).toBeNull();
+  const proxy = screen.getByLabelText("Remote browser input");
+  view.rerender(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      showSettingsMenu={false}
+      windowSizeSync="live"
+    />,
+  );
+  await waitFor(() =>
+    expect(fake.windowSizes.get(0)).toEqual({ width: 640, height: 480 }),
+  );
+  expect(screen.queryByRole("button", { name: "Browser menu" })).toBeNull();
+  expect(screen.getByLabelText("Remote browser input")).toBe(proxy);
+  expect(fake.sockets).toHaveLength(1);
+});
+
 it("owns the browser menu mode and combined manual sync without replacing native input", async () => {
   const fake = browser();
   vi.spyOn(

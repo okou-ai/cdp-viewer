@@ -129,6 +129,7 @@ viewing and input continue.
 | `windowId?: number`                           | Optional presentation/selection scope                                            |
 | `paused?: boolean`                            | Release this viewer's current stream while retaining connection/selection        |
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
+| `showSettingsMenu?: boolean`                  | Show the settings menu beside the interactive address bar; defaults to true      |
 | `transport?: "shared" \| "split"`             | Optional frame/control separation for interactive viewers; defaults to shared    |
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
 | `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
@@ -284,6 +285,11 @@ Its single **Sync now** action always remains available when the stream and loca
 geometry are ready, and synchronizes both the page size and DPR in every mode.
 It is temporarily disabled while a synchronization is pending. Modes apply per
 viewer; the library does not persist settings.
+
+Set `showSettingsMenu={false}` to hide the three-dot menu while keeping the address
+bar and remote input. The default is `true`; view-only viewers still have no
+navigation toolbar. Visibility changes apply without reconnecting and leave the
+current synchronization mode intact, including host-controlled `windowSizeSync`.
 
 ```tsx
 const [syncMode, setSyncMode] = useState<WindowSizeSync>("initial");

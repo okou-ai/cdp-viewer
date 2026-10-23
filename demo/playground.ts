@@ -14,6 +14,7 @@ export const propGuide = {
   windowId: "Connection options",
   paused: "Pause / resume",
   interactive: "Control mode",
+  showSettingsMenu: "Appearance & layout / settings menu",
   transport: "Transport mode",
   windowSizeSync: "Appearance & layout / browser menu",
   onWindowSizeSyncChange: "Console / controlled Usage",
@@ -29,6 +30,7 @@ export const propGuide = {
 export interface PlaygroundOptions {
   readonly paused: boolean;
   readonly interactive: boolean;
+  readonly showSettingsMenu: boolean;
   readonly transport: NonNullable<CdpViewerProps["transport"]>;
   readonly windowSizeSync: WindowSizeSync;
   readonly capture: ViewerCaptureOptions;
@@ -49,6 +51,7 @@ export const sizeLimits = {
 export const defaultOptions = Object.freeze<PlaygroundOptions>({
   paused: false,
   interactive: true,
+  showSettingsMenu: true,
   transport: "shared",
   windowSizeSync: "off",
   capture: Object.freeze({}),
@@ -154,6 +157,7 @@ export function usageCode(
       : [`      windowId={${connection.windowId}}`]),
     `      paused={${options.paused}}`,
     `      interactive={${options.interactive}}`,
+    `      showSettingsMenu={${options.showSettingsMenu}}`,
     `      transport=${JSON.stringify(options.transport)}`,
     "      windowSizeSync={windowSizeSync}",
     "      onWindowSizeSyncChange={setWindowSizeSync}",

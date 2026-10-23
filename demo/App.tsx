@@ -238,6 +238,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 cdpUrl={connection.cdpUrl}
                 extensions={connection.extensions}
                 interactive={options.interactive}
+                showSettingsMenu={options.showSettingsMenu}
                 transport={options.transport}
                 paused={options.paused}
                 windowSizeSync={options.windowSizeSync}
