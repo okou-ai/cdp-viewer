@@ -767,6 +767,183 @@ it.each(
   },
 );
 
+it.each(
+  [false, true].flatMap((established) =>
+    [false, true].flatMap((late) =>
+      [false, true].map((changed) => ({ established, late, changed })),
+    ),
+  ),
+)(
+  "retires only unfinished calibration after sibling read failure (established=$established, late=$late, changed=$changed)",
+  async ({ established, late, changed }) => {
+    const browser = new FakeBrowser();
+    browser.windowSizes.set(0, { width: 800, height: 600 });
+    browser.windowSizes.set(2, { width: 900, height: 700 });
+    const { controller, model } = mount(browser, "off", undefined, 250);
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    if (established) {
+      controller.syncDisplay();
+      await vi.waitFor(() =>
+        expect(model.read(model.display$).pending).toBe(false),
+      );
+      expect(model.getSnapshot().error).toBeNull();
+      browser.targets[0]!.windowId = 2;
+    }
+    const socket = browser.sockets[0]!,
+      input = controller.input!;
+    holdCalibrationReads(browser);
+    controller.measureDisplay({ width: 700, height: 500, dpr: 1.5 });
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+    browser.holdCommand = null;
+    const window = browser.heldCommands.find(
+      ({ command }) => command.method === "Browser.getWindowForTarget",
+    )!;
+    const metrics = browser.heldCommands.find(
+      ({ command }) => command.method === "Runtime.evaluate",
+    )!;
+    const confirm = async () => {
+      browser.resume(window.command, window.socket);
+      input.text("after calibration confirmation");
+      await input.completion(input.owner!);
+    };
+    if (!late) await confirm();
+    socket.reject(metrics.command, -32000);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(model.getSnapshot().error).not.toBeNull();
+    expect(emulations(browser)).toHaveLength(established ? 1 : 0);
+    expect(resizes(browser)).toHaveLength(established ? 1 : 0);
+    if (late) await confirm();
+    if (changed) {
+      browser.windowSizes.set(established ? 2 : 0, {
+        width: 1000,
+        height: 800,
+      });
+      browser.frame(socket, input.sessionId);
+    }
+    const stops = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.stopScreencast",
+      ).length;
+    const before = stops();
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(model.getSnapshot().error).toBeNull();
+    expect(controller.input).toBe(input);
+    expect(resizes(browser)).toHaveLength(established ? 2 : 1);
+    expect(resizes(browser).at(-1)?.params).toEqual({
+      windowId: established ? 2 : 0,
+      width: 1050,
+      height: 750,
+    });
+    // A completed association outlives unrelated read failure. A provisional
+    // reply delivered after failure cannot install that association on retry.
+    expect(stops() - before).toBe(late ? (changed ? 2 : 1) : 0);
+    const effects = socket.commands.length;
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(
+      socket.commands
+        .slice(effects)
+        .filter((command) =>
+          [
+            "Page.stopScreencast",
+            "Page.startScreencast",
+            "Emulation.setDeviceMetricsOverride",
+            "Browser.setContentsSize",
+          ].includes(command.method),
+        ),
+    ).toHaveLength(0);
+  },
+);
+
+it.each(
+  [false, true].flatMap((established) =>
+    (["selection", "pause"] as const).map((retirement) => ({
+      established,
+      retirement,
+    })),
+  ),
+)(
+  "cannot publish failed provisional confirmation after $retirement (established=$established)",
+  async ({ established, retirement }) => {
+    const browser = new FakeBrowser();
+    browser.windowSizes.set(0, { width: 800, height: 600 });
+    browser.windowSizes.set(2, { width: 900, height: 700 });
+    const { controller, model } = mount(browser, "off", undefined, 250);
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    if (established) {
+      controller.syncDisplay();
+      await vi.waitFor(() =>
+        expect(model.read(model.display$).pending).toBe(false),
+      );
+      expect(model.getSnapshot().error).toBeNull();
+      browser.targets[0]!.windowId = 2;
+    }
+    const socket = browser.sockets[0]!,
+      input = controller.input!;
+    holdCalibrationReads(browser);
+    controller.syncDisplay();
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(2));
+    browser.holdCommand = null;
+    const window = browser.heldCommands.find(
+      ({ command }) => command.method === "Browser.getWindowForTarget",
+    )!;
+    const metrics = browser.heldCommands.find(
+      ({ command }) => command.method === "Runtime.evaluate",
+    )!;
+    socket.reject(metrics.command, -32000);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    expect(model.getSnapshot().error).not.toBeNull();
+    const before = socket.commands.length;
+    if (retirement === "selection") controller.select("page-b");
+    else controller.setPaused(true);
+    browser.resume(window.command, window.socket);
+    browser.frame(socket, input.sessionId);
+    if (retirement === "pause") controller.setPaused(false);
+    await vi.waitFor(() => {
+      expect(controller.input).not.toBeNull();
+      expect(controller.input!.sessionId).not.toBe(input.sessionId);
+    });
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(model.getSnapshot().error).toBeNull();
+    expect(resizes(browser)).toHaveLength(established ? 2 : 1);
+    const writes = socket.commands
+      .slice(before)
+      .filter(
+        (command) => command.method === "Emulation.setDeviceMetricsOverride",
+      );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.sessionId).toBe(controller.input!.sessionId);
+    expect(
+      socket.commands
+        .slice(before)
+        .some(
+          (command) =>
+            command.method === "Page.startScreencast" &&
+            command.sessionId === input.sessionId,
+        ),
+    ).toBe(false);
+  },
+);
+
 it.each(["selection", "pause"] as const)(
   "retires an awaited native rebind clock on %s without lending its capture to a replacement",
   async (change) => {
@@ -876,11 +1053,11 @@ it.each([true, false])(
     );
     const input = controller.input!,
       socket = browser.sockets[0]!;
-    const reads = () =>
+    const starts = () =>
       socket.commands.filter(
-        (command) => command.method === "Browser.getWindowForTarget",
+        (command) => command.method === "Page.startScreencast",
       );
-    const before = reads().length;
+    const before = starts().length;
     browser.holdMethod = "Browser.getWindowForTarget";
     controller.measureDisplay({ width: 700, height: 500, dpr: 1.5 });
     controller.syncDisplay();
@@ -894,7 +1071,13 @@ it.each([true, false])(
     browser.holdMethod = null;
     const held = browser.heldCommands.shift()!;
     browser.resume(held.command, held.socket);
-    await vi.waitFor(() => expect(reads()).toHaveLength(before + 2));
+    // Window observation now starts causal acquisition directly. Hold its
+    // actual post-fence decode rather than counting redundant window reads.
+    await vi.waitFor(() => expect(starts()).toHaveLength(before + 1));
+    expect(decodes).toHaveLength(3);
+    decodes[1]!();
+    input.text("after pre-capture decode");
+    await input.completion(input.owner!);
     expect(emulations(browser)).toHaveLength(1);
     expect(model.read(model.display$).pending).toBe(true);
     if (!available) {
@@ -907,7 +1090,7 @@ it.each([true, false])(
       expect(emulations(browser)).toHaveLength(1);
     }
     delay = false;
-    decodes[1]!();
+    decodes[2]!();
     if (!available) {
       expect(emulations(browser)).toHaveLength(1);
       controller.syncDisplay();
@@ -1196,6 +1379,24 @@ it("retires a held post-size window confirmation without lending its reference t
   ).toHaveLength(1);
   expect(model.getSnapshot().error).toBeNull();
 });
+
+/** Hold confirmation and its concurrent metrics after native acquisition. */
+function holdCalibrationReads(browser: FakeBrowser): void {
+  let reads = 0;
+  browser.holdCommand = (command) => {
+    if (
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === "page-a"
+    )
+      return ++reads === 2;
+    return (
+      reads === 2 &&
+      command.method === "Runtime.evaluate" &&
+      command.params?.expression ===
+        "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})"
+    );
+  };
+}
 
 it.each([
   ["off", "Page.getLayoutMetrics", "Page.frameResized"],

@@ -21,9 +21,32 @@ interface FrameGeometry {
   readonly raster: Viewport;
 }
 
-export interface NativeObservation {
+interface NativeObservation {
   readonly device: Viewport | null;
 }
+
+/** Local capture association; timestamps alone do not identify a window. */
+export interface NativeCapture {
+  readonly timestamp: number;
+}
+
+interface NativeFrame {
+  readonly device: Viewport;
+  readonly capture: NativeCapture;
+}
+
+export interface NativeSnapshot {
+  readonly frame: NativeFrame | null;
+  readonly current: () => boolean;
+}
+
+type NativeState =
+  | { readonly kind: "pending"; readonly observation: NativeObservation }
+  | {
+      readonly kind: "accepted";
+      readonly observation: NativeObservation;
+      readonly frame: NativeFrame;
+    };
 
 export interface PresentationReceipt {
   readonly transform: DisplayTransform | null;
@@ -79,11 +102,13 @@ export class DisplayViewport {
   private version = 0;
   private timestamp = -Infinity;
   private captureAfter = -Infinity;
-  private nativeAfter = -Infinity;
+  private nativeCapture: NativeCapture = { timestamp: -Infinity };
   private painted: FrameGeometry | null = null;
   private decoded: FrameGeometry | null = null;
-  private native: NativeObservation = { device: null };
-  private nativeDecoded = false;
+  private native: NativeState = {
+    kind: "pending",
+    observation: { device: null },
+  };
   private adaptation: Adaptation = { kind: "native", scale: 1 };
   private transform: DisplayTransform | null = null;
   private waiting: {
@@ -103,15 +128,15 @@ export class DisplayViewport {
     return this.version;
   }
 
-  /** Structural metadata retires preparation before asynchronous decode/paint. */
-  get nativeObservation(): NativeObservation {
-    return this.native;
-  }
-
-  decodedNative(observation: NativeObservation): Viewport | null {
-    return observation === this.native && this.nativeDecoded
-      ? observation.device
-      : null;
+  /** One observation/revision proof, independent of painted input authority. */
+  observeNative(): NativeSnapshot {
+    const { observation } = this.native;
+    const revision = this.version;
+    return {
+      frame: this.native.kind === "accepted" ? this.native.frame : null,
+      current: () =>
+        revision === this.version && observation === this.native.observation,
+    };
   }
 
   get available(): boolean {
@@ -180,23 +205,28 @@ export class DisplayViewport {
     this.version++;
     this.painted = null;
     this.decoded = null;
-    this.native = { device: this.native.device };
-    this.nativeDecoded = false;
+    this.retireNative();
   }
 
   /** Rebinding needs causal native facts without replacing painted input authority. */
-  fenceNative(timestamp: number): void {
-    this.nativeAfter = timestamp;
-    this.native = { device: this.native.device };
-    this.nativeDecoded = false;
+  fenceNative(timestamp: number): NativeCapture {
+    this.nativeCapture = { timestamp };
+    this.retireNative();
+    return this.nativeCapture;
+  }
+
+  private retireNative(): void {
+    this.native = {
+      kind: "pending",
+      observation: { device: this.native.observation.device },
+    };
   }
 
   invalidate(): void {
     this.version++;
     this.painted = null;
     this.decoded = null;
-    this.native = { device: this.native.device };
-    this.nativeDecoded = false;
+    this.retireNative();
     this.transform = null;
     // External resize/navigation recalibrates native units. A transaction still
     // awaiting its image keeps the presentation barrier across invalidation.
@@ -301,7 +331,11 @@ export class DisplayViewport {
     request: FrameWait,
   ): Promise<Presentation> {
     if (budget <= 0) return Promise.reject(presentationTimeout());
-    if (request.kind === "native" ? this.nativeDecoded : this.available)
+    if (
+      request.kind === "native"
+        ? this.native.kind === "accepted"
+        : this.available
+    )
       return Promise.resolve("presented");
     if (
       request.kind === "presentation" &&
@@ -391,30 +425,34 @@ export class DisplayViewport {
       positive(metadata.deviceHeight)
         ? { width: metadata.deviceWidth, height: metadata.deviceHeight }
         : null;
+    const capture = this.nativeCapture;
     const nativeCurrent =
-      this.nativeAfter === -Infinity ||
+      capture.timestamp === -Infinity ||
       (typeof timestamp === "number" &&
         Number.isFinite(timestamp) &&
-        timestamp >= this.nativeAfter);
+        timestamp >= capture.timestamp);
     if (
       nativeCurrent &&
-      (device?.width !== this.native.device?.width ||
-        device?.height !== this.native.device?.height)
+      (device?.width !== this.native.observation.device?.width ||
+        device?.height !== this.native.observation.device?.height)
     ) {
-      this.native = { device };
-      this.nativeDecoded = false;
+      this.native = { kind: "pending", observation: { device } };
     }
-    const observation = nativeCurrent ? this.native : null;
+    const observation = nativeCurrent ? this.native.observation : null;
     const version = this.version;
     const accept = (raster: Viewport) => {
       if (version !== this.version) return false;
       if (
         device &&
         observation &&
-        observation === this.native &&
-        !this.nativeDecoded
+        observation === this.native.observation &&
+        this.native.kind === "pending"
       ) {
-        this.nativeDecoded = true;
+        this.native = {
+          kind: "accepted",
+          observation,
+          frame: { device, capture },
+        };
         if (this.waiting?.request.kind === "native")
           this.waiting.finish("presented");
       }

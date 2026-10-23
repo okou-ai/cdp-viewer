@@ -3,8 +3,12 @@ import type { CdpClient } from "../cdp/client";
 import { CdpFault, isRecord } from "../cdp/errors";
 import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import { nativeWindowGeometry, positive } from "./geometry";
-import type { DisplaySize, NativeWindowGeometry } from "./geometry";
-import type { DisplayViewport } from "./viewport";
+import type { DisplaySize, NativeWindowGeometry, Viewport } from "./geometry";
+import type {
+  DisplayViewport,
+  NativeCapture,
+  NativeSnapshot,
+} from "./viewport";
 
 export interface DisplayTarget {
   readonly targetId: string;
@@ -21,30 +25,35 @@ export interface DisplaySnapshot {
   readonly current: () => boolean;
 }
 
-type NativeWindow =
-  | { readonly kind: "initial" }
+interface ObservedWindow {
+  readonly windowId: number;
+  readonly bounds: Viewport;
+}
+
+type Calibration =
+  | { readonly kind: "unbound" }
+  | { readonly kind: "observed"; readonly window: ObservedWindow }
   | {
-      readonly kind: "rebinding";
-      readonly windowId: number;
-      readonly bounds: Protocol.Browser.Bounds;
-      readonly refreshed: boolean;
+      readonly kind: "captured";
+      readonly window: ObservedWindow;
+      readonly capture: NativeCapture;
     }
   | {
-      readonly kind: "bound";
+      readonly kind: "verified";
       readonly windowId: number;
       readonly geometry: NativeWindowGeometry;
     };
 
 /** Selected-owner acquisition; verified calibration outlives a preparation. */
 export class DisplayPreparation {
-  private reference: NativeWindow = { kind: "initial" };
+  private calibration: Calibration = { kind: "unbound" };
 
   constructor(
     private readonly client: CdpClient,
     private readonly target: DisplayTarget,
     private readonly windowId: number | undefined,
     private readonly current: () => boolean,
-    private readonly refreshNative: () => Promise<void>,
+    private readonly refreshNative: () => Promise<NativeCapture | null>,
   ) {}
 
   async acquire(
@@ -54,8 +63,11 @@ export class DisplayPreparation {
     try {
       return await this.acquireSnapshot(signal, budget);
     } catch (error) {
-      if (this.current() && this.reference.kind === "rebinding")
-        this.reference = { ...this.reference, refreshed: false };
+      if (this.current() && this.calibration.kind === "captured")
+        this.calibration = {
+          kind: "observed",
+          window: this.calibration.window,
+        };
       throw error;
     }
   }
@@ -65,66 +77,32 @@ export class DisplayPreparation {
     budget: number | undefined,
   ): Promise<DisplaySnapshot | null> {
     const { target } = this;
-    if (this.reference.kind === "initial") {
+    if (this.calibration.kind === "unbound") {
       await target.geometry.waitForNativeFrame(signal, budget);
       if (!this.current()) return null;
       const window = await this.readWindow();
       if (!this.current()) return null;
-      this.assertWindow(window);
-      this.reference = {
-        kind: "rebinding",
-        windowId: window.windowId,
-        bounds: window.bounds,
-        refreshed: false,
+      this.calibration = {
+        kind: "observed",
+        window: this.observeWindow(window),
       };
     }
-    const reference = this.reference;
-    if (reference.kind === "rebinding" && !reference.refreshed) {
-      await this.refreshNative();
-      if (!this.current()) return null;
-      this.reference = { ...reference, refreshed: true };
+    const observed = this.calibration;
+    if (observed.kind === "observed") {
+      const capture = await this.refreshNative();
+      if (!capture || !this.current() || observed !== this.calibration)
+        return null;
+      this.calibration = { kind: "captured", window: observed.window, capture };
     }
-    if (this.reference.kind !== "bound")
+    if (this.calibration.kind === "captured")
       await target.geometry.waitForNativeFrame(signal, budget);
     if (!this.current()) return null;
-    const revision = target.geometry.revision;
-    const observation = target.geometry.nativeObservation;
-    const current = () =>
-      this.current() &&
-      revision === target.geometry.revision &&
-      observation === target.geometry.nativeObservation;
+    const attempt = this.calibration;
+    if (attempt.kind !== "captured" && attempt.kind !== "verified") return null;
+    const snapshot = target.geometry.observeNative();
+    const current = () => this.current() && snapshot.current();
     const [native, metrics, layout] = await Promise.all([
-      this.readWindow().then((window) => {
-        if (!current()) return null;
-        this.assertWindow(window);
-        if (
-          this.reference.kind === "initial" ||
-          this.reference.windowId !== window.windowId ||
-          (this.reference.kind === "rebinding" &&
-            (this.reference.bounds.width !== window.bounds.width ||
-              this.reference.bounds.height !== window.bounds.height))
-        ) {
-          // Confirm the observed extent as well as identity before binding.
-          // Metadata may lag a same-window resize during causal acquisition.
-          this.reference = {
-            kind: "rebinding",
-            windowId: window.windowId,
-            bounds: window.bounds,
-            refreshed: false,
-          };
-          return null;
-        }
-        if (this.reference.kind !== "bound") {
-          const device = target.geometry.decodedNative(observation);
-          if (!device) return null;
-          this.reference = {
-            kind: "bound",
-            windowId: window.windowId,
-            geometry: nativeWindowGeometry(device, window.bounds),
-          };
-        }
-        return { window, geometry: this.reference.geometry };
-      }),
+      this.readCalibration(attempt, snapshot),
       this.readMetrics(),
       this.client.request("Page.getLayoutMetrics", undefined, target.sessionId),
     ]);
@@ -150,12 +128,56 @@ export class DisplayPreparation {
     };
   }
 
+  private async readCalibration(
+    attempt: Extract<Calibration, { kind: "captured" | "verified" }>,
+    snapshot: NativeSnapshot,
+  ) {
+    const window = await this.readWindow();
+    return this.confirmCalibration(attempt, window, snapshot);
+  }
+
+  /** The only installation point for a proved native frame/window association. */
+  private confirmCalibration(
+    attempt: Extract<Calibration, { kind: "captured" | "verified" }>,
+    window: Protocol.Browser.GetWindowForTargetResponse,
+    snapshot: NativeSnapshot,
+  ) {
+    if (!this.current() || attempt !== this.calibration) return null;
+    const observed = this.observeWindow(window);
+    if (
+      attempt.kind === "captured"
+        ? observed.windowId !== attempt.window.windowId ||
+          observed.bounds.width !== attempt.window.bounds.width ||
+          observed.bounds.height !== attempt.window.bounds.height
+        : observed.windowId !== attempt.windowId
+    ) {
+      this.calibration = { kind: "observed", window: observed };
+      return null;
+    }
+    if (!snapshot.current()) return null;
+    if (attempt.kind === "verified")
+      return { window, geometry: attempt.geometry };
+    const frame = snapshot.frame;
+    if (!frame) return null;
+    if (frame.capture !== attempt.capture) {
+      this.calibration = { kind: "observed", window: observed };
+      return null;
+    }
+    const verified = {
+      kind: "verified",
+      windowId: observed.windowId,
+      geometry: nativeWindowGeometry(frame.device, window.bounds),
+    } as const;
+    this.calibration = verified;
+    return { window, geometry: verified.geometry };
+  }
+
   async confirm(
     windowId: number,
   ): Promise<Protocol.Browser.GetWindowForTargetResponse> {
     const window = await this.readWindow();
     if (this.current()) {
-      this.assertWindow(window);
+      this.observeWindow(window);
       if (window.windowId !== windowId)
         throw new CdpFault(
           "scope",
@@ -189,9 +211,9 @@ export class DisplayPreparation {
     return remote;
   }
 
-  private assertWindow(
+  private observeWindow(
     window: Protocol.Browser.GetWindowForTargetResponse,
-  ): void {
+  ): ObservedWindow {
     if (
       !Number.isSafeInteger(window.windowId) ||
       (this.windowId !== undefined && window.windowId !== this.windowId)
@@ -202,5 +224,9 @@ export class DisplayPreparation {
         "display",
         "Restore the browser window before synchronizing its display.",
       );
+    const { width, height } = window.bounds;
+    if (!positive(width) || !positive(height))
+      throw new CdpFault("display", "The browser window size is unavailable.");
+    return { windowId: window.windowId, bounds: { width, height } };
   }
 }

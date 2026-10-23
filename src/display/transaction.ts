@@ -11,7 +11,7 @@ import {
 } from "./geometry";
 import type { DisplaySize } from "./geometry";
 import type { DisplayDecision, DisplayOutcome, DisplayStage } from "./policy";
-import type { PresentationReceipt } from "./viewport";
+import type { NativeCapture, PresentationReceipt } from "./viewport";
 import { DisplayPreparation } from "./preparation";
 import type { DisplaySnapshot, DisplayTarget } from "./preparation";
 import { frameTimeoutMs } from "./limits";
@@ -331,9 +331,10 @@ export class DisplayTransaction {
 
   private async fenceCapture(
     kind: "native" | "presentation" = "presentation",
-  ): Promise<void> {
+  ): Promise<NativeCapture | null> {
     const { client, target } = this;
-    if (!this.current()) return;
+    if (!this.current()) return null;
+    let capture: NativeCapture | null = null;
     if (kind === "native") target.geometry.fenceNative(Infinity);
     await this.host.refresh(async () => {
       const tree = await client.request(
@@ -372,8 +373,10 @@ export class DisplayTransaction {
           "display",
           "A fresh browser image could not be confirmed. Try synchronizing again.",
         );
-      if (kind === "native") target.geometry.fenceNative(value.fence / 1000);
+      if (kind === "native")
+        capture = target.geometry.fenceNative(value.fence / 1000);
       else target.geometry.fence(value.fence / 1000);
     });
+    return this.current() ? capture : null;
   }
 }

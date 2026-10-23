@@ -67,25 +67,36 @@ before asynchronous decoding; only that observation's accepted decode can make
 it usable for calibration. An older decode cannot validate a newer observation.
 Identical-sized animation frames retain the accepted identity without requiring
 a quiet period. Capture invalidation retires both metadata and decode authority.
-The selected preparation owner reads window, runtime and layout against one
-observation identity and geometry revision, returning an immutable snapshot with
-one validity check. It retains a frame/window reference only while that pair is
+The native observation owner exposes one immutable snapshot containing accepted
+frame evidence and a validity check over its observation identity and geometry
+revision. Decode acceptance changes pending evidence into accepted evidence
+without replacing that structural identity. The selected preparation owner reads
+window, runtime and layout against that snapshot. It retains a frame/window reference only while that pair is
 current, independently of later layout reads. A stable move in an unscoped viewer
 replaces the old window's reference using accepted native facts and observed bounds;
 an unavailable new-window frame uses the same bounded native waiter. Scoped
 membership and mid-operation window identity checks still apply. The transaction
 revalidates its snapshot after capture preparation and before the first write.
 
-Frame metadata has no window identity. Creating a reference for the initial or a
-different native window enters an explicit rebinding state; a previously accepted
-frame cannot establish that association. Rebinding uses the existing serialized
-capture refresh and confirmed elapsed-clock boundary to obtain accepted native
-facts after the window was observed, then verifies the window again. This native-only fence
-retires calibration authority while preserving the current painted/input receipt.
-The provisional association retains outer width/height as well as window identity.
-A changed confirming extent retires that association and reacquires native facts
-after the newly observed geometry; delayed metadata cannot bind an earlier extent
-to later bounds. This check applies while creating a reference. Verified calibration
+Frame metadata has no window identity. Reference acquisition progresses through
+unbound, observed-window, captured-window and verified-calibration phases in one
+selected preparation owner. First and changed-window acquisition share that path.
+The observed window retains its identity and outer extent; the captured phase
+adds the receipt returned by the existing serialized native-only refresh after
+its confirmed elapsed-clock boundary. An accepted frame records that same local
+capture receipt. It is an association with a capture boundary, not a remote
+window identifier or a globally atomic generation. Native-only fencing preserves
+the current painted/input receipt.
+
+One synchronous confirmation boundary may install verified calibration. It
+checks the selected owner and original attempt, scope/normal window state,
+confirming identity/extent, snapshot freshness and accepted frame/capture
+association together. An observed identity/extent change starts acquisition for
+that observation; delayed metadata cannot bind an earlier extent to later bounds.
+Failure retires unfinished acquisition, so a late provisional reply cannot
+install calibration after a sibling read has failed. Calibration verified before
+that failure retains its separate lifetime. Creating the operation snapshot still
+requires all concurrent reads and current snapshot evidence. Verified calibration
 continues translating subsequent same-window bounds and own writes without a
 new capture. Independent hidden geometry changes between native reads are not atomic.
 Missing post-fence frames and failed capture, clock or provisional window
