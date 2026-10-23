@@ -159,6 +159,7 @@ export class DisplayTransaction {
       const freshCapture = target.geometry.needsCaptureFence(
         layout,
         projected.presentation,
+        projected.input,
       );
       const rejected = target.geometry.beginWrite();
       if (!policy.stage("writing")) {

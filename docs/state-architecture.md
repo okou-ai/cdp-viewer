@@ -108,8 +108,11 @@ before changing the canvas. Native acknowledgements alone cannot end a display
 transaction or enable fresh-layout fallback over its old visible pixels.
 
 Presentation waits share the bounded request/stream budget and retire with their
-selected session. A same-geometry density change or rollback also needs causal
-capture evidence: the native executor reads a clock in a private isolated world
+selected session. A density change with an unchanged logical viewport, a
+same-raster transition or rollback also needs causal capture evidence. Compare
+the current logical viewport under both the previous and projected scale;
+different native dimensions alone do not guarantee a new static capture frame.
+The native executor reads a clock in a private isolated world
 after acknowledged writes while the controller stops/starts the same bounded
 stream. The isolated clock operation awaits its next millisecond boundary and
 confirms that it has elapsed before capture restarts. A rounded-up integer read

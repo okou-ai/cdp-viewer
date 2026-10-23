@@ -134,6 +134,11 @@ while the native operation waits. Match the CI browser revision when investigati
 native capture behavior; a successful resize acknowledgement alone does not
 prove compatible presented pixels.
 
+Cover density-only changes with an unchanged logical viewport at different native
+DPR and zoom values. Withhold automatic resize frames, retain the stale pixels
+barrier and require exactly one fresh capture to restore input. Ordinary logical
+resizes and no-op reuse must retain their bounded native IO behavior.
+
 For continuous input, measure first input to first changed canvas, changing-frame
 gaps during the action, and final input to the corresponding final canvas. Record
 actual native scroll distance alongside normalized outbound deltas, request count

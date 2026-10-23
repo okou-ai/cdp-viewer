@@ -354,6 +354,66 @@ it("retires an awaiting-presentation transaction when its target is replaced", a
   expect(model.getSnapshot().error).toBeNull();
 });
 
+it.each([
+  [1, 1],
+  [1, 1.25],
+  [2, 1],
+  [2, 1.25],
+] as const)(
+  "refreshes static density-only pixels at native DPR %s and zoom %s",
+  async (nativeDpr, zoom) => {
+    const browser = new FakeBrowser();
+    browser.nativeDpr = nativeDpr;
+    browser.browserZoom = zoom;
+    const { controller, model } = mount(browser, "live", 0);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$).pending).toBe(false),
+    );
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    const input = controller.input!,
+      socket = browser.sockets[0]!;
+    const starts = () =>
+      socket.commands.filter(
+        (command) => command.method === "Page.startScreencast",
+      );
+    const before = starts().length;
+    browser.holdFrames = true;
+    browser.frame(socket, input.sessionId);
+    const stale = browser.heldFrames.pop()!;
+    browser.holdMethod = "Page.startScreencast";
+    controller.measureDisplay({ width: 640, height: 480, dpr: 1.5 });
+    await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+    stale();
+    expect(model.read(model.display$)).toMatchObject({
+      pending: true,
+      pointerBlocked: true,
+    });
+    // This native transition has no automatic compatible frame. Only a fresh
+    // capture produces the static pixels, after acknowledged geometry writes.
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const held = browser.heldCommands.shift()!;
+    expect(held.command.method).toBe("Page.startScreencast");
+    browser.holdFrames = false;
+    browser.holdMethod = null;
+    browser.resume(held.command, held.socket);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(starts()).toHaveLength(before + 1);
+    expect(model.getSnapshot().error).toBeNull();
+    expect(controller.input).toBe(input);
+    input.text("after density-only pixels");
+    await input.completion(input.owner!);
+    expect(
+      socket.commands.find((command) => command.method === "Input.insertText")
+        ?.params,
+    ).toEqual({ text: "after density-only pixels" });
+  },
+);
+
 it.each(["same-raster", "clipped", "rollback"] as const)(
   "presents the first sub-millisecond fresh image after a %s clock boundary",
   async (boundary) => {
@@ -980,24 +1040,36 @@ it("retains capture preferences and zoom while a sibling progresses through a cl
   await vi.waitFor(() =>
     expect(
       socket.commands.filter(
-        (command) => command.method === "Page.startScreencast",
+        (command) =>
+          command.method === "Page.startScreencast" &&
+          command.params?.quality === 37,
       ),
-    ).toHaveLength(2),
+    ).toHaveLength(1),
   );
+  const before = socket.commands.filter(
+    (command) => command.method === "Page.startScreencast",
+  ).length;
   browser.holdFrames = true;
   socket.holdReplyMethod = "Page.stopScreencast";
   a.controller.measureDisplay({ width: 800, height: 600, dpr: 2 });
   a.controller.syncDisplay();
   await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
-  socket.emit(
-    "Page.screencastFrame",
-    {
-      sessionId: 888,
-      data: btoa(JSON.stringify({ width: 667, height: 400 })),
-      metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1 },
-    },
-    input.sessionId,
-  );
+  // Preserve the fake native timestamp after the initial capture fence; alter
+  // only the decoded raster to reproduce a clipped image at the new geometry.
+  const emit = socket.emit.bind(socket);
+  const clipped = vi
+    .spyOn(socket, "emit")
+    .mockImplementationOnce((method, params, sessionId) =>
+      emit(
+        method,
+        { ...params, data: btoa(JSON.stringify({ width: 667, height: 400 })) },
+        sessionId,
+      ),
+    );
+  browser.holdFrames = false;
+  browser.frame(socket, input.sessionId, 888);
+  browser.holdFrames = true;
+  clipped.mockRestore();
   await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
   a.controller.setCapture({ quality: 31, maxWidth: 650, maxHeight: 400 });
   browser.holdFrames = false;
@@ -1029,8 +1101,8 @@ it("retains capture preferences and zoom while a sibling progresses through a cl
   const starts = socket.commands.filter(
     (command) => command.method === "Page.startScreencast",
   );
-  expect(starts).toHaveLength(3);
-  expect(starts[2]!.params).toEqual({
+  expect(starts).toHaveLength(before + 1);
+  expect(starts.at(-1)!.params).toEqual({
     format: "jpeg",
     quality: 31,
     maxWidth: 650,
