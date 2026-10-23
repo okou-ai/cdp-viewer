@@ -145,8 +145,9 @@ function surface(input: NativeInputPort) {
   };
 }
 
-async function session() {
+async function session(browserZoom = 1) {
   const browser = new FakeBrowser();
+  browser.browserZoom = browserZoom;
   const client = new CdpClient("wss://fixture.invalid", browser.factory);
   cleanup.push(() => client.close());
   await client.opened;
@@ -535,4 +536,17 @@ it("never dispatches non-finite wheel accumulation", async () => {
   );
   expect(wheels).toHaveLength(2);
   expect(wheels.every((c) => Number.isFinite(c.params?.deltaY))).toBe(true);
+});
+
+it("rejects a finite batch that overflows after native wheel scaling", async () => {
+  const frames = clock();
+  const { input, socket, reset } = await session(4);
+  const native = surface(input);
+  native.wheel({ deltaY: 4e307 });
+  native.wheel({ deltaY: 4e307 });
+  frames.frame();
+  await vi.waitFor(() => expect(reset).toHaveBeenCalledWith("failed"));
+  expect(
+    socket.commands.filter((c) => c.method === "Input.dispatchMouseEvent"),
+  ).toHaveLength(0);
 });
