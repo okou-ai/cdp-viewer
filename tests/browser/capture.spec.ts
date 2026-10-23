@@ -274,6 +274,102 @@ for (const deviceScaleFactor of [1, 2]) {
   });
 }
 
+test("retains the final static frame until native frame credit returns", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.setContent(`<!doctype html><html><head><style>
+      html,body{margin:0;height:100%;background:rgb(232,32,48)}
+    </style></head><body></body></html>`);
+    let hold = false;
+    let acknowledgements = 0;
+    const pending = new Set<number>();
+    const held: (() => void)[] = [];
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id?: number;
+          method?: string;
+        };
+        if (command.method === "Page.screencastFrameAck") {
+          if (hold) {
+            held.push(() => upstream.send(message));
+            return;
+          }
+          acknowledgements++;
+          if (command.id !== undefined) pending.add(command.id);
+        }
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        if (response.id !== undefined) pending.delete(response.id);
+        socket.send(message);
+      });
+    });
+    await page.goto(server.origin);
+    await page.waitForFunction(
+      () => typeof window.configureViewers === "function",
+    );
+    await page.evaluate((settings) => window.configureViewers!(settings), {
+      cdpUrl: backend.endpoint,
+      windowA: windowId,
+      second: false,
+    });
+    const view = page.locator("#viewer-a .cdpv-root");
+    const colorDifference = (color: number[]) =>
+      view.locator("canvas").evaluate((canvas: HTMLCanvasElement, expected) => {
+        const pixel = canvas.getContext("2d")!.getImageData(0, 0, 1, 1).data;
+        return Math.max(
+          ...expected.map((channel, i) => Math.abs(channel - pixel[i]!)),
+        );
+      }, color);
+    await expect
+      .poll(() => colorDifference([232, 32, 48]))
+      .toBeLessThanOrEqual(4);
+    await expect
+      .poll(() => acknowledgements > 0 && pending.size === 0)
+      .toBe(true);
+    hold = true;
+    // Consume the native three-frame credit without overriding its limit.
+    for (const color of [
+      [24, 80, 224],
+      [24, 224, 80],
+      [224, 208, 64],
+    ]) {
+      if (held.length === 3) break;
+      const before = held.length;
+      await remote.evaluate((color) => {
+        document.body.style.background = `rgb(${color.join(",")})`;
+      }, color);
+      await expect.poll(() => held.length).toBeGreaterThan(before);
+    }
+    expect(held).toHaveLength(3);
+    const final = [176, 64, 224];
+    await remote.evaluate(async (color) => {
+      document.body.style.background = `rgb(${color.join(",")})`;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    }, final);
+    expect(await colorDifference(final)).toBeGreaterThan(32);
+    held.shift()!();
+    // No remote mutation, input or forced repaint follows the returned credit.
+    await expect.poll(() => colorDifference(final)).toBeLessThanOrEqual(4);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    hold = false;
+    for (const acknowledge of held.splice(0)) acknowledge();
+  } finally {
+    await backend.close();
+  }
+});
+
 test("paused capture preferences apply to the first frame after resume", async ({
   page,
 }, info) => {

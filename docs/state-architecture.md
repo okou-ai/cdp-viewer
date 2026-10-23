@@ -139,6 +139,13 @@ Every continuation revalidates its selected-session owner.
 Capture timestamps order images; they do not identify an adaptation generation
 or make native sizing, emulation and painting atomic.
 
+Retain the latest produced screencast frame at the native credit boundary so a
+static final state does not require another page change after acknowledgement.
+Keep native frame-credit defaults independent from local decode backpressure:
+the renderer still owns one active decode and one newest queued frame. Native
+last-frame retention adds bounded provider-side storage/work; it does not relax
+selected-session, capture-revision or presentation-fence checks for late frames.
+
 Views invoke bound commands from event handlers. Keep semantic transitions in
 the ccstate model. React observation is limited to context, identity and external
 Store subscription. Do not use useMemo, useCallback, useState, useRef, useEffect

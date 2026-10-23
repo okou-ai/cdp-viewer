@@ -127,6 +127,23 @@ synchronization. Keep latency measurements in separate reproducible probes.
 Record conditions, samples and the measured boundary before claiming a gain;
 do not turn one machine's timings into a universal threshold.
 
+For continuous input, measure first input to first changed canvas, changing-frame
+gaps during the action, and final input to the corresponding final canvas. Record
+actual native scroll distance alongside normalized outbound deltas, request count
+and pending work. An acknowledgement or incoming frame packet does not prove
+visible completion. Use natural frame delivery and actual renderer draws, with
+fresh per-trial preparation and a scene whose scrolling changes visible pixels.
+Label canvas-draw timing separately from physical-display presentation.
+
+Compare exact source revisions under the same workload, capture and network
+conditions. Establish equal remote work before comparing speed; a provider's
+non-additive wheel conversion can change distance when events are coalesced.
+Use independent direct-CDP controls to distinguish endpoint transformations from
+the actual viewer path. Preserve failed samples, censored waits and outliers;
+later successful samples do not explain earlier failures. Normal correctness
+coverage should verify native default scrolling and streamed final position
+without adding machine-specific latency assertions to CI.
+
 Verify native send ordering at the controlled protocol wire. Chromium can
 schedule wheel and keyboard DOM callbacks independently; check their remote
 effects separately when ordered sends intentionally do not await acknowledgement.

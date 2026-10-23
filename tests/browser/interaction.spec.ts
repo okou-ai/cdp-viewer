@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { launchBackend, serveBrowserConsumer } from "./backend";
+import {
+  launchBackend,
+  launchNativeBackend,
+  serveBrowserConsumer,
+} from "./backend";
 import type {} from "../consumer/api";
 
 let server: Awaited<ReturnType<typeof serveBrowserConsumer>>;
@@ -255,24 +259,32 @@ test("batches wheel tasks before a frame and admits them before a later key", as
   }
 });
 
-test("forwards new wheel distance while an earlier dispatch response is held", async ({
+test("batched wheels scroll and paint while an earlier reply is held", async ({
   page,
-}, info) => {
-  const backend = await launchBackend(
-    info.outputPath("backend"),
-    server.origin,
-  );
+}) => {
+  const backend = await launchNativeBackend(server.origin, true, 1.25);
   try {
     const { remote, windowId } = await editor(backend);
+    await remote.setContent(`<!doctype html><html><head><style>
+      html,body{margin:0}body{width:100000px;height:100000px}
+      #landmark{position:absolute;width:40px;height:40px;background:rgb(24,224,80)}
+    </style></head><body><div id="landmark"></div></body></html>`);
     await remote.evaluate(() => {
-      document.body.dataset.wheel = "0";
       document.addEventListener("wheel", (event) => {
-        document.body.dataset.wheel = String(
-          Number(document.body.dataset.wheel) + event.deltaY,
+        document.body.dataset.wheelX = String(
+          Number(document.body.dataset.wheelX) + event.deltaX,
         );
+        document.body.dataset.wheelY = String(
+          Number(document.body.dataset.wheelY) + event.deltaY,
+        );
+        document.body.dataset.trusted = String(event.isTrusted);
       });
     });
-    const wheels: number[] = [];
+    expect(await remote.evaluate(() => devicePixelRatio)).toBe(1.25);
+    const viewport = await remote.evaluate(() => ({
+      width: visualViewport!.width,
+      height: visualViewport!.height,
+    }));
     let heldId: number | undefined;
     let release: (() => void) | undefined;
     await page.routeWebSocket(backend.endpoint, (socket) => {
@@ -281,15 +293,14 @@ test("forwards new wheel distance while an earlier dispatch response is held", a
         const command = JSON.parse(String(message)) as {
           id?: number;
           method?: string;
-          params?: { type?: string; deltaY?: number };
+          params?: { type?: string };
         };
         if (
+          heldId === undefined &&
           command.method === "Input.dispatchMouseEvent" &&
           command.params?.type === "mouseWheel"
-        ) {
-          wheels.push(command.params.deltaY!);
-          if (wheels.length === 1) heldId = command.id;
-        }
+        )
+          heldId = command.id;
         upstream.send(message);
       });
       upstream.onMessage((message) => {
@@ -300,30 +311,111 @@ test("forwards new wheel distance while an earlier dispatch response is held", a
       });
     });
     const view = await host(page, backend, windowId);
-    const position = await imagePosition(view, 500, 300, remote);
-    const wheel = (count: number) =>
-      view.locator("canvas").evaluate(
-        (canvas, value) => {
-          for (let i = 0; i < value.count; i++)
-            canvas.dispatchEvent(
-              new WheelEvent("wheel", {
-                bubbles: true,
-                cancelable: true,
-                clientX: value.x,
-                clientY: value.y,
-                deltaY: 12,
-              }),
-            );
-        },
-        { ...position, count },
-      );
-    await wheel(1);
-    await expect.poll(() => typeof release).toBe("function");
-    await wheel(20);
-    await expect(remote.locator("body")).toHaveAttribute("data-wheel", "252");
-    expect(wheels.reduce((total, delta) => total + delta, 0)).toBe(252);
-    expect(wheels[0]).toBe(12);
-    expect(wheels.length).toBeGreaterThan(1);
+    const canvas = view.locator("canvas");
+    const expectPixel = async (color: number[]) => {
+      await expect
+        .poll(() =>
+          canvas.evaluate(
+            (element: HTMLCanvasElement, expected) => {
+              const pixels = element
+                .getContext("2d")!
+                .getImageData(
+                  Math.round((84 / expected.width) * element.width),
+                  Math.round((84 / expected.height) * element.height),
+                  1,
+                  1,
+                ).data;
+              return Math.max(
+                ...expected.color.map((channel, i) =>
+                  Math.abs(channel - pixels[i]!),
+                ),
+              );
+            },
+            { ...viewport, color },
+          ),
+        )
+        .toBeLessThanOrEqual(12);
+    };
+    const scenarios = [
+      { name: "small positive", x: 0, y: 0, dx: 0, dy: 12, count: 8 },
+      { name: "small negative", x: 0, y: 2000, dx: 0, dy: -12, count: 8 },
+      { name: "large accumulated", x: 0, y: 0, dx: 0, dy: 120, count: 14 },
+      { name: "horizontal fraction", x: 1000, y: 0, dx: -3.5, dy: 0, count: 8 },
+    ];
+    for (const [index, scenario] of scenarios.entries()) {
+      await test.step(scenario.name, async () => {
+        const expected = {
+          x: scenario.x + scenario.dx * scenario.count,
+          y: scenario.y + scenario.dy * scenario.count,
+        };
+        const background = [224 - index * 32, 32, 48 + index * 48];
+        await remote.evaluate(
+          ({ scenario, expected, background }) => {
+            document.body.style.background = `rgb(${background.join(",")})`;
+            document.body.dataset.wheelX = "0";
+            document.body.dataset.wheelY = "0";
+            document.body.dataset.trusted = "false";
+            const landmark = document.getElementById("landmark")!;
+            landmark.style.left = `${expected.x + 64}px`;
+            landmark.style.top = `${expected.y + 64}px`;
+            scrollTo({
+              left: scenario.x,
+              top: scenario.y,
+              behavior: "instant",
+            });
+          },
+          { scenario, expected, background },
+        );
+        // A distinct background joins preparation through the actual stream.
+        // The existing landmark moves through native default scrolling only.
+        await expectPixel(background);
+        const point = await imagePosition(view, 500, 300, remote);
+        await canvas.evaluate(
+          (element, value) => {
+            for (let i = 0; i < value.count; i++)
+              element.dispatchEvent(
+                new WheelEvent("wheel", {
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: value.x,
+                  clientY: value.y,
+                  deltaX: value.dx,
+                  deltaY: value.dy,
+                }),
+              );
+          },
+          {
+            ...point,
+            dx: scenario.dx,
+            dy: scenario.dy,
+            count: scenario.count,
+          },
+        );
+        await expect(remote.locator("body")).toHaveAttribute(
+          "data-wheel-x",
+          String(scenario.dx * scenario.count),
+        );
+        await expect(remote.locator("body")).toHaveAttribute(
+          "data-wheel-y",
+          String(scenario.dy * scenario.count),
+        );
+        await expect(remote.locator("body")).toHaveAttribute(
+          "data-trusted",
+          "true",
+        );
+        await expect
+          .poll(() =>
+            remote.evaluate(() => ({
+              x: scrollX,
+              y: scrollY,
+            })),
+          )
+          .toEqual(expected);
+        await expectPixel([24, 224, 80]);
+        await expect.poll(() => typeof release).toBe("function");
+        await expect(view).toHaveAttribute("data-status", "streaming");
+      });
+    }
     release!();
   } finally {
     await backend.close();
