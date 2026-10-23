@@ -121,11 +121,30 @@ and connection without closing the remote browser or its tabs.
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
 | `onStatusChange`                              | Readonly semantic snapshot: status, page targets, selected ID, diagnostic        |
-| `onError`                                     | Fixed diagnostic category/message, excluding raw provider payloads               |
+| `onError`                                     | Fixed diagnostic and optional command/code context; no raw provider payloads     |
 
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
 `ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
+
+Errors in `onError` and `ViewerSnapshot.error` include `kind` and a fixed `message`.
+When a failed CDP request is known, optional `request` context identifies its
+`method` and valid integer response `code`, for example:
+
+```json
+{
+  "kind": "unsupported-capability",
+  "message": "The browser does not support a required CDP viewer command.",
+  "request": { "method": "Page.startScreencast", "code": -32601 }
+}
+```
+
+Request timeouts identify the command without a response code. Wrapped input,
+scope, tab and display failures retain the original request that caused the
+failure or recovery. Browser/WebSocket failures may have no request context.
+Parameters, raw provider messages, endpoint credentials and session IDs are
+excluded. `onError` observes changes in the public diagnostic, including request
+context; it is not a protocol traffic log.
 Snapshots may include `navigation` (current remote address and available back/forward
 actions), or `null` when unavailable. Remote page addresses can contain sensitive
 data; do not log or persist snapshots indiscriminately.

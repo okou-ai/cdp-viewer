@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { demoScope } from "./context";
+import { Console } from "./Console";
 import type { Panel } from "./model";
 import { viewerClassName, viewerStyle } from "./playground";
 import { Settings } from "./Settings";
@@ -300,6 +301,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
         </div>
         <Settings panel={panel} identity={identity} />
       </div>
+      <Console panel={panel} />
     </section>
   );
 }

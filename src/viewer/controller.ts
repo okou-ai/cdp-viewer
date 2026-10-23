@@ -4,6 +4,7 @@ import type { CdpEvent, SocketFactory } from "../cdp/client";
 import {
   CdpFault,
   diagnostic,
+  requestDetails,
   isRecord,
   validateConfiguration,
 } from "../cdp/errors";
@@ -405,6 +406,8 @@ export class ViewerController {
                 : new CdpFault(
                     "tab",
                     "The tab operation could not be completed. Check the browser before trying again.",
+                    undefined,
+                    requestDetails(error),
                   ),
             ),
           });

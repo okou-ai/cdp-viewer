@@ -13,6 +13,7 @@ export interface CdpEvent {
 }
 
 interface Pending {
+  readonly method: Method;
   resolve: (result: unknown) => void;
   reject: (error: CdpFault) => void;
   deadline: AbortController;
@@ -105,7 +106,12 @@ export class CdpClient {
   ): Promise<Result<M>> {
     if (this.ended || this.socket.readyState !== 1) {
       return Promise.reject(
-        new CdpFault("connection", "The connection is closed."),
+        new CdpFault(
+          "connection",
+          "The connection is closed.",
+          undefined,
+          Object.freeze({ method }),
+        ),
       );
     }
     // Expired attachment requests with a late-result owner count toward this cap.
@@ -120,6 +126,7 @@ export class CdpClient {
     const id = this.nextId++;
     return new Promise<Result<M>>((resolve, reject) => {
       const entry: Pending = {
+        method,
         resolve: (result) => resolve(result as Result<M>),
         reject,
         deadline: new AbortController(),
@@ -132,7 +139,14 @@ export class CdpClient {
           entry.settled = true;
           entry.deadline.abort();
           if (!entry.late) this.pending.delete(id);
-          reject(new CdpFault("protocol", "The browser request timed out."));
+          reject(
+            new CdpFault(
+              "protocol",
+              "The browser request timed out.",
+              undefined,
+              Object.freeze({ method }),
+            ),
+          );
         },
         this.requestTimeout,
         {
@@ -259,13 +273,19 @@ export class CdpClient {
       this.observe({ type: "response", id: value.id, ok: success });
       if (isRecord(value.error)) {
         if (!entry.settled) {
+          const code =
+            typeof value.error.code === "number" ? value.error.code : undefined;
           entry.reject(
             new CdpFault(
               "protocol",
               "CDP request failed.",
-              typeof value.error.code === "number"
-                ? value.error.code
-                : undefined,
+              code,
+              Object.freeze({
+                method: entry.method,
+                ...(code !== undefined && Number.isSafeInteger(code)
+                  ? { code }
+                  : {}),
+              }),
             ),
           );
         }

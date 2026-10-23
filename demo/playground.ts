@@ -15,14 +15,14 @@ export const propGuide = {
   paused: "Pause / resume",
   interactive: "Control mode",
   windowSizeSync: "Appearance & layout / browser menu",
-  onWindowSizeSyncChange: "State & events / controlled Usage",
+  onWindowSizeSyncChange: "Console / controlled Usage",
   capture: "Image detail",
   extensions: "Connection options",
   colorScheme: "Viewer theme",
   className: "Framed presentation preset",
   style: "Size, radius and accent",
-  onStatusChange: "State & events",
-  onError: "State & events",
+  onStatusChange: "Console",
+  onError: "Console",
 } satisfies Record<keyof CdpViewerProps, string>;
 
 export interface PlaygroundOptions {
@@ -79,6 +79,24 @@ export function viewerClassName(options: PlaygroundOptions) {
   return options.framed ? "demo-viewer-framed" : "";
 }
 
+/** Retain the public diagnostic without adding raw protocol or page data. */
+export function summarizeError(error: ViewerError): ViewerError {
+  return {
+    kind: error.kind,
+    message: error.message,
+    ...(error.request
+      ? {
+          request: {
+            method: error.request.method,
+            ...(error.request.code === undefined
+              ? {}
+              : { code: error.request.code }),
+          },
+        }
+      : {}),
+  };
+}
+
 /** Discard page metadata before retaining a callback observation. */
 export function summarizeSnapshot(snapshot: ViewerSnapshot) {
   return {
@@ -88,7 +106,7 @@ export function summarizeSnapshot(snapshot: ViewerSnapshot) {
     navigationAvailable: snapshot.navigation != null,
     canGoBack: snapshot.navigation?.canGoBack ?? false,
     canGoForward: snapshot.navigation?.canGoForward ?? false,
-    errorKind: snapshot.error?.kind ?? null,
+    error: snapshot.error ? summarizeError(snapshot.error) : null,
   };
 }
 
@@ -98,7 +116,7 @@ export type CallbackEvent = { readonly sequence: number } & (
   | { readonly name: "onError"; readonly value: ViewerError }
   | { readonly name: "onWindowSizeSyncChange"; readonly value: WindowSizeSync }
 );
-export const callbackLimit = 12;
+export const callbackLimit = 64;
 
 export function usageCode(
   options: PlaygroundOptions,

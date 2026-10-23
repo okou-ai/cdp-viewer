@@ -14,7 +14,12 @@ import { StrictMode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import { CdpViewer } from "../../src/index";
-import type { ExtensionContext, ViewerExtension } from "../../src/index";
+import type {
+  ExtensionContext,
+  ViewerExtension,
+  ViewerError,
+  ViewerSnapshot,
+} from "../../src/index";
 import { browserUse } from "../../src/extensions/browser-use";
 import { FakeBrowser } from "./wire";
 
@@ -41,6 +46,64 @@ function browser() {
   } as unknown as CanvasRenderingContext2D);
   return fake;
 }
+
+it("exposes wrapped request context and context-only error changes without replacing input", async () => {
+  const fake = browser();
+  const onError = vi.fn<(error: ViewerError) => void>();
+  const onStatusChange = vi.fn<(snapshot: ViewerSnapshot) => void>();
+  render(
+    <CdpViewer
+      cdpUrl="wss://fixture.invalid"
+      interactive
+      onError={onError}
+      onStatusChange={onStatusChange}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  const input = screen.getByLabelText("Remote browser input");
+  fake.holdMethod = "Page.reload";
+  for (const code of [-32000, -32001]) {
+    await userEvent.click(
+      screen.getByRole("button", { name: "Reload remote page" }),
+    );
+    await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+    const held = fake.heldCommands.shift()!;
+    act(() => held.socket.reject(held.command, code));
+    await waitFor(() =>
+      expect(onError).toHaveBeenLastCalledWith({
+        kind: "input",
+        message:
+          "Remote input could not be completed. Unsent input was discarded; it will not be replayed.",
+        request: { method: "Page.reload", code },
+      }),
+    );
+    expect(onStatusChange.mock.lastCall?.[0].error?.request).toEqual({
+      method: "Page.reload",
+      code,
+    });
+  }
+  expect(onError).toHaveBeenCalledTimes(2);
+  fake.holdMethod = "Page.getFrameTree";
+  await userEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+  const tab = fake.heldCommands.shift()!;
+  act(() => tab.socket.reject(tab.command, -32000));
+  await waitFor(() =>
+    expect(onError).toHaveBeenLastCalledWith({
+      kind: "tab",
+      message:
+        "The tab operation could not be completed. Check the browser before trying again.",
+      request: { method: "Page.getFrameTree", code: -32000 },
+    }),
+  );
+  expect(screen.getByLabelText("Remote browser input")).toBe(input);
+  expect(fake.sockets).toHaveLength(1);
+  expect(JSON.stringify(onError.mock.calls)).not.toMatch(
+    /private|sessionId|params/,
+  );
+});
 
 it("owns the browser menu mode and combined manual sync without replacing native input", async () => {
   const fake = browser();

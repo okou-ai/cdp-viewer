@@ -67,7 +67,6 @@ body {
   :where(
     .demo-button,
     .demo-icon-button,
-    .demo-text-button,
     .demo-mode select,
     .demo-appearance select,
     .demo-settings input,
@@ -78,7 +77,6 @@ body {
 }
 .demo-button,
 .demo-icon-button,
-.demo-text-button,
 .demo-settings summary,
 .demo-guide summary,
 .demo-mode select,
@@ -91,7 +89,6 @@ body {
 }
 .demo-button:disabled,
 .demo-icon-button:disabled,
-.demo-text-button:disabled,
 .demo-settings input:disabled {
   cursor: default;
   opacity: 0.45;
@@ -860,61 +857,180 @@ body {
 .demo-code {
   max-height: 400px;
 }
-.demo-activity-heading {
+.demo-console {
+  min-width: 0;
+  border-top: 1px solid var(--demo-border);
+  background: var(--demo-panel);
+  overflow: clip;
+}
+.demo-console summary {
+  list-style: none;
+  cursor: pointer;
+}
+.demo-console > summary,
+.demo-console-title,
+.demo-console-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 10px;
+  gap: 10px;
 }
-.demo-activity-heading strong {
+.demo-console > summary {
+  min-height: 48px;
+  justify-content: space-between;
+  padding: 12px 18px;
+  font-size: 12px;
   font-weight: 500;
 }
-.demo-text-button {
-  font-size: 10px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
+.demo-console > summary > svg {
   color: var(--demo-muted);
-  padding: 3px 5px;
 }
-.demo-text-button:hover:not(:disabled) {
-  color: var(--demo-accent);
-  background: var(--demo-hover);
+.demo-console[open] > summary > svg {
+  transform: rotate(180deg);
 }
-.demo-activity {
+.demo-console-error-count {
+  color: var(--demo-danger);
+  font-size: 10px;
+  font-weight: 500;
+}
+.demo-console-content {
+  border-top: 1px solid var(--demo-border);
+}
+.demo-console-toolbar {
+  justify-content: space-between;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--demo-border);
+  color: var(--demo-muted);
+  font-size: 10px;
+}
+.demo-console-body {
+  min-width: 0;
+  max-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.demo-console-errors {
+  margin: 14px 18px;
+}
+.demo-console-states {
+  margin: 12px 18px;
+}
+.demo-console-state > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--demo-muted);
+  font-size: 10px;
+}
+.demo-console-state > summary > code {
+  margin-left: auto;
+}
+.demo-console-state > pre {
+  margin-top: 8px;
+}
+.demo-console-log {
+  list-style: none;
   margin: 0;
   padding: 0;
-  list-style: none;
-  max-height: 260px;
-  overflow: auto;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
-.demo-activity li {
-  border-bottom: 1px solid var(--demo-border);
-  padding: 10px 0;
+.demo-console-log > li {
+  border-top: 1px solid var(--demo-border);
 }
-.demo-activity li:first-child {
-  padding-top: 0;
+.demo-console-entry > summary {
+  display: grid;
+  grid-template-columns: 12px 152px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 18px;
+  font-size: 11px;
+  line-height: 1.6;
 }
-.demo-activity li:last-child {
-  border: 0;
-  padding-bottom: 0;
+.demo-console-entry > summary:hover {
+  background: var(--demo-control);
 }
-.demo-activity li > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 5px;
-  font-size: 9px;
+.demo-console-entry > summary > svg {
+  align-self: center;
 }
-.demo-activity li > div > span {
-  color: var(--demo-muted);
-}
-.demo-activity p {
+.demo-console-sequence {
   color: var(--demo-muted);
   font-size: 10px;
-  line-height: 1.6;
-  margin: 5px 0 0;
+}
+.demo-console-message {
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.demo-console-entry[data-level="error"] > summary > code,
+.demo-console-entry[data-level="error"] .demo-console-message {
+  color: var(--demo-danger);
+}
+.demo-console-entry > pre {
+  margin: 0 18px 12px 40px;
+}
+.demo-console
+  :is(.demo-console-entry, .demo-console-state)[open]
+  > summary
+  > svg {
+  transform: rotate(90deg);
+}
+.demo-console .demo-snapshot {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.demo-console-empty {
+  margin: 0;
+  padding: 24px 18px;
+  color: var(--demo-muted);
+  font-size: 11px;
+}
+@media (max-width: 640px) {
+  .demo-console-entry > summary {
+    grid-template-columns: 12px minmax(0, 1fr) auto;
+    gap: 6px;
+    padding: 10px 14px;
+  }
+  .demo-console-entry > summary > code {
+    overflow-wrap: anywhere;
+  }
+  .demo-console-message {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+  .demo-console-entry > pre {
+    margin-left: 32px;
+  }
+}
+.demo-current-error {
+  padding: 12px;
+  border: 1px solid var(--demo-border);
+  border-left: 3px solid var(--demo-danger);
+  border-radius: 8px;
+  background: var(--demo-control);
+  overflow-wrap: anywhere;
+}
+.demo-current-error > strong {
+  color: var(--demo-danger);
+  font-size: 12px;
+}
+.demo-current-error p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.demo-current-error dl {
+  margin: 10px 0 0;
+  font-size: 11px;
+}
+.demo-current-error dl > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+.demo-current-error dt {
+  color: var(--demo-muted);
+}
+.demo-current-error dd {
+  margin: 0;
 }
 .demo-prop-reference > summary {
   color: var(--demo-muted);
@@ -936,17 +1052,20 @@ body {
   :is(
     .demo-button,
     .demo-icon-button,
-    .demo-text-button,
     .demo-resize-handle,
     .demo-settings input,
     .demo-settings select,
     .demo-settings summary,
     .demo-mode select,
     .demo-appearance select,
-    .demo-guide summary
+    .demo-guide summary,
+    .demo-console summary
   ):focus-visible {
   outline: 2px solid var(--demo-accent);
   outline-offset: 3px;
+}
+.demo .demo-console summary:focus-visible {
+  outline-offset: -3px;
 }
 .demo-footer {
   display: flex;

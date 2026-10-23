@@ -1,11 +1,5 @@
 import { browserUse } from "cdp-viewer/extensions/browser-use";
-import {
-  Activity,
-  ChevronDown,
-  Code2,
-  Palette,
-  SlidersHorizontal,
-} from "lucide-react";
+import { ChevronDown, Code2, Palette, SlidersHorizontal } from "lucide-react";
 import { demoScope } from "./context";
 import type { Panel } from "./model";
 import {
@@ -107,7 +101,6 @@ export function Settings({
       </details>
       <AppearanceSettings panel={panel} identity={identity} />
       <CaptureSettings panel={panel} identity={identity} />
-      <CallbackInspector panel={panel} />
       <details className="demo-group">
         <summary>
           <span>
@@ -367,67 +360,6 @@ function AppearanceSettings({
           Size and colors use <code>style</code>; the frame uses demo-defined
           CSS. Remote sizing follows Window size sync.
         </p>
-      </div>
-    </details>
-  );
-}
-
-function CallbackInspector({ panel }: { panel: Panel }) {
-  const model = demoScope.useModel();
-  const clear = demoScope.useCommand(model.clearActivity$);
-  return (
-    <details className="demo-group">
-      <summary>
-        <span>
-          <Activity size={15} aria-hidden="true" /> State & events{" "}
-          <span className="demo-count">{panel.activity.length}</span>
-        </span>
-        <ChevronDown size={14} aria-hidden="true" />
-      </summary>
-      <div className="demo-group-content">
-        <p className="demo-hint">
-          <code>onStatusChange</code>, <code>onError</code> and{" "}
-          <code>onWindowSizeSyncChange</code>, live. Page titles, target IDs and
-          addresses are omitted.
-        </p>
-        <pre className="demo-snapshot" aria-label="Current status summary">
-          {panel.snapshot
-            ? JSON.stringify(panel.snapshot, null, 2)
-            : "Waiting for a connection…"}
-        </pre>
-        <div className="demo-activity-heading">
-          <strong>Recent activity</strong>
-          <button
-            type="button"
-            className="demo-text-button"
-            aria-label="Clear callback activity"
-            disabled={!panel.activity.length}
-            onClick={() => clear(panel.id)}
-          >
-            Clear
-          </button>
-        </div>
-        {panel.activity.length ? (
-          <ol className="demo-activity" aria-label="Callback activity">
-            {[...panel.activity].reverse().map((event) => (
-              <li key={event.sequence}>
-                <div>
-                  <code>{event.name}</code>
-                  <span>#{event.sequence}</span>
-                </div>
-                <p>
-                  {event.name === "onStatusChange"
-                    ? `${event.value.status} · ${event.value.targetCount} tabs`
-                    : event.name === "onWindowSizeSyncChange"
-                      ? `Mode requested: ${event.value}`
-                      : `${event.value.kind}: ${event.value.message}`}
-                </p>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="demo-hint">Callbacks appear here after you connect.</p>
-        )}
       </div>
     </details>
   );

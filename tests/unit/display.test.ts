@@ -1075,6 +1075,10 @@ it("contains unsupported display failures without leaking provider payloads or s
     expect(model.getSnapshot().error?.kind).toBe("unsupported-capability"),
   );
   expect(model.getSnapshot().status).toBe("streaming");
+  expect(model.getSnapshot().error?.request).toEqual({
+    method: "Emulation.setDeviceMetricsOverride",
+    code: -32601,
+  });
   expect(JSON.stringify(model.getSnapshot())).not.toContain("private");
   expect(resizes(browser)).toHaveLength(0);
   controller.measureDisplay({ width: 700, height: 500, dpr: 2 });
@@ -1396,6 +1400,10 @@ it("retires partial emulation when native content sizing is unsupported", async 
     ),
   ).toHaveLength(1);
   expect(model.getSnapshot().status).toBe("streaming");
+  expect(model.getSnapshot().error?.request).toEqual({
+    method: "Browser.setContentsSize",
+    code: -32601,
+  });
   expect(model.read(model.display$).pending).toBe(false);
   browser.unsupportedContentsSize = false;
   controller.syncDisplay();

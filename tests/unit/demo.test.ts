@@ -191,6 +191,92 @@ it("bounds semantic callback activity and rejects retired, disconnected and remo
   expect(model.read(model.panels$)).toBe(removed);
 });
 
+it("retains current request diagnostics after clearing or evicting safe callback details", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  const sibling = model.read(model.panels$)[1];
+  const error = {
+    kind: "protocol" as const,
+    message: "CDP request failed.",
+    request: {
+      method: "Page.startScreencast",
+      code: -32000,
+      params: { token: "private payload" },
+    },
+    raw: "private provider message",
+  };
+  const expected = {
+    kind: "protocol",
+    message: "CDP request failed.",
+    request: { method: "Page.startScreencast", code: -32000 },
+  };
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
+  model.run(model.observeError$, 1, 1, error);
+  expect(model.read(model.panels$)[0]?.activity.at(-1)?.value).toEqual(
+    expected,
+  );
+  model.run(model.clearActivity$, 1);
+  expect(model.read(model.panels$)[0]?.snapshot?.error).toEqual(expected);
+  for (let index = 0; index < callbackLimit + 1; index++)
+    model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
+  const current = model.read(model.panels$)[0]!;
+  expect(current.activity).toHaveLength(callbackLimit);
+  expect(
+    current.activity.every((event) => event.name === "onStatusChange"),
+  ).toBe(true);
+  expect(current.snapshot?.error).toEqual(expected);
+  expect(JSON.stringify([current.snapshot, current.activity])).not.toMatch(
+    /private|params|raw/,
+  );
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  model.run(model.reconnect$, 1);
+  const replacement = model.read(model.panels$);
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error });
+  model.run(model.observeError$, 1, 1, error);
+  expect(model.read(model.panels$)).toBe(replacement);
+});
+
+it("clears only its owning console while preserving both current diagnostics and sibling history", () => {
+  const model = connectedModel();
+  model.run(model.add$);
+  model.run(model.edit$, 2, "endpoint", "wss://sibling.invalid/");
+  model.run(model.connect$, 2);
+  const firstError = {
+    kind: "protocol" as const,
+    message: "CDP request failed.",
+    request: { method: "Target.getTargets", code: -32000 },
+  };
+  const secondError = {
+    kind: "tab" as const,
+    message: "The tab operation failed.",
+    request: { method: "Page.reload", code: -32001 },
+  };
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error: firstError });
+  model.run(model.observeError$, 1, 1, firstError);
+  model.run(model.observeStatus$, 2, 1, { ...snapshot, error: secondError });
+  model.run(model.observeError$, 2, 1, secondError);
+  const [first, sibling] = model.read(model.panels$);
+  model.run(model.clearActivity$, 1);
+  const [cleared, unchangedSibling] = model.read(model.panels$);
+  expect(cleared?.activity).toEqual([]);
+  expect(cleared?.snapshot).toBe(first?.snapshot);
+  expect(cleared?.snapshot?.error).toEqual(firstError);
+  expect(cleared?.connection).toBe(first?.connection);
+  expect(unchangedSibling).toBe(sibling);
+  expect(unchangedSibling?.activity.at(-1)?.value).toEqual(secondError);
+  model.run(model.observeStatus$, 1, 1, { ...snapshot, error: firstError });
+  expect(model.read(model.panels$)[0]?.activity).toMatchObject([
+    { sequence: 3, name: "onStatusChange", value: { error: firstError } },
+  ]);
+  expect(model.read(model.panels$)[1]).toBe(sibling);
+  const owner = model.read(model.panels$)[0];
+  model.run(model.clearActivity$, 2);
+  expect(model.read(model.panels$)[0]).toBe(owner);
+  expect(model.read(model.panels$)[1]?.activity).toEqual([]);
+  expect(model.read(model.panels$)[1]?.snapshot).toBe(sibling?.snapshot);
+  expect(model.read(model.panels$)[1]?.snapshot?.error).toEqual(secondError);
+});
+
 it("shares a controlled sync mode without replacing live ownership or sibling options", () => {
   const model = connectedModel();
   model.run(model.add$);
