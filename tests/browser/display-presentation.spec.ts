@@ -385,8 +385,12 @@ for (const dpr of [1, 2]) {
             if (
               command.method === "Emulation.setDeviceMetricsOverride" ||
               command.method === "Browser.setContentsSize"
-            )
+            ) {
+              // Allow native acquisition first; withhold images only once the
+              // display write starts the presentation barrier under test.
+              holdFrames = true;
               writes++;
+            }
             upstream.send(message);
           });
           upstream.onMessage((message) => {
@@ -459,7 +463,6 @@ for (const dpr of [1, 2]) {
         await expect.poll(() => remote.evaluate("window.ups")).toBe(1);
 
         await remote.locator("#plain").focus();
-        holdFrames = true;
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
           .getByRole("menuitem", { name: "Sync now", exact: true })
