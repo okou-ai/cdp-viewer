@@ -790,7 +790,6 @@ export class ViewerController {
         this.streaming(selection);
       });
     }
-    this.captureUpdated = performance.now();
     const stream = new Screencast(
       {
         client: frames,

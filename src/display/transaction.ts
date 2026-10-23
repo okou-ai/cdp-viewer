@@ -111,26 +111,6 @@ export class DisplayTransaction {
       const { window, remote: remoteSize, layout } = snapshot;
       const decision = this.decision(policy, snapshot);
       if (!decision) return { kind: this.current() ? "deferred" : "retired" };
-      const existing = projection(
-        window.windowId,
-        decision,
-        remoteSize,
-        layout,
-      );
-      const existingPresentation = windowPresentation(
-        snapshot.native,
-        window.bounds,
-        existing.projected.presentation.nativeDpr,
-      );
-      if (
-        this.applied?.prepared.projected.key === existing.projected.key &&
-        target.geometry.matches(existingPresentation, existing.projected.input)
-      ) {
-        if (!policy.prepared())
-          return { kind: this.current() ? "deferred" : "retired" };
-        return this.completed(this.applied, "reused");
-      }
-
       // Choose the latest local observation once. Later changes are separate work;
       // no dispatched payload can change while awaiting native acknowledgements.
       const prepared = projection(
@@ -139,6 +119,23 @@ export class DisplayTransaction {
         remoteSize,
         layout,
       );
+      const existingPresentation = windowPresentation(
+        snapshot.native,
+        window.bounds,
+        prepared.projected.presentation.nativeDpr,
+      );
+      if (
+        this.applied?.prepared.projected.key === prepared.projected.key &&
+        target.geometry.matches(
+          existingPresentation,
+          prepared.projected.input,
+        )
+      ) {
+        if (!policy.prepared())
+          return { kind: this.current() ? "deferred" : "retired" };
+        return this.completed(this.applied, "reused");
+      }
+
       const { projected, size } = prepared;
       if (!policy.prepared())
         return { kind: this.current() ? "deferred" : "retired" };
