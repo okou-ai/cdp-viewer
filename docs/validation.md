@@ -33,6 +33,13 @@ serve the build on their own bounded HTTP servers; each case still owns its own
 Chromium profiles and windows. The separate experiment configuration retains its
 own consumer lifecycle.
 
+CI partitions browser spec files across independent jobs while preserving each
+file's execution order and worker policy. Each invocation owns its validated
+consumer and failure diagnostics. The browser environment preinstalls matching
+browser binaries and system dependencies; keep its image version aligned with the
+project's Playwright dependency. Source checks run independently, and the aggregate
+CI result requires the checks job and every browser shard to succeed.
+
 The default setup uses an explicit full GitHub revision and checks source/CSS,
 peers, public types, frozen reinstall, client build and SSR. CI performs this
 distribution gate in browser setup; `pnpm test:package` remains available as a
