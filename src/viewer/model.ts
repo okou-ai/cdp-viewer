@@ -51,10 +51,10 @@ export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "targets" | "navigation" | "error">
 >;
 
-interface Favicon {
+type Favicon = {
   readonly url: string;
   readonly failed: boolean;
-}
+};
 
 function initialSnapshot(): ViewerSnapshot {
   return Object.freeze({
