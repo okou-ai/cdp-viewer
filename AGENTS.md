@@ -20,7 +20,7 @@ adding extensions; ordinary CDP must remain usable independently.
 
 - `src/index.ts`: public component and type exports.
 - `src/cdp/`: native WebSocket transport, protocol diagnostics and window lookup.
-- `src/display/`: shared selected-session geometry, input projection and connection-owned synchronization policy/execution.
+- `src/display/`: shared selected-session geometry, input projection and connection-owned synchronization policy/execution. See [display architecture](docs/display-architecture.md).
 - `src/extensions/`: public adapter types, owned registration lifecycle and optional vendors.
 - `src/viewer/`: controller/session lifecycle, ccstate model and public types.
 - `src/react/`: React component and private context/subscription bridge.
@@ -40,35 +40,20 @@ adding extensions; ordinary CDP must remain usable independently.
 
 ## Toolchain and Checks
 
-Use the pnpm version pinned in `package.json` (currently 12.14.0). Node must satisfy
-`engines.node`; CI uses Node 24. TypeScript is strict, with
+Use the pnpm version and Node range pinned in `package.json`; CI configuration
+defines its Node version. TypeScript is strict, with
 `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` enabled. Follow the
 existing ESM, Prettier, Oxlint and ESLint configuration.
 
-Run commands from the repository root:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm css:check
-pnpm build
-pnpm build:demo
-pnpm format:check
-pnpm lint
-pnpm check-types
-pnpm knip
-pnpm test:package
-```
+Follow [the developer checklist](CONTRIBUTING.md#checks) and
+[validation methods](docs/validation.md). Keep command lists in CONTRIBUTING and
+mutable version values in executable configuration.
 
 Choose local checks appropriate to the change. **Do not run the full local Vitest
 suite or start a development server unless the user explicitly requests it.**
-The PR pipeline runs broad unit and browser checks. For a focused regression,
-an individual file can be run with
-`pnpm exec vitest run tests/unit/client.test.ts`.
-
-Browser tests use bounded fixture servers, test-owned profiles and real Chromium;
-they do not need a development server. `CDP_VIEWER_CHROMIUM` may select an existing
-Chromium executable. Do not weaken assertions, increase timeouts or add arbitrary
-sleeps to hide a failure.
+The PR pipeline runs broad unit and browser checks. Browser fixtures own bounded
+servers and Chromium profiles. Do not weaken assertions, increase timeouts or
+add arbitrary sleeps to hide a failure.
 
 ## Distribution and Styles
 
@@ -86,12 +71,9 @@ sleeps to hide a failure.
   `styles/viewer.css`. Keep utilities prefixed and selectors scoped; omit global
   Preflight/reset rules. Use `--cdpv-*` variables for instance themes.
 
-`pnpm test:package` installs the pushed GitHub revision using the consumer baseline
-of pnpm 10.33.4 and React 19.2.6. It checks types, CSS, peers, frozen reinstall,
-production build and bundled SSR with lifecycle scripts disabled.
-`CDP_VIEWER_SOURCE_SHA` and `CDP_VIEWER_SOURCE_REPO` select an explicit source.
-For unpushed changes, `CDP_VIEWER_CONSUMER_SOURCE=tarball pnpm test:package` is a
-supplementary local check; it does not establish real GitHub installation.
+Use the [consumer verification instructions](CONTRIBUTING.md#consumer-verification)
+for immutable GitHub installation. A local tarball is supplementary evidence and
+cannot replace that distribution gate.
 
 ## Runtime Invariants
 

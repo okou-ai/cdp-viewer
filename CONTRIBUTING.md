@@ -33,12 +33,27 @@ Use `feat` for features and `fix` for bug fixes. Other descriptive types such as
 or a `BREAKING CHANGE:` footer for incompatible changes. Keep repository artifacts
 in English; prefer consistent lowercase types and concise descriptions.
 
-Run formatting, lint, strict types, CSS consistency, library validation builds
-and isolated consumer checks for changes. Source exports must install at a full
-GitHub SHA with scripts disabled under the consumer's pnpm 10.33.4 baseline. The
-fixture generates its lockfile and verifies frozen reinstall; actual consumers
-commit that lockfile in their own repository. Use the pushed source SHA, never a
-self-referential committed fixture lockfile or private source alias.
+## Checks
+
+Use `package.json` for the pnpm version and supported Node range, `tsconfig.json`
+for strict type settings, and `.github/workflows/ci.yml` for the CI environment.
+Run commands from the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm css:check
+pnpm build
+pnpm build:demo
+pnpm format:check
+pnpm lint
+pnpm check-types
+pnpm knip
+pnpm test:package
+```
+
+Choose checks appropriate to the change; see the [validation strategy](docs/validation.md)
+for test boundaries and evidence requirements. The library/declaration build
+produces internal validation artifacts; consumers use source exports without `dist/`.
 
 After changing styles/classes, run `pnpm css:write` and commit
 `styles/viewer.css`; `pnpm css:check` verifies it without rewriting files. Keep
@@ -47,6 +62,33 @@ dependency prepare/postinstall build or npm publication workflow.
 
 The PR pipeline owns broad automated checks. Do not run a full local
 Vitest suite or start a dev server unless the user explicitly requests it.
+For a focused regression, run an individual file, for example
+`pnpm exec vitest run tests/unit/client.test.ts`.
+
+## Consumer verification
+
+`pnpm test:package` independently installs the pushed full GitHub SHA with
+lifecycle scripts and automatic peer installation disabled. The consumer baseline
+versions live in [scripts/consumer.mjs](scripts/consumer.mjs). The fixture checks
+installed source/CSS and inline README file links, host-provided peers, public
+types, a production build and bundled SSR without opening a connection. It
+generates a lockfile and verifies an offline frozen reinstall; actual consumers
+commit their lockfile in their own repository. Use the pushed source SHA, never a
+self-referential committed fixture lockfile or private source alias.
+
+`CDP_VIEWER_SOURCE_SHA` and `CDP_VIEWER_SOURCE_REPO` select an explicit immutable
+revision; CI uses the PR source SHA/repository rather than its synthetic merge
+commit. For unpushed changes, `CDP_VIEWER_CONSUMER_SOURCE=tarball pnpm test:package`
+selects supplementary local-pack verification. It does not establish GitHub
+installation acceptance; the default never silently falls back to local files.
+The receipt in `test-results/package/` records the actual source and lockfile hash.
+
+Browser fixtures reuse the installed consumer, test-owned Chromium windows and
+bounded HTTP servers. Install Playwright's matching Chromium or set
+`CDP_VIEWER_CHROMIUM` to an existing executable; no dev server or provisioning
+service is required.
+
+## Change hygiene
 
 Never commit or upload CDP credentials, real browser traces, clipboard contents,
 personal page content, local workflow artifacts, or temporary browser profiles.

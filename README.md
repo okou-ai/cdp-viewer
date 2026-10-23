@@ -5,10 +5,12 @@ It provides **live streaming, target selection, optional window filtering,
 and independent viewers**. Viewers are read-only by default. Enable `interactive`
 for mouse, keyboard, native text composition, plain-text clipboard transfer,
 remote navigation and tab creation/closure. Optional extensions can follow vendor activation events. Genuine macOS/Windows IME
-validation remains pending; see the [interaction support matrix](demo/interaction.md).
+validation remains pending; see the [interaction support matrix](https://github.com/okou-ai/cdp-viewer/blob/main/demo/interaction.md).
 
 The package stays private and is distributed as source from GitHub. No npm
-registry publication is planned.
+registry publication is planned. Supporting guide links below follow the repository's
+`main` branch. For guides matching an installed revision, browse this repository
+at the full commit SHA recorded in your lockfile.
 
 Licensed under the [Apache License 2.0](./LICENSE).
 
@@ -33,7 +35,7 @@ copy recovery when automatic clipboard writing is blocked. Genuine
 macOS/Windows system IME validation is pending. Connection details stay in page
 memory and are cleared on refresh. An HTTPS page normally needs a
 `wss://` endpoint whose server permits the page's Origin. See the
-[connection and deployment guide](demo/README.md) for parameters, network
+[connection and deployment guide](https://github.com/okou-ai/cdp-viewer/blob/main/demo/README.md) for parameters, network
 requirements and compatibility evidence.
 
 ## Install from GitHub
@@ -110,9 +112,11 @@ While switching tabs, the currently displayed image remains blurred behind the
 static "Connecting to browser…" placeholder until the new selected page has
 painted its first frame and interactive input is ready. Initial connections and
 switches without a displayed image use the plain placeholder. The backdrop is
-noninteractive and is cleared on pause, selection loss, errors, disconnection
-and reconnect. It reuses the existing canvas; no per-tab images are cached or
-persisted.
+noninteractive and is cleared on pause, selection loss, fatal viewer failure,
+disconnection and reconnect. Recoverable operation or configuration diagnostics
+can preserve the live image; an `onError` report alone does not mean the viewer
+has failed. The backdrop reuses the existing canvas; no per-tab images are
+cached or persisted.
 
 Favicons are read on demand from the selected page's declared icon URL, using its
 existing control session after viewing/input are ready. Results stay in viewer
@@ -258,7 +262,7 @@ Enter in the address bar completes recognizable host addresses with `http://`
 and passes explicit URL schemes to the remote browser. HTTPS upgrades and
 destination support depend on that browser. Plain text is never sent to a search
 engine. The navigation toolbar supports reload and
-available history. See [interaction behavior and limits](demo/interaction.md).
+available history. See [interaction behavior and limits](https://github.com/okou-ai/cdp-viewer/blob/main/demo/interaction.md).
 
 Ctrl/Cmd+V inserts local plain text once into the remote focused control.
 Ctrl/Cmd+C copies supported remote text selections; blocked local writes expose
@@ -266,7 +270,7 @@ a readonly text field for native browser copying. Clipboard access requires a
 secure client context and the embedding page's permission policy. Native text
 controls, page text, same-origin frames and open shadow roots are supported;
 password fields, inaccessible frames and application-defined clipboard payloads
-are excluded. See the [clipboard contract](demo/interaction.md#plain-text-clipboard)
+are excluded. See the [clipboard contract](https://github.com/okou-ai/cdp-viewer/blob/main/demo/interaction.md#plain-text-clipboard)
 for limits and the client-browser evidence boundary.
 
 Each instance has its own socket, request IDs, timers, controller, private ccstate
@@ -473,60 +477,26 @@ Default height is 28rem; set `style={{ height: "70vh" }}` for host layout.
 customize the individual surfaces.
 Canvas decode/paint does not cause a React update for every frame.
 
-See [host integration boundaries](docs/host-integration.md) for form embedding,
+See [host integration boundaries](https://github.com/okou-ai/cdp-viewer/blob/main/docs/host-integration.md) for form embedding,
 host shortcuts and the engineering conventions that keep normal integrations
 independent.
 
 ## Validation and compatibility
 
-```sh
-pnpm install --frozen-lockfile
-pnpm css:check
-pnpm build
-pnpm build:demo
-pnpm format:check
-pnpm lint
-pnpm check-types
-pnpm knip
-pnpm test:package
-```
-
-Run `pnpm css:write` after editing viewer styles/classes and commit
-`styles/viewer.css`. The consistency check regenerates CSS in memory and fails
-on drift. The library/declaration build is an internal validation artifact;
-consumers use source exports and do not need `dist/`.
-
-The PR pipeline additionally runs the full unit suite and real-browser fixtures.
-Follow repository/user guidance: no full local Vitest run or dev server unless
-explicitly requested. Targeted protocol tests may be used for focused debugging.
-
-`pnpm test:package` installs the current pushed Git commit from GitHub in a
-separate temporary consumer. It verifies source/CSS file inclusion, React peers,
-strict public types, a production build and bundled SSR without a connection.
-Installation disables lifecycle scripts and automatic peer installation; a fresh
-offline frozen reinstall must preserve the generated lockfile. The receipt under
-`test-results/package/` records the actual source and lockfile hash.
-
-`CDP_VIEWER_SOURCE_SHA` and `CDP_VIEWER_SOURCE_REPO` select an explicit immutable
-GitHub revision; CI uses the pushed PR source SHA/repository rather than its
-synthetic merge commit. Before pushing local changes, an explicit
-`CDP_VIEWER_CONSUMER_SOURCE=tarball` selects supplementary local-pack verification.
-It does not count as real GitHub distribution acceptance; the default never
-silently falls back to local files.
-
-Browser tests consume those same installed public exports. They create
-test-owned Chromium windows and a bounded fixture HTTP server; a test-only extension
-allows moving an actual tab between windows. Run browser fixtures with an installed
-Playwright Chromium, or set `CDP_VIEWER_CHROMIUM` to an existing Chromium executable.
-No browser provisioning service or development server is required for fixtures.
+Independent consumer checks validate immutable GitHub source installation,
+distributed files and README links, host-provided peers, public types, production
+builds and source SSR. Real-browser fixtures exercise installed public exports.
+See the [validation strategy](https://github.com/okou-ai/cdp-viewer/blob/main/docs/validation.md)
+for test boundaries and evidence requirements.
 
 Initial automation targets current desktop Chromium. Experimental remote CDP
 capabilities, provider Origin/TLS policy and other client browsers must be recorded
 before compatibility is claimed. Browser Use connectivity and connections from
 GitHub Pages require their own deployed-Origin evidence; see the
-[demo guide](demo/README.md).
+[demo guide](https://github.com/okou-ai/cdp-viewer/blob/main/demo/README.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Commits follow
+See [CONTRIBUTING.md](https://github.com/okou-ai/cdp-viewer/blob/main/CONTRIBUTING.md)
+for the developer setup and check commands. Commits follow
 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).

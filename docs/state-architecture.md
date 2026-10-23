@@ -72,75 +72,24 @@ or isolate website state. See [concurrent-viewer validation](validation.md#concu
 
 ## Commands and runtime resources
 
-Display adaptation owns its rules in the private display module. A pure policy
-transition owns the connection's mode, observations, explicit intent, execution
-stage and window history. Target, configuration, measurement and transaction
-outcomes enter that same contract; policy acquires no native or DOM resources.
-Selected-session success and connection-window history have distinct lifetimes.
-Native applied-key receipts belong to the selected transaction, not policy.
+Keep pure policy transitions separate from native execution and DOM observation.
+Policy owns semantic intent and outcomes; resource owners acquire effects and
+validate the originating connection/session before committing results. Coalesce
+later observations without mutating a dispatched operation or requiring a quiet
+interval to make progress. Reuse and new work must complete the same semantic
+bookkeeping; deduplication must not skip state transitions.
 
-The synchronizer bridges that policy to one selected-session native executor and
-owns bounded scheduling. Preparation, dispatch, presentation and recovery report
-explicit stages and outcomes. Preparation consumes observations before returning
-its outcome; observations arriving afterward remain pending. Dispatch captures
-immutable native payloads while later measurements coalesce independently, so
-progress does not require a quiet interval. Successful reuse and newly painted
-writes enter one policy completion transition; retired or failed results cannot
-commit window history or acquire a replacement's authority.
+Share one selected-session geometry authority across display, capture and input.
+Native acknowledgement, decoded image compatibility and actual presentation are
+distinct facts. An obsolete result or still-visible old image cannot grant a
+replacement's input or display authority. See [display architecture](display-architecture.md)
+for module responsibilities, causal presentation and bounded recovery.
 
-Each selected session shares one geometry owner across adaptation,
-capture and input; native calibration, acknowledged transforms and painted facts
-retain distinct meanings. Input consumes an immutable mapping rather than
-deriving its own density and zoom formulas. Invalidations retire earlier geometry
-reads and paint callbacks without changing native input ownership.
-Preparation revalidates both intent and native geometry after read/capture
-boundaries. Retired facts cannot authorize a display write; the current request
-is retained for recomputation through the same bounded scheduler.
-An already compatible presentation completes the same policy bookkeeping as a
-newly painted write; deduplication skips native effects without skipping state.
-The geometry owner distinguishes native calibration, writing, awaiting
-presentation, presented and uncertain adaptation. Starting a write retires its
-pointer mapping. A definite rejection can restore previous acknowledged units;
-an unconfirmed outcome keeps them unknown. Successful application or rollback
-requires compatible metadata and actual decoded raster dimensions followed by
-successful drawing. The renderer rejects obsolete or incompatible decoded images
-before changing the canvas. Native acknowledgements alone cannot end a display
-transaction or enable fresh-layout fallback over its old visible pixels.
-
-Presentation waits share the bounded request/stream budget and retire with their
-selected session. A density change with an unchanged logical viewport, a
-same-raster transition or rollback also needs causal capture evidence. Compare
-the current logical viewport under both the previous and projected scale;
-different native dimensions alone do not guarantee a new static capture frame.
-The native executor reads a clock in a private isolated world
-after acknowledged writes while the controller stops/starts the same bounded
-stream. The isolated clock operation awaits its next millisecond boundary and
-confirms that it has elapsed before capture restarts. A rounded-up integer read
-alone can reject the first valid static image while its fence is still in the
-future. The geometry owner rejects pre-fence timestamps and decodes. This adds
-no per-frame reads, React updates or refreshes during ordinary distinct-size
-updates. Target-size metadata with an incompatible decoded raster can request
-that same fenced refresh once during presentation. Decoded facts can diagnose
-this mismatch before or after the final acknowledgement, but only painted facts
-can complete presentation. Invalidations retire both. Conditional recovery
-consumes the remaining presentation wait rather than starting a new full budget;
-capture effects retain their bounded request deadlines and serialized owner.
-New pointer gestures remain suspended through the transition; text,
-native keys and release of already-owned buttons retain their input ownership.
-
-The controller retains target/session lifetime and frame acknowledgement. DOM
-observation and the effective host/menu mode remain in the runtime/model layers.
 An intentional tab replacement may retain already displayed pixels as a blurred,
 blocked connecting backdrop. This presentation fact belongs to the private model;
 it grants no input or session authority. Renderer invalidation still retires old
 decodes immediately. All other selection-loss and cleanup paths clear pixels,
 and actual replacement paint/readiness removes the backdrop.
-Capture transitions also belong to the controller. Bounded restoration preserves
-the previous capture policy, distinguishes a rejected stop from an uncertain
-stop/start, and confirms a stopped stream before repeating a possible start.
-Every continuation revalidates its selected-session owner.
-Capture timestamps order images; they do not identify an adaptation generation
-or make native sizing, emulation and painting atomic.
 
 Retain the latest produced screencast frame at the native credit boundary so a
 static final state does not require another page change after acknowledgement.
