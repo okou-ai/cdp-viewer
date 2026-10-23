@@ -449,6 +449,12 @@
   height: 100%;
   display: block;
 }
+.cdpv-root .cdpv-stage[data-loading-preview] {
+  overflow: clip;
+}
+.cdpv-root .cdpv-stage[data-loading-preview] canvas {
+  filter: blur(8px);
+}
 .cdpv-root .cdpv-placeholder {
   color: var(--cdpv-muted);
   text-align: center;
@@ -466,6 +472,39 @@
 .cdpv-root .cdpv-placeholder strong {
   color: var(--cdpv-foreground);
   font-weight: 500;
+}
+.cdpv-root .cdpv-placeholder[data-loading] {
+  gap: 16px;
+}
+.cdpv-root .cdpv-placeholder[data-loading] > svg {
+  box-sizing: content-box;
+  border: 1px solid var(--cdpv-border);
+  background: var(--cdpv-background);
+  box-shadow: 0 3px 12px var(--cdpv-foreground);
+  border-radius: 16px;
+  padding: 14px;
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root .cdpv-placeholder[data-loading] > svg {
+    box-shadow: 0 3px 12px
+      color-mix(in srgb, var(--cdpv-foreground) 5%, transparent);
+  }
+}
+.cdpv-root .cdpv-placeholder[data-loading] strong {
+  font-size: 14px;
+  line-height: 20px;
+}
+.cdpv-root .cdpv-placeholder[data-preview] {
+  background: var(--cdpv-stage-background);
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root .cdpv-placeholder[data-preview] {
+    background: color-mix(
+      in srgb,
+      var(--cdpv-stage-background) 72%,
+      transparent
+    );
+  }
 }
 .cdpv-root .cdpv-placeholder-message {
   max-width: 440px;

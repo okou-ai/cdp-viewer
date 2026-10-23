@@ -40,7 +40,7 @@ export type TabAction =
 
 export type ViewerTransition =
   | { type: "reset" }
-  | { type: "select"; targetId: string; paused: boolean }
+  | { type: "select"; targetId: string; paused: boolean; preview?: boolean }
   | { type: "target-lost"; error: ViewerError | null }
   | { type: "discovery-failed"; error: ViewerError }
   | { type: "paused" | "streaming" | "stopped" }
@@ -68,6 +68,7 @@ function initialSnapshot(): ViewerSnapshot {
 
 function createViewerSignals() {
   const internalSnapshot$ = state<ViewerSnapshot>(initialSnapshot());
+  const internalLoadingPreview$ = state(false);
   const internalFavicons$ = state<ReadonlyMap<string, Favicon>>(new Map());
   const favicons$ = computed((get) => get(internalFavicons$));
   const setFavicon$ = command(
@@ -252,6 +253,8 @@ function createViewerSignals() {
       interactive && get(internalConnected$) && !get(pendingTab$);
     return Object.freeze({
       streaming,
+      loadingPreview:
+        snapshot.status === "connecting" && get(internalLoadingPreview$),
       emptyUnscoped,
       emptyScoped: empty && scoped,
       recovery,
@@ -331,6 +334,10 @@ function createViewerSignals() {
   );
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
     if (event.type !== "streaming") set(internalClipboard$, null);
+    set(
+      internalLoadingPreview$,
+      event.type === "select" && !event.paused && !!event.preview,
+    );
     switch (event.type) {
       case "reset":
         set(internalFavicons$, new Map());
@@ -401,6 +408,7 @@ function createViewerSignals() {
       set(actions$, null);
       set(pendingTab$, null);
       set(internalConnected$, false);
+      set(internalLoadingPreview$, false);
       set(internalNotification$, null);
       set(internalClipboard$, null);
       set(internalDisplay$, {

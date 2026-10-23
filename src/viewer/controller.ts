@@ -138,12 +138,16 @@ export class ViewerController {
     this.chosenOnce = true;
     this.extensionRequest++;
     this.selectionRevision++;
-    this.stopSelection();
+    const controls = this.model.read(this.model.controls$);
+    const preview =
+      !this.paused && (controls.streaming || controls.loadingPreview);
+    this.stopSelection("target-replaced", { retainFrame: preview });
     if (this.disposed || !this.connected) return;
     this.model.transition({
       type: "select",
       targetId,
       paused: this.paused,
+      preview,
     });
     if (this.paused) return;
     const selection: Selection = {
@@ -555,7 +559,7 @@ export class ViewerController {
     const drainControl = source !== this.client;
     this.connected = false;
     this.lifetime.abort();
-    this.stopSelection("disconnected", drainControl);
+    this.stopSelection("disconnected", { drainControl });
     this.display?.close();
     this.frames?.close();
     this.ownedFrameSessions.clear();
@@ -928,12 +932,16 @@ export class ViewerController {
 
   private stopSelection(
     reason: InputStop = "target-replaced",
-    drainControl = false,
+    {
+      drainControl = false,
+      retainFrame = false,
+    }: { drainControl?: boolean; retainFrame?: boolean } = {},
   ): void {
     const old = this.selection;
     this.selection = null;
     this.display?.setTarget(null);
-    this.sink.reset();
+    if (retainFrame) this.sink.invalidate();
+    else this.sink.reset();
     this.model.transition({ type: "stopped" });
     if (old) {
       const input = old.input;

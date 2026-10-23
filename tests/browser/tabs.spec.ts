@@ -70,6 +70,131 @@ async function selectOverflowTab(viewer: Locator, targetId: string) {
   await expect(trigger).toBeFocused();
 }
 
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`uses the outgoing image as a blocked ${colorScheme} tab-loading backdrop`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    let holdStream = true;
+    const releases: (() => void)[] = [];
+    try {
+      const first = await remoteTab(backend, "Workspace", true);
+      await page.routeWebSocket(backend.endpoint, (socket) => {
+        const upstream = socket.connectToServer();
+        socket.onMessage((message) => {
+          const command = JSON.parse(String(message)) as { method: string };
+          if (holdStream && command.method === "Page.startScreencast") {
+            releases.push(() => upstream.send(message));
+          } else upstream.send(message);
+        });
+      });
+      await page.setViewportSize({ width: 1100, height: 850 });
+      const viewer = await host(page, {
+        cdpUrl: backend.endpoint,
+        windowA: first.windowId,
+        second: false,
+        interactive: true,
+        colorSchemeA: colorScheme,
+      });
+      await viewer.evaluate((element) => {
+        element.style.width = "960px";
+        element.style.height = "560px";
+      });
+      const stage = viewer.locator(".cdpv-stage");
+      const canvas = viewer.locator("canvas");
+      const proxy = viewer.getByLabel("Remote browser input");
+      await expect.poll(() => releases.length).toBe(1);
+      await expect(stage).toHaveAttribute("aria-busy", "true");
+      await expect(stage).not.toHaveAttribute("data-loading-preview");
+      await expect(canvas).toHaveCSS("filter", "none");
+      await expect(viewer.getByText("Connecting to browser…")).toBeVisible();
+      await captureTabScreenshot(
+        viewer,
+        info,
+        `loading-${colorScheme}-initial.png`,
+      );
+      holdStream = false;
+      releases.shift()!();
+      await expect(viewer).toHaveAttribute("data-status", "streaming");
+      const firstCanvas = await canvas.elementHandle();
+      const firstProxy = await proxy.elementHandle();
+      const pixels = () =>
+        canvas.evaluate((element: HTMLCanvasElement) => {
+          const context = element.getContext("2d")!;
+          const bytes = context.getImageData(
+            0,
+            0,
+            element.width,
+            element.height,
+          ).data;
+          let hash = 0;
+          for (const value of bytes) hash = (Math.imul(hash, 31) + value) | 0;
+          return { width: element.width, height: element.height, hash };
+        });
+      const before = await pixels();
+      const bounds = await stage.boundingBox();
+      const second = await remoteTab(backend, "Reports");
+      expect(second.windowId).toBe(first.windowId);
+      await second.remote.setContent(
+        '<html><head><title>Reports</title></head><body style="margin:0;background:#e6efff;color:#23395b;font:24px system-ui;padding:48px"><h1>Reports</h1><p>Your weekly summary is ready.</p></body></html>',
+      );
+      holdStream = true;
+      await viewer.getByRole("tab", { name: "Reports" }).click();
+      await expect.poll(() => releases.length).toBe(1);
+      await expect(viewer).toHaveAttribute("data-status", "connecting");
+      await expect(stage).toHaveAttribute("data-loading-preview");
+      await expect(stage).toHaveAttribute("aria-busy", "true");
+      await expect(canvas).toHaveCSS("filter", "blur(8px)");
+      await expect(canvas).toHaveAttribute("aria-hidden", "true");
+      await expect(proxy).toBeDisabled();
+      expect(await pixels()).toEqual(before);
+      expect(await stage.boundingBox()).toEqual(bounds);
+      expect(
+        await canvas.evaluate((node, old) => node === old, firstCanvas),
+      ).toBe(true);
+      expect(
+        await proxy.evaluate((node, old) => node === old, firstProxy),
+      ).toBe(true);
+      await captureTabScreenshot(
+        viewer,
+        info,
+        `loading-${colorScheme}-backdrop.png`,
+      );
+      await viewer.evaluate((element) => {
+        element.style.width = "360px";
+        element.style.height = "300px";
+      });
+      await expect(viewer.getByText("Connecting to browser…")).toBeVisible();
+      expect(await pixels()).toEqual(before);
+      await captureTabScreenshot(
+        viewer,
+        info,
+        `loading-${colorScheme}-compact.png`,
+      );
+      holdStream = false;
+      releases.shift()!();
+      await expect(viewer).toHaveAttribute("data-status", "streaming");
+      await expect(stage).not.toHaveAttribute("data-loading-preview");
+      await expect(stage).toHaveAttribute("aria-busy", "false");
+      await expect(canvas).toHaveCSS("filter", "none");
+      await expect(canvas).toHaveAttribute("aria-hidden", "false");
+      await expect(proxy).toBeEnabled();
+      await expect(viewer.getByText("Connecting to browser…")).toHaveCount(0);
+      expect(await pixels()).not.toEqual(before);
+      await captureTabScreenshot(
+        viewer,
+        info,
+        `loading-${colorScheme}-ready.png`,
+      );
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
 test("real tab actions preserve window placement, later selection and stable native nodes", async ({
   page,
 }, info) => {

@@ -4,6 +4,8 @@ import { createViewerModel } from "../../src/viewer/model";
 import { FakeBrowser } from "./wire";
 import { browserUse } from "../../src/extensions/browser-use";
 import type { ExtensionContext } from "../../src/extensions/types";
+import type { FrameSink } from "../../src/render/canvas";
+import { CdpFault } from "../../src/cdp/errors";
 
 const controllers: ViewerController[] = [];
 afterEach(() => {
@@ -19,7 +21,7 @@ function mount(
 ) {
   const model = createViewerModel();
   const sink = {
-    push: vi.fn(
+    push: vi.fn<FrameSink["push"]>(
       (
         _data: string,
         paint: (raster: { width: number; height: number }) => void,
@@ -42,6 +44,82 @@ function mount(
 }
 
 describe("viewer lifecycle", () => {
+  it("retains only the outgoing image through rapid switches and waits for the current paint", async () => {
+    const browser = new FakeBrowser();
+    const { controller, model, sink } = mount(browser);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const resets = sink.reset.mock.calls.length;
+    sink.push.mockImplementation(() => {});
+    sink.push.mockClear();
+    controller.select("page-b");
+    expect(model.read(model.controls$).loadingPreview).toBe(true);
+    expect(controller.input).toBeNull();
+    expect(sink.reset).toHaveBeenCalledTimes(resets);
+    expect(sink.invalidate).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(sink.push).toHaveBeenCalledOnce());
+    const oldPaint = sink.push.mock.calls[0]![1];
+    controller.select("page-a");
+    expect(model.read(model.controls$).loadingPreview).toBe(true);
+    expect(sink.reset).toHaveBeenCalledTimes(resets);
+    expect(sink.invalidate).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(sink.push).toHaveBeenCalledTimes(2));
+    oldPaint({ width: 800, height: 600 });
+    expect(model.getSnapshot().status).toBe("connecting");
+    expect(model.read(model.controls$).loadingPreview).toBe(true);
+    sink.push.mock.calls[1]![1]({ width: 800, height: 600 });
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "page-a",
+    });
+    expect(model.read(model.controls$).loadingPreview).toBe(false);
+  });
+
+  it.each([
+    "pause",
+    "loss",
+    "scope",
+    "failure",
+    "disconnect",
+    "dispose",
+  ] as const)("clears a retained loading image on %s", async (boundary) => {
+    const browser = new FakeBrowser();
+    browser.targets[1]!.windowId = 0;
+    const { controller, model, sink } = mount(browser, 0);
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    browser.holdFrames = true;
+    controller.select("page-b");
+    await vi.waitFor(() => expect(browser.heldFrames).toHaveLength(1));
+    expect(model.read(model.controls$).loadingPreview).toBe(true);
+    const resets = sink.reset.mock.calls.length;
+    if (boundary === "pause") controller.setPaused(true);
+    else if (boundary === "dispose") controller.close();
+    else if (boundary === "disconnect") browser.sockets[0]!.close();
+    else if (boundary === "scope") {
+      browser.unsupportedWindows = true;
+      browser.sockets[0]!.emit("Target.targetInfoChanged", {});
+      await vi.waitFor(() =>
+        expect(model.read(model.controls$).loadingPreview).toBe(false),
+      );
+    } else if (boundary === "loss") {
+      browser.targets = browser.targets.filter((t) => t.id !== "page-b");
+      browser.sockets[0]!.emit("Target.targetDestroyed", {
+        targetId: "page-b",
+      });
+    } else {
+      sink.push.mockImplementationOnce((_data, _paint, failed) =>
+        failed(new CdpFault("frame", "Synthetic decode failure")),
+      );
+      browser.heldFrames.shift()!();
+    }
+    expect(model.read(model.controls$).loadingPreview).toBe(false);
+    expect(sink.reset.mock.calls.length).toBeGreaterThan(resets);
+    expect(controller.input).toBeNull();
+  });
+
   it("acknowledges older capture readbacks without replacing newer pixels and resets ordering per selection", async () => {
     const browser = new FakeBrowser();
     const { controller, model, sink } = mount(browser);

@@ -155,8 +155,15 @@ function ViewerSurface({
         keepMounted
         value={snapshot.selectedTargetId}
         className={`cdpv-stage${interactive ? " cdpv-interactive" : ""}`}
+        data-loading-preview={controls.loadingPreview ? "" : undefined}
+        aria-busy={snapshot.status === "connecting"}
       >
-        <canvas ref={canvas} role="img" aria-label="Live browser view">
+        <canvas
+          ref={canvas}
+          role="img"
+          aria-label="Live browser view"
+          aria-hidden={!controls.streaming}
+        >
           Your browser needs Canvas 2D to show the remote page.
         </canvas>
         {notification && (
@@ -202,7 +209,11 @@ function ViewerSurface({
           />
         )}
         {!controls.streaming && (
-          <div className="cdpv-placeholder">
+          <div
+            className="cdpv-placeholder"
+            data-loading={snapshot.status === "connecting" ? "" : undefined}
+            data-preview={controls.loadingPreview ? "" : undefined}
+          >
             {controls.recovery ? (
               <CircleAlert size={28} aria-hidden="true" />
             ) : (

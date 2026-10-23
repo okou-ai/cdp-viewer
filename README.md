@@ -106,6 +106,14 @@ its remote window so Chromium can produce live frames. Reconnect starts a fresh 
 Changing callbacks does not reconnect. Unmounting releases this viewer's sessions
 and connection without closing the remote browser or its tabs.
 
+While switching tabs, the currently displayed image remains blurred behind the
+static "Connecting to browser…" placeholder until the new selected page has
+painted its first frame and interactive input is ready. Initial connections and
+switches without a displayed image use the plain placeholder. The backdrop is
+noninteractive and is cleared on pause, selection loss, errors, disconnection
+and reconnect. It reuses the existing canvas; no per-tab images are cached or
+persisted.
+
 Favicons are read on demand from the selected page's declared icon URL, using its
 existing control session after viewing/input are ready. Results stay in viewer
 memory; they are absent from public snapshots and are cleared on reconnect.

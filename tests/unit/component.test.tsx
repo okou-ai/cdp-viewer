@@ -47,6 +47,76 @@ function browser() {
   return fake;
 }
 
+it.each(["shared", "split"] as const)(
+  "keeps no-frame loading plain and blurs only an already displayed image with %s transport",
+  async (transport) => {
+    const fake = browser();
+    fake.holdFrames = true;
+    const view = render(
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        interactive
+        transport={transport}
+      />,
+    );
+    await waitFor(() => expect(fake.heldFrames).toHaveLength(1));
+    const stage = view.container.querySelector(".cdpv-stage")!;
+    const canvas = view.container.querySelector("canvas")!;
+    const proxy = screen.getByLabelText("Remote browser input");
+    expect(stage).toHaveAttribute("aria-busy", "true");
+    expect(stage).not.toHaveAttribute("data-loading-preview");
+    expect(canvas).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Connecting to browser…")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Window B" }));
+    await waitFor(() => expect(fake.heldFrames).toHaveLength(2));
+    expect(stage).not.toHaveAttribute("data-loading-preview");
+    act(() => fake.heldFrames.shift()!());
+    expect(proxy).toBeDisabled();
+    act(() => fake.heldFrames.shift()!());
+    await waitFor(() => expect(proxy).toBeEnabled());
+    expect(canvas).toHaveAttribute("aria-hidden", "false");
+    const sockets = [...fake.sockets];
+    await userEvent.click(screen.getByRole("tab", { name: "Window A" }));
+    await waitFor(() => expect(fake.heldFrames).toHaveLength(1));
+    expect(stage).toHaveAttribute("data-loading-preview");
+    expect(stage).toHaveAttribute("aria-busy", "true");
+    expect(proxy).toBeDisabled();
+    expect(canvas).toHaveAttribute("aria-hidden", "true");
+    expect(
+      view.container.querySelector(".cdpv-placeholder[data-preview]"),
+    ).toHaveTextContent("Connecting to browser…");
+    await userEvent.click(screen.getByRole("tab", { name: "Window B" }));
+    await waitFor(() => expect(fake.heldFrames).toHaveLength(2));
+    act(() => fake.heldFrames.shift()!());
+    expect(stage).toHaveAttribute("data-loading-preview");
+    expect(proxy).toBeDisabled();
+    act(() => fake.heldFrames.shift()!());
+    await waitFor(() => expect(proxy).toBeEnabled());
+    expect(stage).not.toHaveAttribute("data-loading-preview");
+    expect(stage).toHaveAttribute("aria-busy", "false");
+    expect(screen.queryByText("Connecting to browser…")).toBeNull();
+    expect(view.container.querySelector("canvas")).toBe(canvas);
+    expect(screen.getByLabelText("Remote browser input")).toBe(proxy);
+    expect(fake.sockets).toEqual(sockets);
+
+    await userEvent.click(screen.getByRole("tab", { name: "Window A" }));
+    await waitFor(() => expect(fake.heldFrames).toHaveLength(1));
+    view.rerender(
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        interactive
+        transport={transport}
+        paused
+      />,
+    );
+    expect(stage).not.toHaveAttribute("data-loading-preview");
+    expect(screen.getByText("Viewing paused")).toBeInTheDocument();
+    act(() => fake.heldFrames.shift()!());
+    expect(proxy).toBeDisabled();
+    expect(fake.sockets).toEqual(sockets);
+  },
+);
+
 it("reconnects only the owning viewer for transport changes and retains callback stability", async () => {
   const fake = browser();
   const view = render(
