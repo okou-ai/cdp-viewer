@@ -28,6 +28,10 @@ Mouse is the initial supported pointer type; touch and pen are not advertised.
 Coordinates use painted-frame metadata when available, with fresh layout queries
 after invalidation or missing metadata. Continuous wheel input combines only
 compatible adjacent pending deltas, preserving scroll distance and gesture order.
+When native replies fall behind continuous pointer or wheel input, the send lane
+waits for capacity while unsent continuous events coalesce. Delayed replies alone
+do not discard the gesture or release keyboard focus. The shared work bound and
+failure handling still apply to discrete input and genuinely failed requests.
 
 Keyboard events belong only to the focused viewer's native textarea. Typing in a
 host field or the viewer's address/target controls stays local. Remote navigation,

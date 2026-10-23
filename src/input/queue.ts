@@ -353,6 +353,13 @@ export class InputQueue {
           const cancelled = new Promise<null>((resolve) => {
             this.cancelPreparation = () => resolve(null);
           });
+          // Leave room for ordered discrete input while delayed continuous
+          // replies settle. Unsent moves/wheels can then coalesce instead of
+          // filling the shared budget and revoking otherwise valid input.
+          if ((job.move || job.wheel) && this.pending.size >= 32) {
+            await Promise.race([cancelled, Promise.race(this.pending)]);
+            if (!this.lifecycle.owns(job.owner) || job.cancelled) continue;
+          }
           const prepared = await Promise.race([
             cancelled,
             Promise.all([this.member(), job.prepare?.(job)]),

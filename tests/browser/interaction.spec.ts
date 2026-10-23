@@ -194,6 +194,99 @@ test("forwards new wheel distance while an earlier dispatch response is held", a
   }
 });
 
+test("continuous wheel input survives delayed replies without dropping focus or scroll distance", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    await remote.evaluate(() => {
+      document.body.dataset.wheel = "0";
+      document.addEventListener("wheel", (event) => {
+        document.body.dataset.wheel = String(
+          Number(document.body.dataset.wheel) + event.deltaY,
+        );
+      });
+    });
+    const wheels: number[] = [];
+    const ids = new Set<number>();
+    const replies: (() => void)[] = [];
+    let hold = true;
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as {
+          id?: number;
+          method?: string;
+          params?: { type?: string; deltaY?: number };
+        };
+        if (
+          command.id !== undefined &&
+          command.method === "Input.dispatchMouseEvent" &&
+          command.params?.type === "mouseWheel"
+        ) {
+          wheels.push(command.params.deltaY!);
+          ids.add(command.id);
+        }
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        const response = JSON.parse(String(message)) as { id?: number };
+        if (hold && response.id !== undefined && ids.delete(response.id))
+          replies.push(() => socket.send(message));
+        else socket.send(message);
+      });
+    });
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    const position = await imagePosition(view, 500, 300, remote);
+    // Each message is a client task, letting input sends drain between events
+    // without driver round trips extending the hold past the request deadline.
+    await view.locator("canvas").evaluate(async (canvas, point) => {
+      await new Promise<void>((resolve) => {
+        const tasks = new MessageChannel();
+        let sent = 0;
+        tasks.port1.onmessage = () => {
+          canvas.dispatchEvent(
+            new WheelEvent("wheel", {
+              bubbles: true,
+              cancelable: true,
+              clientX: point.x,
+              clientY: point.y,
+              deltaY: 12,
+            }),
+          );
+          if (++sent === 160) {
+            tasks.port1.close();
+            tasks.port2.close();
+            resolve();
+          } else tasks.port2.postMessage(null);
+        };
+        tasks.port2.postMessage(null);
+      });
+    }, position);
+    await expect.poll(() => replies.length).toBeGreaterThan(1);
+    expect(wheels.length).toBeGreaterThan(1);
+    expect(wheels.length).toBeLessThanOrEqual(64);
+    await expect(view.getByRole("alert")).toHaveCount(0);
+    await expect(
+      view.getByRole("textbox", { name: "Remote browser input" }),
+    ).toBeFocused();
+    hold = false;
+    for (const reply of replies) reply();
+    await expect(remote.locator("body")).toHaveAttribute("data-wheel", "1920");
+    expect(wheels.reduce((total, delta) => total + delta, 0)).toBe(1920);
+    await page.keyboard.type("after pressure");
+    await expect(remote.locator("#plain")).toHaveValue("after pressure");
+    await expect(view.getByRole("alert")).toHaveCount(0);
+  } finally {
+    await backend.close();
+  }
+});
+
 test("painted pointer geometry follows a viewport resize and page-scale change", async ({
   page,
 }, info) => {
