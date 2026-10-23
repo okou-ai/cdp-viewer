@@ -132,6 +132,7 @@ export class InputQueue {
           }
         }
         this.add(
+          owner,
           async (job) => {
             try {
               resolve(await run(job));
@@ -145,8 +146,7 @@ export class InputQueue {
     });
   }
 
-  capture(): InputJob {
-    const owner = this.lifecycle.owner;
+  capture(owner: InputOwner): InputJob {
     return {
       owner,
       request: (method, params) => this.request(owner, method, params),
@@ -168,18 +168,18 @@ export class InputQueue {
     };
   }
 
-  text(text: string, run: QueuedJob["run"]): void {
-    if (!this.lifecycle.available || !text) return;
+  text(owner: InputOwner, text: string, run: QueuedJob["run"]): void {
+    if (!this.lifecycle.owns(owner) || !text) return;
     if (text.length > 64 * 1024) {
       this.failed();
       return;
     }
     // Each native commit may change the page's focus before the next commit.
-    this.add(run, { text });
+    this.add(owner, run, { text });
   }
 
-  preedit(value: Preedit, run: QueuedJob["run"]): void {
-    if (!this.lifecycle.available) return;
+  preedit(owner: InputOwner, value: Preedit, run: QueuedJob["run"]): void {
+    if (!this.lifecycle.owns(owner)) return;
     if (value.text.length > 64 * 1024) {
       this.failed();
       return;
@@ -190,7 +190,7 @@ export class InputQueue {
       tail.preedit = value;
       return;
     }
-    this.add(run, { preedit: value });
+    this.add(owner, run, { preedit: value });
   }
 
   discardPreedit(): void {
@@ -202,11 +202,12 @@ export class InputQueue {
   }
 
   wheel(
+    owner: InputOwner,
     wheel: Wheel,
     run: QueuedJob["run"],
     prepare: NonNullable<QueuedJob["prepare"]>,
   ): void {
-    if (!this.lifecycle.available) return;
+    if (!this.lifecycle.owns(owner)) return;
     const tail = this.jobs.at(-1);
     const previous = tail?.wheel;
     if (![wheel.deltaX, wheel.deltaY].every(Number.isFinite)) {
@@ -232,25 +233,27 @@ export class InputQueue {
       }
       return;
     }
-    this.add(run, { wheel, prepare });
+    this.add(owner, run, { wheel, prepare });
   }
 
   enqueue(
+    owner: InputOwner,
     run: QueuedJob["run"],
     move?: PointerState,
     prepare?: QueuedJob["prepare"],
   ): void {
-    this.add(run, {
+    this.add(owner, run, {
       ...(move ? { move } : {}),
       ...(prepare ? { prepare } : {}),
     });
   }
 
-  barrier(run: QueuedJob["run"]): void {
-    this.add(run, { barrier: true });
+  barrier(owner: InputOwner, run: QueuedJob["run"]): void {
+    this.add(owner, run, { barrier: true });
   }
 
   private add(
+    owner: InputOwner,
     run: QueuedJob["run"],
     options: {
       move?: PointerState;
@@ -264,7 +267,7 @@ export class InputQueue {
       valid?: () => boolean;
     },
   ): void {
-    if (!this.lifecycle.available) {
+    if (!this.lifecycle.owns(owner)) {
       options.cancel?.();
       return;
     }
@@ -283,7 +286,7 @@ export class InputQueue {
       return;
     }
     const job: QueuedJob = {
-      ...this.capture(),
+      ...this.capture(owner),
       run,
       move,
       started: false,

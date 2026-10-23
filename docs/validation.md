@@ -151,6 +151,15 @@ later successful samples do not explain earlier failures. Normal correctness
 coverage should verify native default scrolling and streamed final position
 without adding machine-specific latency assertions to CI.
 
+Exercise original-owner admission through synchronous callbacks as well as
+delayed replies. Retire or replace input while clearing clipboard/error state,
+flushing a full queue and publishing deliberate focus/navigation transitions.
+Assert no old-event write on the successor and confirm that a fresh event still
+works. Clipboard capture/bubble and compatibility pointer/mouse events must keep
+their original binding. A leading scheduler's pressure fixture must actually
+retain a trailing sample at the held boundary; an already sent leading sample
+cannot be cancelled retroactively.
+
 Verify native send ordering at the controlled protocol wire. Chromium can
 schedule wheel and keyboard DOM callbacks independently; check their remote
 effects separately when ordered sends intentionally do not await acknowledgement.

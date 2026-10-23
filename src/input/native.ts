@@ -2,28 +2,12 @@ import type { Protocol } from "devtools-protocol";
 import { NativeComposition } from "./composition";
 import { NativeClipboard } from "./clipboard";
 import type { ClipboardRecovery } from "./clipboard";
-import type { InputOwner, InputTransition } from "./lifecycle";
+import type { InputTransition } from "./lifecycle";
 import { imagePoint, localPoint } from "./geometry";
 import type { Point } from "./geometry";
 import type { NativeInputPort } from "./port";
-import { sameDirection, samePointerState } from "./coalescing";
-
-type ContinuousSample = {
-  details: Parameters<NativeInputPort["pointer"]>[2];
-} & (
-  | {
-      type: "mouseMoved";
-      clientX: number;
-      clientY: number;
-      captured: boolean;
-    }
-  | { type: "mouseWheel"; point: Point }
-);
-
-type ContinuousPointer = ContinuousSample & {
-  readonly input: NativeInputPort;
-  readonly owner: InputOwner;
-};
+import { InputIngress } from "./ingress";
+import type { InputBinding } from "./ingress";
 
 const buttons = ["left", "middle", "right", "back", "forward"] as const;
 const buttonMasks = [1, 4, 2, 8, 16] as const;
@@ -43,19 +27,24 @@ export class NativeInput {
   private readonly forwarded = new Set<string>();
   private readonly clipboardKeys = new Set<string>();
   private pointerId: number | null = null;
+  private pointerInput: InputBinding | null = null;
   private readonly pressedButtons = new Set<number>();
-  private pointerFrame: number | null = null;
-  private continuous: ContinuousPointer | null = null;
+  private readonly ingress: InputIngress;
   private readonly lifetime = new AbortController();
   private readonly clipboard: NativeClipboard;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly proxy: HTMLTextAreaElement,
-    private readonly input: () => NativeInputPort | null,
+    input: () => NativeInputPort | null,
     private readonly releaseFocus: () => void,
     clipboardChanged: (value: ClipboardRecovery | null) => void = () => {},
   ) {
+    this.ingress = new InputIngress(input, (sample) =>
+      sample.type === "mouseMoved"
+        ? imagePoint(canvas, sample.clientX, sample.clientY, sample.captured)
+        : sample.point,
+    );
     const signal = this.lifetime.signal;
     for (const type of ["copy", "paste", "cut"])
       proxy.addEventListener(type, this.clipboardBoundary, {
@@ -64,7 +53,8 @@ export class NativeInput {
       });
     this.clipboard = new NativeClipboard(
       proxy,
-      input,
+      (event) =>
+        event ? this.ingress.boundary(event) : this.ingress.current(),
       () => this.composition.composing,
       clipboardChanged,
       signal,
@@ -89,7 +79,7 @@ export class NativeInput {
         // A pointer gesture establishes remote focus after its release. Avoid
         // querying the previous control before that click has reached Chrome.
         if (this.pointerId === null) {
-          this.flushContinuous()?.focus();
+          this.ingress.boundary()?.focus();
         }
       },
       { signal },
@@ -100,7 +90,7 @@ export class NativeInput {
     proxy.addEventListener(
       "compositionstart",
       () => {
-        const input = this.flushContinuous();
+        const input = this.ingress.boundary();
         this.composition.start(
           document.activeElement === this.proxy ? (input?.owner ?? null) : null,
           this.proxy.value,
@@ -129,9 +119,10 @@ export class NativeInput {
       this.proxy.value = "";
       this.forwarded.clear();
       this.clipboardKeys.clear();
-      this.clearContinuous();
+      this.ingress.reset();
       const pointer = this.pointerId;
       this.pointerId = null;
+      this.pointerInput = null;
       this.pressedButtons.clear();
       if (
         pointer !== null &&
@@ -162,7 +153,7 @@ export class NativeInput {
 
   dispose(): void {
     this.lifetime.abort();
-    this.input()?.blur();
+    this.ingress.dispose();
     this.reset();
   }
 
@@ -175,7 +166,7 @@ export class NativeInput {
 
   private readonly cancel = () => {
     if (this.resetting) return;
-    this.input()?.blur();
+    this.ingress.blur();
     this.reset("blur");
   };
 
@@ -185,29 +176,23 @@ export class NativeInput {
 
   private readonly pointerDown = (event: PointerEvent) => {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
-    const input = this.input();
-    if (!point || !input || event.pointerType !== "mouse") return;
-    if (this.composition.composing) {
-      input.blur();
-      this.reset();
-    }
-    // The press already supplies this position. Do not insert a deferred hover
-    // between its press/release; held-button drag movement must still flush.
-    if (
-      !this.pressedButtons.size &&
-      this.continuous?.type === "mouseMoved" &&
-      this.continuous.details.buttons === 0 &&
-      this.continuous.details.modifiers === modifiers(event) &&
-      this.continuous.clientX === event.clientX &&
-      this.continuous.clientY === event.clientY
-    )
-      this.clearContinuous();
-    if (!this.flushContinuous()) return;
+    if (!point || event.pointerType !== "mouse") return;
+    const composing = this.composition.composing;
+    const input = this.ingress.pointerBoundary(
+      event.clientX,
+      event.clientY,
+      modifiers(event),
+      composing,
+    );
+    if (!input) return;
+    if (composing) this.reset("failed");
+    if (!input.owner) return;
     // Preserve queued gestures, held modifiers and the consumed composition
     // boundary for another click in the same viewer. The ordered press follows
     // preceding committed input on the same CDP session.
     this.place(point);
     this.pointerId = event.pointerId;
+    this.pointerInput = input;
     this.proxy.focus({ preventScroll: true });
     this.canvas.parentElement?.setPointerCapture(event.pointerId);
   };
@@ -219,7 +204,7 @@ export class NativeInput {
     // PointerEvent.detail is zero. The compatibility mouse event supplies the
     // browser/OS click count, including native double/triple-click settings.
     event.preventDefault();
-    const input = this.flushContinuous();
+    const input = this.ingress.boundary(undefined, this.pointerInput);
     if (!input) return;
     this.pressedButtons.add(event.button);
     input.pointer("mousePressed", point, {
@@ -233,107 +218,38 @@ export class NativeInput {
   private readonly pointerMove = (event: PointerEvent) => {
     if (event.pointerType !== "mouse") return;
     const held = this.ownedButtons(event.buttons);
-    this.bufferContinuous({
-      type: "mouseMoved",
-      clientX: event.clientX,
-      clientY: event.clientY,
-      captured: this.pointerId !== null,
-      details: {
-        button:
-          held & 1 ? "left" : held & 2 ? "right" : held & 4 ? "middle" : "none",
-        buttons: held,
-        modifiers: modifiers(event),
+    this.ingress.continuous(
+      {
+        type: "mouseMoved",
+        clientX: event.clientX,
+        clientY: event.clientY,
+        captured: this.pointerId !== null,
+        details: {
+          button:
+            held & 1
+              ? "left"
+              : held & 2
+                ? "right"
+                : held & 4
+                  ? "middle"
+                  : "none",
+          buttons: held,
+          modifiers: modifiers(event),
+        },
       },
-    });
-  };
-
-  private bufferContinuous(sample: ContinuousSample): void {
-    const input = this.input();
-    const owner = input?.owner;
-    if (!input || !owner) return;
-    const previous = this.continuous;
-    const { details } = sample;
-    if (
-      previous?.input === input &&
-      previous.owner === owner &&
-      samePointerState(previous.details, details)
-    ) {
-      if (previous.type === "mouseMoved" && sample.type === "mouseMoved") {
-        previous.clientX = sample.clientX;
-        previous.clientY = sample.clientY;
-        previous.captured = sample.captured;
-        previous.details = details;
-        return;
-      }
-      if (previous.type === "mouseWheel" && sample.type === "mouseWheel") {
-        const deltaX = details.deltaX ?? 0;
-        const deltaY = details.deltaY ?? 0;
-        const previousX = previous.details.deltaX ?? 0;
-        const previousY = previous.details.deltaY ?? 0;
-        const combinedX = previousX + deltaX;
-        const combinedY = previousY + deltaY;
-        if (
-          previous.point.x === sample.point.x &&
-          previous.point.y === sample.point.y &&
-          sameDirection(previousX, deltaX) &&
-          sameDirection(previousY, deltaY) &&
-          [combinedX, combinedY].every(Number.isFinite)
-        ) {
-          previous.details.deltaX = combinedX;
-          previous.details.deltaY = combinedY;
-          return;
-        }
-      }
-    }
-    this.flushContinuous();
-    // Flushing may synchronously fail and replace the current input owner.
-    if (this.input() !== input || input.owner !== owner) return;
-    const pending: ContinuousPointer = { ...sample, input, owner };
-    this.continuous = pending;
-    this.pointerFrame = requestAnimationFrame(() => {
-      if (this.continuous === pending) this.flushContinuous();
-    });
-  }
-
-  private readonly flushContinuous = (): NativeInputPort | null => {
-    const input = this.input();
-    const owner = input?.owner;
-    const pending = this.continuous;
-    this.clearContinuous();
-    if (pending && input === pending.input && owner === pending.owner) {
-      const point =
-        pending.type === "mouseMoved"
-          ? imagePoint(
-              this.canvas,
-              pending.clientX,
-              pending.clientY,
-              pending.captured,
-            )
-          : pending.point;
-      if (point) pending.input.pointer(pending.type, point, pending.details);
-    }
-    // A synchronous failure may retire ownership or replace the port. The
-    // following action must not acquire that replacement's authority.
-    return input && owner && this.input() === input && input.owner === owner
-      ? input
-      : null;
+      this.pointerId === null ? this.ingress.current() : this.pointerInput,
+    );
   };
 
   private readonly clipboardBoundary = (event: Event) => {
-    if (this.flushContinuous()) return;
+    if (this.ingress.boundary(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   };
 
-  private clearContinuous(): void {
-    this.continuous = null;
-    if (this.pointerFrame !== null) cancelAnimationFrame(this.pointerFrame);
-    this.pointerFrame = null;
-  }
-
   private readonly pointerUp = (event: PointerEvent) => {
     if (event.pointerId !== this.pointerId) return;
-    this.flushContinuous();
+    this.ingress.boundary(undefined, this.pointerInput);
     this.pointerId = null;
     if (this.canvas.parentElement?.hasPointerCapture(event.pointerId)) {
       this.canvas.parentElement.releasePointerCapture(event.pointerId);
@@ -351,9 +267,10 @@ export class NativeInput {
     // button. The window listener also owns release outside the captured stage.
     if (!this.pressedButtons.has(event.button)) return;
     event.preventDefault();
-    const input = this.flushContinuous();
+    const input = this.ingress.boundary(undefined, this.pointerInput);
     if (!input) return;
     this.pressedButtons.delete(event.button);
+    if (!this.pressedButtons.size) this.pointerInput = null;
     const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     if (point)
       input.pointer("mouseReleased", point, {
@@ -366,7 +283,7 @@ export class NativeInput {
 
   private readonly wheel = (event: WheelEvent) => {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
-    if (!point || !this.input()) return;
+    if (!point || !this.ingress.current()) return;
     event.preventDefault();
     event.stopPropagation();
     const unit =
@@ -375,7 +292,7 @@ export class NativeInput {
         : event.deltaMode === 2
           ? this.canvas.clientHeight
           : 1;
-    this.bufferContinuous({
+    this.ingress.continuous({
       type: "mouseWheel",
       point,
       details: {
@@ -388,7 +305,7 @@ export class NativeInput {
   };
 
   private readonly compositionUpdate = (event: CompositionEvent) => {
-    const input = this.flushContinuous();
+    const input = this.ingress.boundary();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const preedit = this.composition.update(event.data, owner);
@@ -402,7 +319,7 @@ export class NativeInput {
   };
 
   private readonly compositionEnd = (event: CompositionEvent) => {
-    const input = this.flushContinuous();
+    const input = this.ingress.boundary();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const composed = this.composition.owns(owner);
@@ -414,7 +331,7 @@ export class NativeInput {
   };
 
   private readonly text = (event: Event) => {
-    const input = this.flushContinuous();
+    const input = this.ingress.boundary();
     const owner =
       document.activeElement === this.proxy ? (input?.owner ?? null) : null;
     const result = this.composition.input(
@@ -459,7 +376,7 @@ export class NativeInput {
       this.releaseFocus();
       return;
     }
-    const input = this.flushContinuous();
+    const input = this.ingress.boundary();
     if (!input) {
       event.preventDefault();
       return;
@@ -510,7 +427,7 @@ export class NativeInput {
     }
     event.preventDefault();
     event.stopPropagation();
-    this.flushContinuous()?.key({
+    this.ingress.boundary()?.key({
       type: "keyUp",
       key: event.key,
       code: event.code,

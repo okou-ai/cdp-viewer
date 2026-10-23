@@ -123,7 +123,7 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
-test("batches wheel tasks before a frame and admits them before a later key", async ({
+test("sends a leading wheel and admits its trailing batch before a later key", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -249,10 +249,12 @@ test("batches wheel tasks before a frame and admits them before a later key", as
       commands.map((command) => [command.method, command.params?.type]),
     ).toEqual([
       ["Input.dispatchMouseEvent", "mouseWheel"],
+      ["Input.dispatchMouseEvent", "mouseWheel"],
       ["Input.dispatchKeyEvent", "rawKeyDown"],
       ["Input.dispatchKeyEvent", "keyUp"],
     ]);
-    expect(commands[0]?.params?.deltaY).toBe(96);
+    expect(commands[0]?.params?.deltaY).toBe(12);
+    expect(commands[1]?.params?.deltaY).toBe(84);
     await expect(view).toHaveAttribute("data-status", "streaming");
   } finally {
     await backend.close();

@@ -116,14 +116,14 @@ export class InputSession {
     if (this.available) this.updateHistory();
   }
 
-  focus(): void {
-    if (!this.accepting) return;
-    this.refreshCaret(this.queue.capture());
+  focus(owner: InputOwner = this.lifecycle.owner): void {
+    if (!this.accepting || !this.lifecycle.owns(owner)) return;
+    this.refreshCaret(this.queue.capture(owner));
   }
 
-  blur(): void {
-    if (!this.accepting) return;
-    this.transition("blur");
+  blur(owner: InputOwner = this.lifecycle.owner): InputOwner | null {
+    if (!this.accepting || !this.lifecycle.owns(owner)) return null;
+    return this.transition("blur");
   }
 
   /** Complete preceding ordered work and native replies for the captured owner. */
@@ -151,9 +151,10 @@ export class InputSession {
     return this.retirement;
   }
 
-  private transition(reason: InputTransition): void {
+  private transition(reason: InputTransition): InputOwner | null {
     const cleanup = this.lifecycle.transition(reason);
-    if (!cleanup) return;
+    if (!cleanup) return null;
+    const owner = this.lifecycle.owner;
     const refreshHistory = this.historyReading || this.historyJob !== null;
     this.historyVersion++;
     this.historyJob = null;
@@ -179,6 +180,7 @@ export class InputSession {
     this.resetLocal(reason);
     if ((reason === "blur" || reason === "failed") && refreshHistory)
       this.updateHistory();
+    return this.lifecycle.owns(owner) ? owner : null;
   }
 
   dispose(reason: InputStop = "disposed"): void {
@@ -273,8 +275,9 @@ export class InputSession {
       Mouse,
       "button" | "buttons" | "clickCount" | "modifiers" | "deltaX" | "deltaY"
     >,
+    owner: InputOwner = this.lifecycle.owner,
   ): void {
-    if (!this.accepting) return;
+    if (!this.accepting || !this.lifecycle.owns(owner)) return;
     if (!this.geometry.available && type !== "mouseReleased") return;
     if (type === "mousePressed") this.invalidateClipboard();
     let geometry: InputGeometry | null = null;
@@ -336,6 +339,7 @@ export class InputSession {
     };
     if (type === "mouseWheel")
       this.queue.wheel(
+        owner,
         {
           point,
           button: details.button ?? "none",
@@ -349,6 +353,7 @@ export class InputSession {
       );
     else
       this.queue.enqueue(
+        owner,
         run,
         type === "mouseMoved" ? details : undefined,
         prepare,
@@ -358,7 +363,7 @@ export class InputSession {
   text(text: string, owner: InputOwner = this.lifecycle.owner): void {
     if (!this.accepting || !this.lifecycle.owns(owner)) return;
     this.invalidateClipboard();
-    this.queue.text(text, (job) => {
+    this.queue.text(owner, text, (job) => {
       this.setError(null);
       const token = this.lifecycle.composition(job.owner);
       job.dispatch("Input.insertText", { text: job.text! }, () =>
@@ -381,30 +386,34 @@ export class InputSession {
     )
       return;
     this.invalidateClipboard();
-    this.queue.preedit({ text, selectionStart, selectionEnd }, async (job) => {
-      if (!this.preeditSupported) return;
-      const value = job.preedit!;
-      const token = value.text
-        ? this.lifecycle.compose(job.owner)
-        : this.lifecycle.composition(job.owner);
-      try {
-        await job.write("Input.imeSetComposition", value);
-        if (!value.text) this.lifecycle.finishComposition(job.owner, token);
-        this.refreshCaret(job);
-      } catch (error) {
-        if (error instanceof CdpFault && error.code === -32601) {
-          this.preeditSupported = false;
-          this.lifecycle.finishComposition(job.owner, token);
-        } else throw error;
-      } finally {
-        // Finish original-document cleanup before the queue admits a new owner.
-        if (
-          !this.lifecycle.owns(job.owner) &&
-          this.lifecycle.retainsDocument(job.owner)
-        )
-          this.cancelComposition();
-      }
-    });
+    this.queue.preedit(
+      owner,
+      { text, selectionStart, selectionEnd },
+      async (job) => {
+        if (!this.preeditSupported) return;
+        const value = job.preedit!;
+        const token = value.text
+          ? this.lifecycle.compose(job.owner)
+          : this.lifecycle.composition(job.owner);
+        try {
+          await job.write("Input.imeSetComposition", value);
+          if (!value.text) this.lifecycle.finishComposition(job.owner, token);
+          this.refreshCaret(job);
+        } catch (error) {
+          if (error instanceof CdpFault && error.code === -32601) {
+            this.preeditSupported = false;
+            this.lifecycle.finishComposition(job.owner, token);
+          } else throw error;
+        } finally {
+          // Finish original-document cleanup before the queue admits a new owner.
+          if (
+            !this.lifecycle.owns(job.owner) &&
+            this.lifecycle.retainsDocument(job.owner)
+          )
+            this.cancelComposition();
+        }
+      },
+    );
   }
 
   commitComposition(text: string, owner: InputOwner): void {
@@ -415,7 +424,7 @@ export class InputSession {
       this.text(text, owner);
       return;
     }
-    this.queue.enqueue(async (job) => {
+    this.queue.enqueue(owner, async (job) => {
       const token = this.lifecycle.composition(job.owner);
       if (!token) return;
       await job.write("Input.imeSetComposition", {
@@ -435,14 +444,14 @@ export class InputSession {
     });
   }
 
-  key(key: Key): void {
-    if (!this.accepting) return;
+  key(key: Key, owner: InputOwner = this.lifecycle.owner): void {
+    if (!this.accepting || !this.lifecycle.owns(owner)) return;
     if (
       key.type !== "keyUp" &&
       !["Shift", "Control", "Alt", "Meta"].includes(key.key ?? "")
     )
       this.invalidateClipboard();
-    this.queue.enqueue((job) => {
+    this.queue.enqueue(owner, (job) => {
       // Releasing the clipboard shortcut's modifier is cleanup, not a new
       // successful edit. Preserve any copy/paste diagnostic until a new action.
       if (key.type !== "keyUp") this.setError(null);
@@ -483,7 +492,11 @@ export class InputSession {
     );
   }
 
-  clipboardError(message: string): void {
+  clipboardError(
+    message: string,
+    owner: InputOwner = this.lifecycle.owner,
+  ): void {
+    if (!this.accepting || !this.lifecycle.owns(owner)) return;
     this.setError(new CdpFault("input", message));
   }
 
@@ -507,8 +520,9 @@ export class InputSession {
         return;
       }
     }
-    this.transition("navigation-started");
-    this.queue.barrier(async (job) => {
+    const owner = this.transition("navigation-started");
+    if (!owner) return;
+    this.queue.barrier(owner, async (job) => {
       if (action === "reload") await job.write("Page.reload", undefined);
       else if (action === "back" || action === "forward") {
         const history = await job.request(
@@ -606,7 +620,7 @@ export class InputSession {
   private updateHistory(): void {
     if (!this.available) return;
     this.historyVersion++;
-    this.historyJob = this.queue.capture();
+    this.historyJob = this.queue.capture(this.lifecycle.owner);
     if (!this.historyReading)
       this.drainHistory().catch(() => {
         // Optional failures never discard input or change its diagnostic.
