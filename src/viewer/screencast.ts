@@ -29,6 +29,9 @@ export class Screencast {
   private revision = 0;
   private painted = false;
   private monitor = true;
+  private navigationRevision = 0;
+  private navigating = new Set<string>();
+  private navigationWaiter: (() => void) | null = null;
 
   constructor(
     private readonly owner: ScreencastOwner,
@@ -49,6 +52,16 @@ export class Screencast {
 
   get acceptingFrames(): boolean {
     return this.current() && this.accepting;
+  }
+
+  navigationStarted(frameId: string): void {
+    this.navigationRevision++;
+    this.navigating.add(frameId);
+  }
+
+  navigationFinished(frameId: string): void {
+    this.navigating.delete(frameId);
+    if (!this.navigating.size) this.navigationWaiter?.();
   }
 
   push(
@@ -136,6 +149,8 @@ export class Screencast {
     this.disposed = true;
     this.accepting = false;
     this.cancelDeadline();
+    this.navigationWaiter?.();
+    this.navigating.clear();
     if (this.started)
       this.owner.client.notify(
         "Page.stopScreencast",
@@ -195,6 +210,7 @@ export class Screencast {
   }
 
   private async reconcile(): Promise<void> {
+    let recoveredNavigation = false;
     while (
       this.current() &&
       !this.reserved &&
@@ -206,7 +222,41 @@ export class Screencast {
       }
       // Coalesce updates received while stop was pending before dispatching start.
       const settings = this.desired;
-      await this.begin(settings);
+      const navigation = this.navigationRevision;
+      try {
+        await this.begin(settings);
+      } catch (error) {
+        // Chrome rejects a capture restart while replacing the document. Only
+        // recover a definite start rejection with observed concurrent navigation;
+        // uncertain requests and ordinary protocol failures still fail normally.
+        if (
+          !this.applied ||
+          recoveredNavigation ||
+          !(error instanceof CdpFault) ||
+          error.code !== -32000 ||
+          (!this.navigating.size && navigation === this.navigationRevision)
+        )
+          throw error;
+        recoveredNavigation = true;
+        this.accepting = false;
+        this.revision++;
+        this.owner.sink.invalidate();
+        if (!(await this.waitForNavigation())) throw error;
+        this.applied = null;
+      }
     }
+  }
+
+  private waitForNavigation(): Promise<boolean> {
+    if (!this.navigating.size || !this.current()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (completed: boolean) => {
+        clearTimeout(deadline);
+        this.navigationWaiter = null;
+        resolve(completed);
+      };
+      const deadline = setTimeout(() => finish(false), frameTimeoutMs);
+      this.navigationWaiter = () => finish(true);
+    });
   }
 }

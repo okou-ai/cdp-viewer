@@ -1060,6 +1060,26 @@ export class ViewerController {
       const selected = this.selection;
       if (selected && event.sessionId === selected.sessionId) {
         if (
+          event.method === "Page.frameStartedNavigating" &&
+          typeof event.params.frameId === "string"
+        )
+          selected.stream?.navigationStarted(event.params.frameId);
+        else if (
+          event.method === "Page.frameNavigated" &&
+          isRecord(event.params.frame) &&
+          typeof event.params.frame.id === "string"
+        )
+          selected.stream?.navigationFinished(event.params.frame.id);
+        else if (
+          [
+            "Page.frameStoppedLoading",
+            "Page.frameDetached",
+            "Page.navigatedWithinDocument",
+          ].includes(event.method) &&
+          typeof event.params.frameId === "string"
+        )
+          selected.stream?.navigationFinished(event.params.frameId);
+        if (
           event.method === "Page.frameNavigated" &&
           isRecord(event.params.frame) &&
           !event.params.frame.parentId

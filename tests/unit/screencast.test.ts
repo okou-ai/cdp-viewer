@@ -192,3 +192,112 @@ it("joins capture configuration before an exclusive native refresh and retains t
     params: { quality: 45 },
   });
 });
+
+it.each(["before", "during", "completed"])(
+  "recovers one rejected capture restart after observed %s navigation",
+  async (phase) => {
+    vi.useFakeTimers();
+    const { socket, sink, capture, failed } = await stream();
+    socket.reply(socket.commands[0]!);
+    await vi.advanceTimersByTimeAsync(0);
+    if (phase === "before") capture.navigationStarted("main");
+    capture.configure({ ...defaultCapture, maxWidth: 800 });
+    socket.reply(socket.commands.at(-1)!);
+    await vi.advanceTimersByTimeAsync(0);
+    const rejected = socket.commands.at(-1)!;
+    expect(rejected.method).toBe("Page.startScreencast");
+    if (phase !== "before") capture.navigationStarted("main");
+    if (phase === "completed") capture.navigationFinished("main");
+    socket.reject(rejected, -32000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(failed).not.toHaveBeenCalled();
+    if (phase !== "completed") {
+      const commands = socket.commands.length;
+      const pushes = sink.push.mock.calls.length;
+      capture.push("obsolete", () => {});
+      expect(sink.push).toHaveBeenCalledTimes(pushes);
+      capture.configure({ ...defaultCapture, maxWidth: 900 });
+      capture.navigationStarted("child");
+      capture.navigationFinished("main");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(socket.commands).toHaveLength(commands);
+      capture.navigationFinished("child");
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(socket.commands.at(-1)!.method).toBe("Page.stopScreencast");
+    socket.reply(socket.commands.at(-1)!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.commands.at(-1)).toMatchObject({
+      method: "Page.startScreencast",
+      sessionId: "owned",
+      params: { maxWidth: phase === "completed" ? 800 : 900 },
+    });
+    const painted = vi.fn();
+    capture.push("fresh", painted);
+    sink.push.mock.calls.at(-1)![1]();
+    socket.reply(socket.commands.at(-1)!);
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(painted).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+    expect(sink.reset).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["initial", "no-navigation", "unsupported"])(
+  "retains normal failure handling for an %s start rejection",
+  async (scenario) => {
+    vi.useFakeTimers();
+    const { socket, capture, failed } = await stream();
+    if (scenario !== "initial") {
+      socket.reply(socket.commands[0]!);
+      await vi.advanceTimersByTimeAsync(0);
+      capture.configure({ ...defaultCapture, maxWidth: 800 });
+      socket.reply(socket.commands.at(-1)!);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    if (scenario !== "no-navigation") capture.navigationStarted("main");
+    socket.reject(
+      socket.commands.at(-1)!,
+      scenario === "unsupported" ? -32601 : -32000,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(failed).toHaveBeenCalledOnce();
+    capture.navigationFinished("main");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      socket.commands.filter((c) => c.method === "Page.startScreencast"),
+    ).toHaveLength(scenario === "initial" ? 1 : 2);
+  },
+);
+
+it.each(["dispose", "timeout", "second-rejection"])(
+  "bounds navigation recovery through %s",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const { socket, capture, failed } = await stream();
+    socket.reply(socket.commands[0]!);
+    await vi.advanceTimersByTimeAsync(0);
+    capture.configure({ ...defaultCapture, maxWidth: 800 });
+    socket.reply(socket.commands.at(-1)!);
+    await vi.advanceTimersByTimeAsync(0);
+    capture.navigationStarted("main");
+    socket.reject(socket.commands.at(-1)!, -32000);
+    await vi.advanceTimersByTimeAsync(0);
+    if (outcome === "dispose") capture.dispose();
+    else if (outcome === "second-rejection") {
+      capture.navigationFinished("main");
+      await vi.advanceTimersByTimeAsync(0);
+      socket.reply(socket.commands.at(-1)!);
+      await vi.advanceTimersByTimeAsync(0);
+      capture.navigationStarted("next");
+      socket.reject(socket.commands.at(-1)!, -32000);
+      await vi.advanceTimersByTimeAsync(0);
+      capture.navigationFinished("next");
+    }
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(failed).toHaveBeenCalledTimes(outcome === "dispose" ? 0 : 1);
+    expect(
+      socket.commands.filter((c) => c.method === "Page.startScreencast"),
+    ).toHaveLength(outcome === "second-rejection" ? 3 : 2);
+  },
+);

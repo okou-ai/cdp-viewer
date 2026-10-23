@@ -231,6 +231,10 @@ the latest measurement, at most once per 150ms, and continue during resizing.
 An active native display synchronization takes priority; ordinary automatic
 capture changes apply afterward, while required causal capture refreshes retain
 their own bounded recovery.
+A capture restart explicitly rejected during observed document replacement gets
+one recovery attempt after navigation settles, on the same selected session.
+The wait is bounded by the existing frame deadline; other capture failures retain
+their diagnostics.
 Unavailable/zero-size surfaces retain the last valid bounds; before the first
 measurement the bounded fallback is 1920×1080. Changes while paused apply on
 resume. Equal effective settings do not restart. Remove a fixed dimension to
