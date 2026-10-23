@@ -121,8 +121,9 @@ smaller maximum to save bandwidth or retain more detail with a larger maximum;
 the remote page keeps its viewport and aspect ratio. Text can soften at smaller
 resolutions, especially when enlarged. Both controls apply live, preserving the
 viewer, selected page and native input, and appear in Usage. Changing local
-preview dimensions does not automatically change capture. Preferences remain
-in this panel's memory and are cleared on refresh.
+preview dimensions keeps the selected capture limits. Window-size synchronization
+can still change the remote viewport and actual image dimensions. Preferences
+remain in this panel's memory and are cleared on refresh.
 
 State & events retains only semantic summaries: status, tab count, selection
 presence, navigation availability/history capabilities and diagnostic category.
