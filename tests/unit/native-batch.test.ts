@@ -72,7 +72,8 @@ function surface(input: NativeInputPort) {
     .spyOn(canvas, "getBoundingClientRect")
     .mockReturnValue(new DOMRect(0, 0, 800, 600));
   vi.spyOn(canvas, "clientHeight", "get").mockReturnValue(600);
-  stage.setPointerCapture = vi.fn();
+  const capture = vi.fn<(pointerId: number) => void>();
+  stage.setPointerCapture = capture;
   stage.hasPointerCapture = vi.fn(() => false);
   stage.append(canvas, proxy);
   document.body.append(stage);
@@ -83,6 +84,7 @@ function surface(input: NativeInputPort) {
     adapter,
     proxy,
     canvas,
+    capture,
     bounds,
     replace: (replacement: NativeInputPort) => {
       current = replacement;
@@ -749,7 +751,7 @@ it("does not acquire pointer capture when the adapter retires during proxy focus
     once: true,
   });
   native.press();
-  expect(native.canvas.parentElement?.setPointerCapture).not.toHaveBeenCalled();
+  expect(native.capture).not.toHaveBeenCalled();
   expect(input.pointer).not.toHaveBeenCalled();
 });
 
