@@ -2034,6 +2034,8 @@ it("retains a newer policy request when the preceding operation finishes rolling
 it("keeps the latest initial measurement while the first guard is pending", async () => {
   const browser = new FakeBrowser();
   browser.holdMethod = "Runtime.evaluate";
+  browser.holdExpression =
+    "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})";
   const { controller, model } = mount(browser, "initial", 0);
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   controller.measureDisplay({ width: 700, height: 500, dpr: 2 });
@@ -2056,6 +2058,8 @@ it("keeps the latest initial measurement while the first guard is pending", asyn
 it("makes live progress with the latest size without requiring a quiet measurement interval", async () => {
   const browser = new FakeBrowser();
   browser.holdMethod = "Runtime.evaluate";
+  browser.holdExpression =
+    "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})";
   const { controller, model } = mount(browser, "live", 0);
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   for (let index = 0; index < 100; index++)

@@ -111,6 +111,7 @@ export class FakeBrowser {
   readonly heldFrames: (() => void)[] = [];
   holdMethod: string | null = null;
   holdCommand: ((command: WireCommand) => boolean) | null = null;
+  holdExpression: string | null = null;
   blockOpen = false;
   readonly heldCommands: { command: WireCommand; socket: FakeSocket }[] = [];
   readonly held: {
@@ -132,9 +133,18 @@ export class FakeBrowser {
   };
 
   resume(command: WireCommand, socket: FakeSocket): void {
-    if (this.holdMethod === command.method || this.holdCommand?.(command))
+    if (this.holds(command))
       throw new Error("Clear the held method before resuming it.");
     this.respond(command, socket);
+  }
+
+  private holds(command: WireCommand): boolean {
+    return (
+      this.holdCommand?.(command) === true ||
+      (this.holdMethod === command.method &&
+        (this.holdExpression === null ||
+          command.params?.expression === this.holdExpression))
+    );
   }
 
   frame(
@@ -190,7 +200,7 @@ export class FakeBrowser {
 
   private respond(command: WireCommand, socket: FakeSocket): void {
     queueMicrotask(() => {
-      if (command.method === this.holdMethod || this.holdCommand?.(command)) {
+      if (this.holds(command)) {
         this.heldCommands.push({ command, socket });
         return;
       }
