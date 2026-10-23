@@ -35,13 +35,17 @@ export class InputBinding {
     if (this.current()) this.target.blur(this.captured);
   }
 
-  pointer(...args: Parameters<NativeInputPort["pointer"]>): void {
+  pointer(
+    type: Parameters<NativeInputPort["pointer"]>[0],
+    point: Point,
+    details: Parameters<NativeInputPort["pointer"]>[2],
+  ): void {
     if (this.current())
-      this.target.pointer(args[0], args[1], args[2], this.captured);
+      this.target.pointer(type, point, details, this.captured);
   }
 
-  key(...args: Parameters<NativeInputPort["key"]>): void {
-    if (this.current()) this.target.key(args[0], this.captured);
+  key(key: Parameters<NativeInputPort["key"]>[0]): void {
+    if (this.current()) this.target.key(key, this.captured);
   }
 
   text(text: string, owner: InputOwner = this.captured): void {
@@ -85,7 +89,6 @@ export class InputIngress {
   constructor(
     private readonly input: () => NativeInputPort | null,
     private readonly project: (sample: ContinuousSample) => Point | null,
-    private readonly leading = true,
   ) {}
 
   current(): InputBinding | null {
@@ -128,18 +131,26 @@ export class InputIngress {
     return admitted;
   }
 
-  pointerBoundary(
-    clientX: number,
-    clientY: number,
-    modifiers: number,
-    composing: boolean,
-  ): InputBinding | null {
+  pointerBoundary({
+    clientX,
+    clientY,
+    modifiers,
+    composing,
+    heldButtons,
+  }: {
+    clientX: number;
+    clientY: number;
+    modifiers: number;
+    composing: boolean;
+    heldButtons: number;
+  }): InputBinding | null {
     const original = this.current();
     const binding = this.binding;
     const pending = this.pending;
     // The native press already supplies an identical unheld hover position.
     if (
       pending?.type === "mouseMoved" &&
+      heldButtons === 0 &&
       pending.details.buttons === 0 &&
       pending.details.modifiers === modifiers &&
       pending.clientX === clientX &&
@@ -163,7 +174,7 @@ export class InputIngress {
     sample: ContinuousSample,
     input: InputBinding | null = this.current(),
   ): void {
-    if (!input) return;
+    if (!input?.owner) return;
     const previous = this.pending;
     if (
       previous?.input === input &&
@@ -197,14 +208,8 @@ export class InputIngress {
     if (previous) this.flush();
     if (!input.owner) return;
     const pending: Pending = { ...sample, input };
-    if (this.frame === null && this.leading) {
-      // Reserve the frame before dispatch so reentrant reset can cancel it.
-      this.schedule();
-      this.send(pending);
-    } else {
-      this.pending = pending;
-      if (this.frame === null) this.schedule();
-    }
+    this.pending = pending;
+    if (this.frame === null) this.schedule();
   }
 
   reset(): void {
@@ -249,10 +254,7 @@ export class InputIngress {
       this.frame = null;
       const pending = this.pending;
       this.pending = null;
-      if (pending?.input.owner) {
-        this.schedule();
-        this.send(pending);
-      }
+      if (pending) this.send(pending);
     });
   }
 }

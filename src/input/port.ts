@@ -1,6 +1,6 @@
 import type { InputSession } from "./session";
 
-/** DOM adaptation needs these capabilities, not the session's protocol internals. */
+/** Raw session capabilities used only to create original-owner input bindings. */
 export type NativeInputPort = Pick<
   InputSession,
   | "owner"

@@ -121,6 +121,7 @@ export class InputSession {
     this.refreshCaret(this.queue.capture(owner));
   }
 
+  /** Return this transition's published successor, never a reentrant replacement. */
   blur(owner: InputOwner = this.lifecycle.owner): InputOwner | null {
     if (!this.accepting || !this.lifecycle.owns(owner)) return null;
     return this.transition("blur");

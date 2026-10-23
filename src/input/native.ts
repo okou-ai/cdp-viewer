@@ -111,6 +111,10 @@ export class NativeInput {
   }
 
   reset(reason?: InputTransition): void {
+    this.resetLocal(reason);
+  }
+
+  private resetLocal(reason?: InputTransition | "pointer-restarted"): void {
     if (this.resetting) return;
     this.resetting = true;
     try {
@@ -135,7 +139,8 @@ export class NativeInput {
         reason !== "navigation-started" &&
         reason !== "same-document" &&
         reason !== "document-lost" &&
-        reason !== "failed"
+        reason !== "failed" &&
+        reason !== "pointer-restarted"
       )
         this.proxy.blur();
     } finally {
@@ -178,14 +183,15 @@ export class NativeInput {
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     if (!point || event.pointerType !== "mouse") return;
     const composing = this.composition.composing;
-    const input = this.ingress.pointerBoundary(
-      event.clientX,
-      event.clientY,
-      modifiers(event),
+    const input = this.ingress.pointerBoundary({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      modifiers: modifiers(event),
       composing,
-    );
+      heldButtons: this.pressedButtons.size,
+    });
     if (!input) return;
-    if (composing) this.reset("failed");
+    if (composing) this.resetLocal("pointer-restarted");
     if (!input.owner) return;
     // Preserve queued gestures, held modifiers and the consumed composition
     // boundary for another click in the same viewer. The ordered press follows
@@ -270,7 +276,6 @@ export class NativeInput {
     const input = this.ingress.boundary(undefined, this.pointerInput);
     if (!input) return;
     this.pressedButtons.delete(event.button);
-    if (!this.pressedButtons.size) this.pointerInput = null;
     const point = imagePoint(this.canvas, event.clientX, event.clientY, true);
     if (point)
       input.pointer("mouseReleased", point, {

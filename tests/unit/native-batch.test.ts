@@ -174,7 +174,7 @@ async function fillQueue(first: Awaited<ReturnType<typeof session>>) {
     first.input.key({ type: "rawKeyDown", key: "a", code: "KeyA" });
 }
 
-it("sends a leading wheel immediately and batches the trailing distance", async () => {
+it("batches separate wheel admissions before a frame and conserves normalized distance", async () => {
   const frames = clock();
   const { input, socket } = await session();
   const native = surface(input);
@@ -183,23 +183,20 @@ it("sends a leading wheel immediately and batches the trailing distance", async 
     native.wheel({ deltaX: 2, deltaY: 3, deltaMode: index % 2 });
     await input.completion(input.owner!);
   }
-  expect(pointer).toHaveBeenCalledOnce();
+  expect(pointer).not.toHaveBeenCalled();
   expect(frames.frames.size).toBe(1);
   frames.frame();
   await input.completion(input.owner!);
-  expect(pointer).toHaveBeenCalledTimes(2);
+  expect(pointer).toHaveBeenCalledOnce();
   expect(
     socket.commands
       .filter((c) => c.method === "Input.dispatchMouseEvent")
       .map((c) => c.params),
-  ).toMatchObject([
-    { type: "mouseWheel", deltaX: 2, deltaY: 3 },
-    { type: "mouseWheel", deltaX: 134, deltaY: 201 },
-  ]);
+  ).toMatchObject([{ type: "mouseWheel", deltaX: 136, deltaY: 204 }]);
   native.wheel({ deltaMode: 2, deltaX: 1, deltaY: 1 });
   frames.frame();
   await input.completion(input.owner!);
-  expect(pointer.mock.calls[2]?.[2]).toMatchObject({
+  expect(pointer.mock.calls[1]?.[2]).toMatchObject({
     deltaX: 600,
     deltaY: 600,
   });
@@ -212,12 +209,11 @@ it("resolves local geometry once when a compatible movement batch flushes", () =
   const { bounds } = native;
   bounds.mockClear();
   for (let index = 0; index < 8; index++) native.move({ clientX: 100 + index });
-  expect(bounds).toHaveBeenCalledOnce();
-  expect(input.pointer).toHaveBeenCalledOnce();
+  expect(bounds).not.toHaveBeenCalled();
+  expect(input.pointer).not.toHaveBeenCalled();
   frames.frame();
-  expect(bounds).toHaveBeenCalledTimes(2);
-  expect(input.pointer).toHaveBeenCalledTimes(2);
-  expect(input.pointer).toHaveBeenLastCalledWith(
+  expect(bounds).toHaveBeenCalledOnce();
+  expect(input.pointer).toHaveBeenCalledExactlyOnceWith(
     "mouseMoved",
     { x: 107 / 800, y: 0.5 },
     expect.objectContaining({ buttons: 0 }),
@@ -230,9 +226,7 @@ it("uses current contain geometry when a later key flushes pending movement", ()
   const { input } = port();
   const native = surface(input);
   const { bounds } = native;
-  native.move({ clientX: 100 });
   bounds.mockClear();
-  input.pointer.mockClear();
   native.move({ clientX: 200, clientY: 200 });
   bounds.mockReturnValue(new DOMRect(0, 0, 400, 300));
   native.proxy.dispatchEvent(
@@ -261,16 +255,11 @@ it("discards stale and cancelled movement before reading local geometry", () => 
   const { input, replaceOwner } = port();
   const native = surface(input);
   const { bounds } = native;
-  native.move();
-  native.move();
   bounds.mockClear();
-  input.pointer.mockClear();
+  native.move();
   replaceOwner();
   frames.frame();
   native.move();
-  native.move();
-  bounds.mockClear();
-  input.pointer.mockClear();
   const obsolete = [...frames.frames.values()][0]!;
   native.adapter.reset("paused");
   obsolete(0);
@@ -313,12 +302,10 @@ it("preserves button and modifier changes while coalescing compatible movement",
     "mouseMoved",
     "mouseMoved",
     "mouseMoved",
-    "mouseMoved",
     "mouseWheel",
     "mouseWheel",
   ]);
   expect(input.pointer.mock.calls.map(([, point]) => point.x)).toEqual([
-    0.125,
     0.25,
     250 / 800,
     300 / 800,
@@ -327,7 +314,7 @@ it("preserves button and modifier changes while coalescing compatible movement",
   ]);
   expect(
     input.pointer.mock.calls.map(([, , details]) => details.buttons),
-  ).toEqual([1, 1, 1, 0, 0, 1]);
+  ).toEqual([1, 1, 0, 0, 1]);
 });
 
 it("flushes earlier movement and wheel before a key on the real send lane", async () => {
@@ -381,14 +368,10 @@ it.each([
   const { input } = port();
   const native = surface(input);
   native.wheel();
-  native.wheel();
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, "data", { value: "" });
   native.proxy.dispatchEvent(event);
-  expect(input.pointer).toHaveBeenCalledTimes(2);
-  expect(
-    input.pointer.mock.calls.map(([, , details]) => details.deltaY),
-  ).toEqual([12, 12]);
+  expect(input.pointer).toHaveBeenCalledOnce();
   expect(frames.frames.size).toBe(0);
 });
 
@@ -430,19 +413,16 @@ it.each([
   replaceOwner();
   native.adapter.reset(reason);
   expect(frames.frames.size).toBe(0);
-  input.pointer.mockClear();
   native.wheel({ deltaY: 20 });
-  native.wheel({ deltaY: 30 });
   obsolete(0);
+  expect(input.pointer).not.toHaveBeenCalled();
+  frames.frame();
   expect(input.pointer).toHaveBeenCalledExactlyOnceWith(
     "mouseWheel",
     { x: 0.5, y: 0.5 },
     expect.objectContaining({ deltaY: 20 }),
     input.owner,
   );
-  frames.frame();
-  expect(input.pointer).toHaveBeenCalledTimes(2);
-  expect(input.pointer.mock.calls[1]?.[2]).toMatchObject({ deltaY: 30 });
 });
 
 it("does not let an old callback acquire a new owner or replacement port", () => {
@@ -450,14 +430,10 @@ it("does not let an old callback acquire a new owner or replacement port", () =>
   const first = port();
   const native = surface(first.input);
   native.move();
-  native.move();
-  first.input.pointer.mockClear();
   first.replaceOwner();
   frames.frame();
   expect(first.input.pointer).not.toHaveBeenCalled();
   native.wheel();
-  native.wheel();
-  first.input.pointer.mockClear();
   const replacement = port();
   native.replace(replacement.input);
   frames.frame();
@@ -469,13 +445,11 @@ it("does not reschedule work after a flush synchronously invalidates its owner",
   const frames = clock();
   const { input, replaceOwner } = port();
   const native = surface(input);
-  native.wheel();
-  input.pointer.mockClear();
-  native.wheel();
   input.pointer.mockImplementation(() => {
     replaceOwner();
     native.adapter.reset("failed");
   });
+  native.wheel();
   native.wheel({ ctrlKey: true });
   expect(input.pointer).toHaveBeenCalledOnce();
   expect(frames.frames.size).toBe(0);
@@ -510,9 +484,7 @@ it("keeps viewer buffers independent and cancels F8 and disposal without a frame
   const first = surface(a.input),
     second = surface(b.input);
   first.wheel();
-  first.wheel();
   second.wheel({ deltaY: 20 });
-  second.wheel({ deltaY: 30 });
   first.proxy.dispatchEvent(
     new KeyboardEvent("keydown", {
       bubbles: true,
@@ -521,12 +493,12 @@ it("keeps viewer buffers independent and cancels F8 and disposal without a frame
     }),
   );
   frames.frame();
-  expect(a.input.pointer).toHaveBeenCalledOnce();
-  expect(b.input.pointer).toHaveBeenCalledTimes(2);
+  expect(a.input.pointer).not.toHaveBeenCalled();
+  expect(b.input.pointer).toHaveBeenCalledOnce();
   second.wheel();
   second.adapter.dispose();
   frames.frame();
-  expect(b.input.pointer).toHaveBeenCalledTimes(2);
+  expect(b.input.pointer).toHaveBeenCalledOnce();
 });
 
 it.each(["mouseMoved", "mouseWheel"] as const)(
@@ -581,17 +553,12 @@ it("rejects a finite batch that overflows after native wheel scaling", async () 
   const frames = clock();
   const { input, socket, reset } = await session(4);
   const native = surface(input);
-  native.move();
-  await input.completion(input.owner!);
-  const start = socket.commands.length;
   native.wheel({ deltaY: 4e307 });
   native.wheel({ deltaY: 4e307 });
   frames.frame();
   await vi.waitFor(() => expect(reset).toHaveBeenCalledWith("failed"));
   expect(
-    socket.commands
-      .slice(start)
-      .filter((c) => c.method === "Input.dispatchMouseEvent"),
+    socket.commands.filter((c) => c.method === "Input.dispatchMouseEvent"),
   ).toHaveLength(0);
 });
 
@@ -612,7 +579,6 @@ it.each(["keydown", "keyup", "press", "release", "focus", "composition"])(
       );
     if (action === "release") native.press();
     if (action === "focus") native.proxy.blur();
-    native.move();
     await first.input.completion(first.input.owner!);
     await fillQueue(first);
     first.reset.mockImplementation((reason) => {
@@ -678,8 +644,6 @@ it("discards a key when its flush retires only the current owner", async () => {
   clock();
   const first = await session();
   const native = surface(first.input);
-  native.move();
-  await first.input.completion(first.input.owner!);
   await fillQueue(first);
   const owner = first.input.owner;
   first.reset.mockImplementation((reason) => native.adapter.reset(reason));
@@ -700,6 +664,82 @@ it("discards a key when its flush retires only the current owner", async () => {
   ).toHaveLength(0);
 });
 
+it("keeps the first composing click on its explicitly restarted focus generation", async () => {
+  clock();
+  const first = await session();
+  const native = surface(first.input);
+  first.reset.mockImplementation((reason) => native.adapter.reset(reason));
+  const original = first.input.owner;
+  native.proxy.dispatchEvent(
+    new CompositionEvent("compositionstart", { bubbles: true }),
+  );
+  native.press();
+  await first.input.completion(first.input.owner!);
+  expect(first.input.owner).not.toBe(original);
+  expect(document.activeElement).toBe(native.proxy);
+  expect(
+    first.socket.commands
+      .filter((c) => c.method === "Input.dispatchMouseEvent")
+      .map((c) => c.params?.type),
+  ).toEqual(["mousePressed"]);
+});
+
+it("does not move a composing click to a port replaced during focus cleanup", async () => {
+  clock();
+  const first = await session(),
+    next = await session();
+  const native = surface(first.input);
+  first.reset.mockImplementation((reason) => {
+    native.adapter.reset(reason);
+    native.replace(next.input);
+  });
+  native.proxy.dispatchEvent(
+    new CompositionEvent("compositionstart", { bubbles: true }),
+  );
+  native.press();
+  await next.input.completion(next.input.owner!);
+  expect(
+    next.socket.commands.filter((c) => c.method.startsWith("Input.")),
+  ).toHaveLength(0);
+  native.press();
+  await next.input.completion(next.input.owner!);
+  expect(
+    next.socket.commands
+      .filter((c) => c.method === "Input.dispatchMouseEvent")
+      .map((c) => c.params?.type),
+  ).toEqual(["mousePressed"]);
+});
+
+it("retains the pointerdown binding through a compatibility mousedown", async () => {
+  clock();
+  const first = await session(),
+    next = await session();
+  const native = surface(first.input);
+  native.canvas.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      pointerType: "mouse",
+      pointerId: 1,
+      clientX: 400,
+      clientY: 300,
+    }),
+  );
+  native.replace(next.input);
+  native.canvas.dispatchEvent(
+    new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      buttons: 1,
+      clientX: 400,
+      clientY: 300,
+    }),
+  );
+  await next.input.completion(next.input.owner!);
+  expect(
+    next.socket.commands.filter((c) => c.method.startsWith("Input.")),
+  ).toHaveLength(0);
+});
+
 it.each(["copy", "paste", "cut"])(
   "cancels %s admission when its capture-phase flush replaces input",
   async (action) => {
@@ -707,8 +747,6 @@ it.each(["copy", "paste", "cut"])(
     const first = await session();
     const next = await session();
     const native = surface(first.input);
-    native.move();
-    await first.input.completion(first.input.owner!);
     await fillQueue(first);
     first.reset.mockImplementation((reason) => {
       native.adapter.reset(reason);

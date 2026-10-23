@@ -66,8 +66,7 @@ This includes synchronous callbacks, not only awaited continuations. Deliberate
 focus/navigation transitions use the generation published before cleanup effects;
 reading a later current generation is not a transition receipt.
 
-Send an idle leading continuous sample without waiting for a local frame, then
-retain one compatible trailing sample for a natural frame. Keep raw movement
+Retain one compatible continuous sample for a natural frame. Keep raw movement
 coordinates until actual dispatch. Reset retires pending samples and frame
 callbacks; even a cancelled callback that runs later cannot flush a new lifetime.
 The protocol executor retains the same compatibility boundaries when coalescing

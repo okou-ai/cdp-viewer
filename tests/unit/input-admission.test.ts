@@ -180,7 +180,15 @@ it.each(["generation", "replacement"])(
       if (change === "generation") first.input.blur();
       else current = next.input;
     });
-    expect(ingress.pointerBoundary(10, 10, 0, true)).toBeNull();
+    expect(
+      ingress.pointerBoundary({
+        clientX: 10,
+        clientY: 10,
+        modifiers: 0,
+        composing: true,
+        heldButtons: 0,
+      }),
+    ).toBeNull();
     expect(ingress.boundary()?.owner).toBe(current.owner);
   },
 );
@@ -193,7 +201,13 @@ it("binds an intentional composing pointer restart to its published generation",
   );
   cleanup.push(() => ingress.dispose());
   const original = first.input.owner;
-  const restarted = ingress.pointerBoundary(10, 10, 0, true)!;
+  const restarted = ingress.pointerBoundary({
+    clientX: 10,
+    clientY: 10,
+    modifiers: 0,
+    composing: true,
+    heldButtons: 0,
+  })!;
   expect(restarted.owner).not.toBe(original);
   expect(restarted.owner).toBe(first.input.owner);
   restarted.pointer("mousePressed", { x: 0.5, y: 0.5 }, { button: "left" });

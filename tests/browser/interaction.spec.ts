@@ -123,7 +123,7 @@ async function clickRemote(
   await expect(remote.locator(selector)).toBeFocused();
 }
 
-test("sends a leading wheel and admits its trailing batch before a later key", async ({
+test("batches wheel tasks before a frame and admits them before a later key", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -249,12 +249,10 @@ test("sends a leading wheel and admits its trailing batch before a later key", a
       commands.map((command) => [command.method, command.params?.type]),
     ).toEqual([
       ["Input.dispatchMouseEvent", "mouseWheel"],
-      ["Input.dispatchMouseEvent", "mouseWheel"],
       ["Input.dispatchKeyEvent", "rawKeyDown"],
       ["Input.dispatchKeyEvent", "keyUp"],
     ]);
-    expect(commands[0]?.params?.deltaY).toBe(12);
-    expect(commands[1]?.params?.deltaY).toBe(84);
+    expect(commands[0]?.params?.deltaY).toBe(96);
     await expect(view).toHaveAttribute("data-status", "streaming");
   } finally {
     await backend.close();
@@ -2062,6 +2060,43 @@ for (const [kind, selector] of [
     }
   });
 }
+
+test("a composing click cancels the original range and focuses the new control once", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { remote, windowId } = await editor(backend);
+    const view = await host(page, backend, windowId);
+    await clickRemote(page, view, remote, "#plain");
+    const proxy = view.getByRole("textbox", { name: "Remote browser input" });
+    await proxy.evaluate((element: HTMLTextAreaElement) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.value = "draft";
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          isComposing: true,
+          inputType: "insertCompositionText",
+          data: "draft",
+        }),
+      );
+    });
+    await expect(remote.locator("#plain")).toHaveValue("draft");
+    await clickRemote(page, view, remote, "#multiline");
+    await expect(remote.locator("#plain")).toHaveValue("");
+    await page.keyboard.insertText("fresh focus");
+    await expect(remote.locator("#multiline")).toHaveValue("fresh focus");
+    await expect(proxy).toBeFocused();
+  } finally {
+    await backend.close();
+  }
+});
 
 test("composition commits once, cancels locally and keeps candidate Enter separate", async ({
   page,

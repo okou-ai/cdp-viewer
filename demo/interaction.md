@@ -26,14 +26,13 @@ to send directly. Initial clicks in the letterbox are ignored. Captured drags
 continue to the image edge; release/cancel/blur releases owned pressed input.
 Mouse is the initial supported pointer type; touch and pen are not advertised.
 Coordinates use painted-frame metadata when available, with fresh layout queries
-after invalidation or missing metadata. An idle mouse movement or wheel sample
-starts without waiting for a local frame. Additional compatible input retains
-one trailing sample for the next natural frame; movement keeps its latest
-position and wheel input accumulates normalized distance at the same position. Changes in
+after invalidation or missing metadata. Compatible mouse movement and wheel input
+wait for the next local animation frame; movement keeps its latest position and
+wheel input accumulates normalized distance at the same position. Changes in
 event type, held buttons, modifiers or wheel direction flush the preceding batch.
 Clicks, keys, text, composition and clipboard actions also flush earlier input
 immediately, preserving admission order without waiting for native replies.
-Trailing batching can add one local frame under ordinary visible scheduling;
+Frame batching can add one local frame under ordinary visible scheduling;
 loss of input ownership cancels unsent work even if no frame arrives. Each event
 retains its original input session through callbacks and queue admission.
 When native replies fall behind continuous pointer or wheel input, the send lane
