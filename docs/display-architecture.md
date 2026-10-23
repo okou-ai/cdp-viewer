@@ -11,7 +11,8 @@ interaction instructions belong in the [demo guide](../demo/README.md).
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [Policy](../src/display/policy.ts)                  | Pure transitions for connection mode, observations, explicit intent, execution stage and window history |
 | [Synchronizer](../src/display/sync.ts)              | Bridge policy to one selected-session executor; own bounded, coalesced scheduling                       |
-| [Native transaction](../src/display/transaction.ts) | Prepare, dispatch, confirm presentation and recover using the original connection/session               |
+| [Native preparation](../src/display/preparation.ts) | Own selected-window calibration and acquire coherent native/runtime/layout snapshots                    |
+| [Native transaction](../src/display/transaction.ts) | Dispatch, confirm presentation and recover using the original connection/session                        |
 | [Session viewport](../src/display/viewport.ts)      | Own calibrated, acknowledged, decoded and painted geometry facts and immutable input mappings           |
 | [Geometry functions](../src/display/geometry.ts)    | Calculate native sizing and projection without acquiring resources                                      |
 | [Viewer controller](../src/viewer/controller.ts)    | Own target/session lifetime, capture transitions and frame acknowledgement                              |
@@ -75,15 +76,18 @@ an unavailable new-window frame uses the same bounded native waiter. Scoped
 membership and mid-operation window identity checks still apply. The transaction
 revalidates its snapshot after capture preparation and before the first write.
 
-Frame metadata has no window identity. Observing a different native window enters
-an explicit rebinding state; a previously accepted frame cannot establish that
-association. Rebinding uses the existing serialized capture refresh and confirmed
-elapsed-clock boundary to obtain accepted native facts after the window was
-observed, then verifies the window again. This conditional native-only fence
+Frame metadata has no window identity. Creating a reference for the initial or a
+different native window enters an explicit rebinding state; a previously accepted
+frame cannot establish that association. Rebinding uses the existing serialized
+capture refresh and confirmed elapsed-clock boundary to obtain accepted native
+facts after the window was observed, then verifies the window again. This native-only fence
 retires calibration authority while preserving the current painted/input receipt.
-Missing post-fence frames and failed capture/clock confirmation remain bounded
-failures; explicit retry acquires a new capture. Another observed window change
-restarts rebinding for that destination. Same-window preparations and no-op reuse
+Missing post-fence frames and failed capture, clock or provisional window
+confirmation remain bounded failures; explicit retry acquires a new capture.
+Another observed window change restarts rebinding for that destination. Initial
+acquisition also performs the capture-profile upgrade when one is needed;
+otherwise it adds one verification restart. Same-window preparations with an
+established reference and no-op reuse
 do not gain a capture restart or a new waiter.
 Under emulation, a native window move can change compositor dimensions without
 a page resize event. The previous presentation can reject that new-size frame

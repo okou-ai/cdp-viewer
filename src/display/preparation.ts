@@ -50,22 +50,40 @@ export class DisplayPreparation {
     signal: AbortSignal,
     budget: number | undefined,
   ): Promise<DisplaySnapshot | null> {
+    try {
+      return await this.acquireSnapshot(signal, budget);
+    } catch (error) {
+      if (this.current() && this.reference.kind === "rebinding")
+        this.reference = { ...this.reference, refreshed: false };
+      throw error;
+    }
+  }
+
+  private async acquireSnapshot(
+    signal: AbortSignal,
+    budget: number | undefined,
+  ): Promise<DisplaySnapshot | null> {
     const { target } = this;
+    if (this.reference.kind === "initial") {
+      await target.geometry.waitForNativeFrame(signal, budget);
+      if (!this.current()) return null;
+      const window = await this.readWindow();
+      if (!this.current()) return null;
+      this.assertWindow(window);
+      this.reference = {
+        kind: "rebinding",
+        windowId: window.windowId,
+        refreshed: false,
+      };
+    }
     const reference = this.reference;
     if (reference.kind === "rebinding" && !reference.refreshed) {
       await this.refreshNative();
       if (!this.current()) return null;
       this.reference = { ...reference, refreshed: true };
     }
-    if (this.reference.kind !== "bound") {
-      try {
-        await target.geometry.waitForNativeFrame(signal, budget);
-      } catch (error) {
-        if (this.current() && this.reference.kind === "rebinding")
-          this.reference = { ...this.reference, refreshed: false };
-        throw error;
-      }
-    }
+    if (this.reference.kind !== "bound")
+      await target.geometry.waitForNativeFrame(signal, budget);
     if (!this.current()) return null;
     const revision = target.geometry.revision;
     const observation = target.geometry.nativeObservation;
@@ -78,7 +96,7 @@ export class DisplayPreparation {
         if (!current()) return null;
         this.assertWindow(window);
         if (
-          this.reference.kind !== "initial" &&
+          this.reference.kind === "initial" ||
           this.reference.windowId !== window.windowId
         ) {
           // Metadata has no window ID. Retire the association before obtaining

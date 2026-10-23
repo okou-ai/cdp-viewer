@@ -13,9 +13,11 @@ for (const [transport, timing] of [
   ["shared", "before"],
   ["shared", "during"],
   ["shared", "late metadata"],
+  ["shared", "initial late metadata"],
   ["split", "before"],
   ["split", "during"],
   ["split", "late metadata"],
+  ["split", "initial late metadata"],
 ] as const) {
   test(`synchronizes an emulated page after a native window move without a resize event (${transport}, ${timing} preparation)`, async ({
     page,
@@ -36,6 +38,18 @@ for (const [transport, timing] of [
           (window as unknown as { hits: number }).hits++;
         });
       });
+      const initial = timing === "initial late metadata";
+      if (initial) {
+        const emulation = await backend.context.newCDPSession(remote);
+        await emulation.send("Emulation.setDeviceMetricsOverride", {
+          width: 900,
+          height: 600,
+          deviceScaleFactor: 2,
+          scale: 1,
+          dontSetVisibleSize: true,
+          mobile: false,
+        });
+      }
       const destinationOpened = backend.context.waitForEvent("page");
       const destination = await backend.session.send("Target.createTarget", {
         url: server.origin + "/fixture/blue",
@@ -142,12 +156,14 @@ for (const [transport, timing] of [
         await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
         await expect(view.getByRole("alert")).toHaveCount(0);
       };
-      await requestSync();
-      await finishSync();
-      expect(writes).toHaveLength(1);
+      if (!initial) {
+        await requestSync();
+        await finishSync();
+      }
+      expect(writes).toHaveLength(initial ? 0 : 1);
       const firstWindow = writes[0];
       const beforeMove = { frames: frames.length, resizes };
-      if (timing === "late metadata") {
+      if (timing.includes("late metadata")) {
         delayMetadata = true;
         holdRebindEffect = true;
       }
@@ -204,7 +220,7 @@ for (const [transport, timing] of [
         releaseWindow = null;
       } else {
         await requestSync();
-        if (timing === "late metadata") {
+        if (timing.includes("late metadata")) {
           // The first outgoing effect proves preparation consumed the new-window
           // reply. A frame held on the other transport cannot arrive before it.
           await expect.poll(() => releaseEffect !== null).toBe(true);
@@ -215,9 +231,9 @@ for (const [transport, timing] of [
         }
       }
       await finishSync();
-      if (timing === "late metadata")
+      if (timing.includes("late metadata"))
         expect(firstEffect).toBe("Page.stopScreencast");
-      expect(writes).toEqual([firstWindow, windowId]);
+      expect(writes).toEqual(initial ? [windowId] : [firstWindow, windowId]);
       await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
         "data-target-id",
         targetId,
