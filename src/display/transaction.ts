@@ -11,6 +11,7 @@ import {
 import type { DisplaySize } from "./geometry";
 import type { DisplayDecision, DisplayOutcome, DisplayStage } from "./policy";
 import type { DisplayViewport } from "./viewport";
+import { frameTimeoutMs } from "./limits";
 
 export interface DisplayTarget {
   readonly targetId: string;
@@ -197,10 +198,29 @@ export class DisplayTransaction {
       policy.stage("presenting");
       if (freshCapture) await this.fenceCapture();
       if (!this.current()) return { kind: "retired" };
-      await target.geometry.waitForPresentation(
+      const started = performance.now();
+      const budget = host.presentationTimeout ?? frameTimeoutMs;
+      const presentation = await target.geometry.waitForPresentation(
         host.signal,
-        host.presentationTimeout,
+        budget,
+        !freshCapture,
       );
+      // Compatible pixels can paint after the mismatch wakes this continuation.
+      if (
+        presentation === "inconsistent" &&
+        !target.geometry.matches(projected.presentation, projected.input)
+      ) {
+        if (!this.current()) return { kind: "retired" };
+        // A clipped static image may be the stream's last frame. Refresh once
+        // on evidence, retiring queued decodes before stopping that stream.
+        target.geometry.apply(projected.input, projected.presentation, true);
+        await this.fenceCapture();
+        if (!this.current()) return { kind: "retired" };
+        await target.geometry.waitForPresentation(
+          host.signal,
+          budget - (performance.now() - started),
+        );
+      }
       if (!this.current()) return { kind: "retired" };
       return this.completed(window.windowId, prepared, "painted");
     } catch (error) {

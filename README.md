@@ -303,6 +303,10 @@ pointer actions pause while native changes or a compatible image are pending.
 When a DPR/layout change can keep the same image dimensions, the viewer refreshes
 capture once on the existing session and requires a timestamp after the native
 change. Ordinary size changes keep the current stream running.
+If a frame claims the new size but its decoded pixels are clipped, the viewer
+refreshes capture once on the same session and requires a fresh compatible image.
+This conditional refresh uses the remaining presentation budget; persistent
+clipping follows the same bounded recovery path as a missing image.
 If display recovery cannot be confirmed, they remain paused
 until synchronization succeeds; choose **Sync now** to retry. Text input remains
 available. Native minimum sizes, fractional scale rounding and provider
