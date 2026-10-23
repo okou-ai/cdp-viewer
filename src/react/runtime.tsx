@@ -1,5 +1,5 @@
 import { Component, createContext, useContext } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import type { CdpViewerProps } from "../viewer/types";
 import { viewerScope } from "./context";
 import { ViewerBinding } from "./binding";
@@ -12,6 +12,13 @@ export function useViewerElements(): Elements {
   if (!elements)
     throw new Error("Viewer elements require their runtime owner.");
   return elements;
+}
+
+/** Readiness belongs to the loaded image node, including a new overflow row. */
+export function faviconImageLoaded(event: SyntheticEvent<HTMLImageElement>) {
+  const image = event.currentTarget;
+  if (image.naturalWidth > 0 && image.currentSrc === image.src)
+    image.dataset.loaded = "";
 }
 
 /** Commit bridge only; application state and subscriptions stay in ccstate. */

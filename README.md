@@ -106,6 +106,19 @@ its remote window so Chromium can produce live frames. Reconnect starts a fresh 
 Changing callbacks does not reconnect. Unmounting releases this viewer's sessions
 and connection without closing the remote browser or its tabs.
 
+Favicons are read on demand from the selected page's declared icon URL, using its
+existing control session after viewing/input are ready. Results stay in viewer
+memory; they are absent from public snapshots and are cleared on reconnect.
+Never-inspected tabs show the generic Globe. Document navigation refreshes the
+declaration; icon-only DOM mutations are not watched. There is no favicon polling,
+background attachment, guessed /favicon.ico, image-byte transfer over CDP or
+viewer-managed persistent cache.
+The host loads the image normally at low priority. Missing URLs, pending loads and
+failures (including host CSP, authentication or reachability) show Globe; only a
+successful load replaces it. Exact Chrome favicon selection is not promised.
+If the optional metadata command fails, favicon discovery stops until reconnecting;
+normal viewing and input continue.
+
 ## API
 
 | Prop                                          | Purpose                                                                          |

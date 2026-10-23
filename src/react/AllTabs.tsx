@@ -1,5 +1,6 @@
 import { Select } from "@base-ui/react/select";
-import { Check, ChevronDown, Globe } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
+import { Favicon } from "./Favicon";
 import { viewerScope } from "./context";
 
 /** The popup stays in the viewer tree to inherit its theme and clipping bounds. */
@@ -48,7 +49,7 @@ export function AllTabs() {
                   data-tab-option={target.id}
                   className="cdpv-tab-option"
                 >
-                  <Globe size={16} aria-hidden="true" />
+                  <Favicon targetId={target.id} />
                   <Select.ItemText className="cdpv-tab-option-title">
                     {target.title}
                   </Select.ItemText>

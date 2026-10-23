@@ -223,10 +223,31 @@
 .cdpv-root .cdpv-tab svg {
   flex: none;
 }
-.cdpv-root .cdpv-tab span {
+.cdpv-root .cdpv-tab-title {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+.cdpv-root .cdpv-favicon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  position: relative;
+}
+.cdpv-root .cdpv-favicon img {
+  object-fit: contain;
+  visibility: hidden;
+  width: 16px;
+  height: 16px;
+  position: absolute;
+  inset: 0;
+}
+.cdpv-root .cdpv-favicon img[data-loaded] {
+  visibility: visible;
+}
+.cdpv-root .cdpv-favicon img[data-loaded] + svg {
+  visibility: hidden;
 }
 .cdpv-root .cdpv-close {
   width: 24px;
@@ -346,7 +367,7 @@
   }
 }
 @container cdpv-tab not (width>=88px) {
-  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab span {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab-title {
     display: none;
   }
   .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab {
@@ -355,12 +376,12 @@
   }
 }
 @container cdpv-tab not (width>=72px) {
-  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-tab svg {
+  .cdpv-root .cdpv-tab-item[data-selected]:has(.cdpv-close) .cdpv-favicon {
     display: none;
   }
 }
 @container cdpv-tab not (width>=56px) {
-  .cdpv-root .cdpv-tab span {
+  .cdpv-root .cdpv-tab-title {
     display: none;
   }
   .cdpv-root .cdpv-tab {

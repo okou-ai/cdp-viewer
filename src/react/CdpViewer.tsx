@@ -5,7 +5,6 @@ import {
   ArrowRight,
   CircleAlert,
   Monitor,
-  Globe,
   Plus,
   X,
   LoaderCircle,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
 import { AllTabs } from "./AllTabs";
+import { Favicon } from "./Favicon";
 import { BrowserMenu } from "./BrowserMenu";
 import { viewerScope } from "./context";
 import { ViewerRuntime, useViewerElements } from "./runtime";
@@ -88,8 +88,8 @@ function ViewerSurface({
                 disabled={controls.tabsDisabled}
                 data-target-id={target.id}
               >
-                <Globe size={16} aria-hidden="true" />
-                <span>{target.title}</span>
+                <Favicon targetId={target.id} />
+                <span className="cdpv-tab-title">{target.title}</span>
               </Tabs.Tab>
               {interactive && (
                 <Button

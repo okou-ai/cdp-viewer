@@ -88,6 +88,8 @@ export class FakeBrowser {
   unsupportedDisplay = false;
   unsupportedContentsSize = false;
   unsupportedClock = false;
+  favicon: unknown = null;
+  holdFavicon = false;
   nativeDpr = 1;
   browserZoom = 1;
   windowState = "normal";
@@ -200,6 +202,18 @@ export class FakeBrowser {
           socket.reply(command, { frameTree: { frame: { id: "main" } } });
           break;
         case "Runtime.evaluate":
+          if (
+            String(command.params?.expression).startsWith(
+              "/* cdp-viewer favicon */",
+            )
+          ) {
+            if (this.holdFavicon) this.heldCommands.push({ command, socket });
+            else
+              socket.reply(command, {
+                result: { type: typeof this.favicon, value: this.favicon },
+              });
+            break;
+          }
           if (
             command.params?.expression === "Date.now()" ||
             (command.params?.awaitPromise === true &&
