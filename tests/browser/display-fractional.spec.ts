@@ -23,13 +23,14 @@ function jpegSize(data: string) {
   throw new Error("Owned frame has no JPEG dimensions.");
 }
 
-for (const { nativeDpr, zoom, transport } of [
-  { nativeDpr: 1.25, zoom: 1, transport: "shared" },
-  { nativeDpr: 1.25, zoom: 1, transport: "split" },
-  { nativeDpr: 1.5, zoom: 1, transport: "shared" },
-  { nativeDpr: 1.75, zoom: 1.25, transport: "shared" },
+for (const { nativeDpr, zoom, transport, preEmulated } of [
+  { nativeDpr: 1.25, zoom: 1, transport: "shared", preEmulated: false },
+  { nativeDpr: 1.25, zoom: 1, transport: "split", preEmulated: false },
+  { nativeDpr: 1.5, zoom: 1, transport: "shared", preEmulated: false },
+  { nativeDpr: 1.75, zoom: 1.25, transport: "shared", preEmulated: false },
+  { nativeDpr: 1.25, zoom: 1, transport: "shared", preEmulated: true },
 ] as const) {
-  test(`presents complete native JPEG and input at fractional DPR ${nativeDpr}, zoom ${zoom}, ${transport}`, async ({
+  test(`presents complete native JPEG and input at fractional DPR ${nativeDpr}, zoom ${zoom}, ${transport}, pre-emulation ${preEmulated}`, async ({
     page,
   }) => {
     const backend = await launchNativeBackend(server.origin, true, nativeDpr);
@@ -79,6 +80,15 @@ for (const { nativeDpr, zoom, transport } of [
       );
       const inspection = await backend.context.newCDPSession(remote);
       const beforeLayout = await inspection.send("Page.getLayoutMetrics");
+      if (preEmulated)
+        await inspection.send("Emulation.setDeviceMetricsOverride", {
+          width: 900,
+          height: 600,
+          deviceScaleFactor: 2,
+          scale: 1,
+          dontSetVisibleSize: true,
+          mobile: false,
+        });
       const frames: {
         device: { width: number; height: number };
         raster: { width: number; height: number };
@@ -286,6 +296,7 @@ for (const { nativeDpr, zoom, transport } of [
           nativeDpr,
           zoom,
           transport,
+          preEmulated,
           beforeWindow,
           beforeLayout,
           afterWindow,

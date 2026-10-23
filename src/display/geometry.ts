@@ -78,7 +78,7 @@ export function nativePresentation(
   );
 }
 
-/** Native contents and outer bounds observed before this session emulates. */
+/** Selected-frame native contents and their observed outer window bounds. */
 export interface NativeWindowGeometry {
   readonly bounds: Viewport;
   readonly device: Viewport;
@@ -91,12 +91,12 @@ function windowSize(bounds: Protocol.Browser.Bounds): Viewport {
 }
 
 export function nativeWindowGeometry(
-  layout: Protocol.Page.GetLayoutMetricsResponse,
+  device: Viewport,
   bounds: Protocol.Browser.Bounds,
 ): NativeWindowGeometry {
   return {
     bounds: windowSize(bounds),
-    device: nativePresentation(layout).device,
+    device,
   };
 }
 

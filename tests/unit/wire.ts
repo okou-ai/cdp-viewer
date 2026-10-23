@@ -151,7 +151,7 @@ export class FakeBrowser {
     socket: FakeSocket,
     sessionId: string,
     frameId = 73,
-    nativeMetadata = false,
+    nativeMetadata = true,
   ): void {
     const target = this.targets.find(
       (value) => value.id === this.sessions.get(sessionId),

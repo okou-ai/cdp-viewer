@@ -23,6 +23,10 @@ interface FrameGeometry {
 
 type Presentation = "presented" | "inconsistent";
 
+type FrameWait =
+  | { readonly kind: "native" }
+  | { readonly kind: "presentation"; readonly recoverInconsistent: boolean };
+
 function same(actual: Viewport, wanted: Viewport): boolean {
   return (
     Math.abs(actual.width - wanted.width) <= 1 &&
@@ -72,7 +76,7 @@ export class DisplayViewport {
   private transform: DisplayTransform | null = null;
   private waiting: {
     finish: (result: Presentation | CdpFault) => void;
-    recoverInconsistent: boolean;
+    request: FrameWait;
   } | null = null;
   private capture: Viewport = {
     width: maximumFrameDimension,
@@ -85,6 +89,10 @@ export class DisplayViewport {
 
   get revision(): number {
     return this.version;
+  }
+
+  get device(): Viewport | null {
+    return this.painted?.device ?? null;
   }
 
   get available(): boolean {
@@ -247,9 +255,33 @@ export class DisplayViewport {
     budget = frameTimeoutMs,
     recoverInconsistent = false,
   ): Promise<Presentation> {
+    return this.waitForFrame(signal, budget, {
+      kind: "presentation",
+      recoverInconsistent,
+    });
+  }
+
+  /** An initial layout can already be emulated; only a selected frame is native. */
+  waitForNativeFrame(
+    signal: AbortSignal,
+    budget = frameTimeoutMs,
+  ): Promise<Presentation> {
+    return this.waitForFrame(signal, budget, { kind: "native" });
+  }
+
+  private waitForFrame(
+    signal: AbortSignal,
+    budget: number,
+    request: FrameWait,
+  ): Promise<Presentation> {
     if (budget <= 0) return Promise.reject(presentationTimeout());
-    if (this.available) return Promise.resolve("presented");
-    if (recoverInconsistent && this.inconsistent())
+    if (request.kind === "native" ? this.device !== null : this.available)
+      return Promise.resolve("presented");
+    if (
+      request.kind === "presentation" &&
+      request.recoverInconsistent &&
+      this.inconsistent()
+    )
       return Promise.resolve("inconsistent");
     return new Promise((resolve, reject) => {
       const deadline = new AbortController();
@@ -264,7 +296,7 @@ export class DisplayViewport {
         if (result instanceof CdpFault) reject(result);
         else resolve(result);
       };
-      this.waiting = { finish, recoverInconsistent };
+      this.waiting = { finish, request };
       if (signal.aborted) {
         aborted();
         return;
@@ -341,7 +373,11 @@ export class DisplayViewport {
       const accepted =
         (state.kind !== "presenting" && state.kind !== "presented") ||
         compatible(this.decoded, state.expected, this.capture);
-      if (this.waiting?.recoverInconsistent && this.inconsistent())
+      if (
+        this.waiting?.request.kind === "presentation" &&
+        this.waiting.request.recoverInconsistent &&
+        this.inconsistent()
+      )
         this.waiting.finish("inconsistent");
       return accepted;
     };
@@ -350,6 +386,8 @@ export class DisplayViewport {
       painted: (raster) => {
         if (!accept(raster)) return;
         this.painted = { viewport, device, raster };
+        if (device && this.waiting?.request.kind === "native")
+          this.waiting.finish("presented");
         this.present();
       },
     };

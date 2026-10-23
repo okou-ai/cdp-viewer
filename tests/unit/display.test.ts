@@ -60,6 +60,7 @@ it.each([
   {
     dpr: 1.25,
     zoom: 1,
+    preEmulated: false,
     before: { width: 1002.4, height: 665.6 },
     actual: { width: 879.2, height: 585.6 },
     raster: { width: 1099, height: 732 },
@@ -67,13 +68,22 @@ it.each([
   {
     dpr: 1.75,
     zoom: 1.25,
+    preEmulated: false,
     before: { width: 502.2857142857143, height: 238.28571428571428 },
     actual: { width: 628, height: 419.42857142857144 },
     raster: { width: 1099, height: 734 },
   },
+  {
+    dpr: 1.25,
+    zoom: 1,
+    preEmulated: true,
+    before: { width: 1002.4, height: 665.6 },
+    actual: { width: 879.2, height: 585.6 },
+    raster: { width: 1099, height: 732 },
+  },
 ])(
-  "presents actual native window rounding at DPR $dpr and zoom $zoom without widening image guards",
-  async ({ dpr, zoom, before, actual, raster }) => {
+  "presents actual native window rounding at DPR $dpr and zoom $zoom with pre-emulation=$preEmulated without widening image guards",
+  async ({ dpr, zoom, preEmulated, before, actual, raster }) => {
     const browser = new FakeBrowser();
     browser.nativeDpr = dpr;
     browser.browserZoom = zoom;
@@ -84,7 +94,33 @@ it.each([
     const input = controller.input!,
       socket = browser.sockets[0]!;
     const reply = socket.reply.bind(socket);
+    let adapted = false;
     socket.reply = (command, result) => {
+      if (command.method === "Emulation.setDeviceMetricsOverride")
+        adapted = true;
+      if (preEmulated && !adapted) {
+        if (command.method === "Page.getLayoutMetrics")
+          result = {
+            visualViewport: { clientWidth: 1125, clientHeight: 750 },
+            cssVisualViewport: {
+              clientWidth: 900,
+              clientHeight: 600,
+              zoom: 1,
+              scale: 1,
+            },
+          };
+        if (
+          command.method === "Runtime.evaluate" &&
+          command.params?.expression ===
+            "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})"
+        )
+          result = {
+            result: {
+              type: "object",
+              value: { width: 900, height: 600, dpr: 2 },
+            },
+          };
+      }
       if (command.method === "Browser.setContentsSize")
         browser.windowSizes.set(0, actual);
       reply(command, result);
@@ -129,6 +165,156 @@ it.each([
     expect(controller.input).toBe(input);
   },
 );
+
+it.each([false, true])(
+  "times out an unavailable initial native frame (invalid metadata=%s) before writing and requires an explicit retry",
+  async (invalid) => {
+    const browser = new FakeBrowser();
+    browser.holdFrames = !invalid;
+    const { controller, model } = mount(browser, "initial", 0, 35);
+    const socket = browser.sockets[0]!,
+      emit = socket.emit.bind(socket);
+    if (invalid)
+      socket.emit = (method, params, session) => {
+        if (method === "Page.screencastFrame")
+          params = {
+            ...params,
+            metadata: { deviceWidth: 0, deviceHeight: 600, pageScaleFactor: 1 },
+          };
+        emit(method, params, session);
+      };
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().error?.message).toContain(
+        "synchronized image did not arrive",
+      ),
+    );
+    expect(emulations(browser)).toHaveLength(0);
+    expect(resizes(browser)).toHaveLength(0);
+    expect(model.read(model.display$).pending).toBe(false);
+    expect(
+      socket.commands.filter((c) => c.method === "Page.getLayoutMetrics"),
+    ).toHaveLength(1);
+    browser.holdFrames = false;
+    socket.emit = emit;
+    if (invalid) browser.frame(socket, controller.input!.sessionId);
+    else for (const frame of browser.heldFrames.splice(0)) frame();
+    expect(emulations(browser)).toHaveLength(0);
+    controller.measureDisplay({ width: 800, height: 500, dpr: 1.5 });
+    controller.syncDisplay();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(resizes(browser)).toHaveLength(1);
+    expect(resizes(browser)[0]!.params).toEqual({
+      windowId: 0,
+      width: 1200,
+      height: 750,
+    });
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
+it.each(["pause", "selection"] as const)(
+  "does not lend a delayed initial native frame to a replacement after %s",
+  async (change) => {
+    const browser = new FakeBrowser();
+    browser.targets[1]!.windowId = 0;
+    browser.holdFrames = true;
+    const { controller, model } = mount(browser, "initial", 0);
+    await vi.waitFor(() => expect(browser.heldFrames).toHaveLength(1));
+    const old = browser.heldFrames.shift()!;
+    expect(controller.input).toBeNull();
+    if (change === "pause") {
+      controller.setPaused(true);
+      old();
+      expect(resizes(browser)).toHaveLength(0);
+      controller.setPaused(false);
+    } else controller.select("page-b");
+    await vi.waitFor(() => expect(browser.heldFrames).toHaveLength(1));
+    if (change === "selection") old();
+    expect(resizes(browser)).toHaveLength(0);
+    browser.holdFrames = false;
+    for (const frame of browser.heldFrames.splice(0)) frame();
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(resizes(browser)).toHaveLength(1);
+    expect(model.getSnapshot().error).toBeNull();
+    expect(model.getSnapshot().selectedTargetId).toBe(
+      change === "selection" ? "page-b" : "page-a",
+    );
+  },
+);
+
+it("discards a native frame/window pairing invalidated before the window read resolves", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model } = mount(browser, "off", 0);
+  await vi.waitFor(() => expect(controller.input).not.toBeNull());
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  browser.holdMethod = "Browser.getWindowForTarget";
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  browser.windowSizes.set(0, { width: 900, height: 700 });
+  socket.emit("Page.frameResized", {}, input.sessionId);
+  browser.frame(socket, input.sessionId);
+  browser.holdMethod = null;
+  const held = browser.heldCommands.shift()!;
+  browser.resume(held.command, held.socket);
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: false,
+    }),
+  );
+  expect(resizes(browser)).toHaveLength(1);
+  expect(resizes(browser)[0]!.params).toEqual({
+    windowId: 0,
+    width: 1280,
+    height: 960,
+  });
+  expect(model.getSnapshot().error).toBeNull();
+});
+
+it("establishes a fresh native reference when an unscoped selected page moves before the next sync", async () => {
+  const browser = new FakeBrowser();
+  browser.windowSizes.set(0, { width: 800, height: 600 });
+  browser.windowSizes.set(2, { width: 900, height: 700 });
+  const { controller, model } = mount(browser);
+  await vi.waitFor(() => expect(controller.input).not.toBeNull());
+  controller.syncDisplay();
+  await vi.waitFor(() =>
+    expect(model.read(model.display$).pending).toBe(false),
+  );
+  const input = controller.input!,
+    socket = browser.sockets[0]!;
+  browser.targets[0]!.windowId = 2;
+  socket.emit("Page.frameResized", {}, input.sessionId);
+  browser.frame(socket, input.sessionId);
+  controller.measureDisplay({ width: 700, height: 500, dpr: 1.5 });
+  controller.syncDisplay();
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  await vi.waitFor(() =>
+    expect(model.read(model.display$)).toMatchObject({
+      pending: false,
+      pointerBlocked: false,
+    }),
+  );
+  expect(resizes(browser)[1]!.params).toEqual({
+    windowId: 2,
+    width: 1050,
+    height: 750,
+  });
+  expect(browser.windowSizes.get(0)).toEqual({ width: 1280, height: 960 });
+  expect(controller.input).toBe(input);
+  expect(model.getSnapshot().error).toBeNull();
+});
 
 it("rejects old geometry and clipped pixels at the acknowledged fractional native extent before one refresh", async () => {
   const browser = new FakeBrowser();

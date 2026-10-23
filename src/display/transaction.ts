@@ -10,7 +10,7 @@ import {
   projectDisplay,
   windowPresentation,
 } from "./geometry";
-import type { DisplaySize, NativeWindowGeometry } from "./geometry";
+import type { DisplaySize, NativeWindowGeometry, Viewport } from "./geometry";
 import type { DisplayDecision, DisplayOutcome, DisplayStage } from "./policy";
 import type { DisplayViewport } from "./viewport";
 import { frameTimeoutMs } from "./limits";
@@ -95,15 +95,41 @@ export class DisplayTransaction {
       : null;
   }
 
+  private async readNativeWindow(revision: number, device: Viewport | null) {
+    const window = await this.client.request("Browser.getWindowForTarget", {
+      targetId: this.target.targetId,
+    });
+    if (
+      (!this.nativeWindow || this.nativeWindow.windowId !== window.windowId) &&
+      device &&
+      this.current() &&
+      revision === this.target.geometry.revision
+    ) {
+      this.assertWindow(window);
+      this.nativeWindow = {
+        windowId: window.windowId,
+        geometry: nativeWindowGeometry(device, window.bounds),
+      };
+    }
+    return window;
+  }
+
   async execute(policy: ExecutionPolicy): Promise<DisplayResult> {
     const { target, client, host } = this;
-    const revision = target.geometry.revision;
     let mutation: Mutation = { kind: "none" };
     try {
+      if (!this.nativeWindow) {
+        await target.geometry.waitForNativeFrame(
+          host.signal,
+          host.presentationTimeout,
+        );
+        if (!this.current()) return { kind: "retired" };
+      }
+      const revision = target.geometry.revision;
+      const device = target.geometry.device;
+      if (!this.nativeWindow && !device) return { kind: "deferred" };
       const [window, remote, layout] = await Promise.all([
-        client.request("Browser.getWindowForTarget", {
-          targetId: target.targetId,
-        }),
+        this.readNativeWindow(revision, device),
         this.evaluate(
           "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
         ),
@@ -135,15 +161,13 @@ export class DisplayTransaction {
         remoteSize,
         layout,
       );
-      if (this.nativeWindow && this.nativeWindow.windowId !== window.windowId)
+      const nativeWindow = this.nativeWindow;
+      if (!nativeWindow) return { kind: "deferred" };
+      if (nativeWindow.windowId !== window.windowId)
         throw new CdpFault(
           "scope",
           "The page moved during display synchronization.",
         );
-      const nativeWindow = this.nativeWindow ?? {
-        windowId: window.windowId,
-        geometry: nativeWindowGeometry(layout, window.bounds),
-      };
       const existingPresentation = windowPresentation(
         nativeWindow.geometry,
         window.bounds,
@@ -186,7 +210,6 @@ export class DisplayTransaction {
         return { kind: "retired" };
       }
       mutation = { kind: "pending", rejected };
-      this.nativeWindow = nativeWindow;
       await client.request(
         "Emulation.setDeviceMetricsOverride",
         projected.metrics,
