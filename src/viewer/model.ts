@@ -292,7 +292,25 @@ function createViewerSignals() {
   });
   const update$ = command(({ get, set }, patch: Partial<ViewerSnapshot>) => {
     const old = get(internalSnapshot$);
-    const next = Object.freeze({ ...old, ...patch });
+    const next = { ...old, ...patch };
+    if (
+      next.targets !== old.targets &&
+      next.targets.length === old.targets.length &&
+      next.targets.every(
+        (target, index) =>
+          target.id === old.targets[index]?.id &&
+          target.title === old.targets[index]?.title,
+      )
+    )
+      next.targets = old.targets;
+    if (
+      next.navigation &&
+      old.navigation &&
+      next.navigation.url === old.navigation.url &&
+      next.navigation.canGoBack === old.navigation.canGoBack &&
+      next.navigation.canGoForward === old.navigation.canGoForward
+    )
+      next.navigation = old.navigation;
     if (patch.targets) {
       const ids = new Set(patch.targets.map((target) => target.id));
       const icons = get(internalFavicons$);
@@ -327,7 +345,16 @@ function createViewerSignals() {
       const notification = get(internalNotification$);
       if (notification) set(exitNotification$, notification.id);
     }
-    set(internalSnapshot$, next);
+    // Equality gates publication only; repeated reports still own new notices.
+    // Error references also identify which diagnostic an owner may clear.
+    if (
+      next.status !== old.status ||
+      next.targets !== old.targets ||
+      next.selectedTargetId !== old.selectedTargetId ||
+      next.error !== old.error ||
+      next.navigation !== old.navigation
+    )
+      set(internalSnapshot$, Object.freeze(next));
   });
   const updateData$ = command(({ set }, patch: ViewerUpdate) =>
     set(update$, patch),
