@@ -195,6 +195,8 @@ export class ViewerController {
       const retirement = this.stopSelection("paused");
       if (!this.connected) return;
       this.imageRecovery.cancel(retirement);
+      // Keep original cleanup facts, then honor the intent current after callbacks.
+      if (this.disposed || !this.connected || !this.paused) return;
       this.model.transition({ type: "paused" });
     } else if (image) {
       this.model.transition({ type: "image-resumed" });

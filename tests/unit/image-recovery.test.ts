@@ -325,6 +325,50 @@ for (const transport of ["shared", "split"] as const) {
     expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
   });
 
+  it.each(["cleanup", "publication"])(
+    `${transport}: honors a synchronous resume during pause %s without losing original stop proof`,
+    async (boundary) => {
+      vi.useFakeTimers();
+      const browser = new FakeBrowser();
+      let resume = false;
+      const f = mount(browser, transport, 0, (reason) => {
+        if (boundary === "cleanup" && resume && reason === "paused") {
+          resume = false;
+          f.controller.setPaused(false);
+        }
+      });
+      await until(() => f.model.getSnapshot().status === "streaming");
+      f.failImage();
+      await until(() => f.model.read(f.model.controls$).canRetryImage);
+      browser.holdMethod = "Runtime.evaluate";
+      f.controller.retryImage();
+      await until(() => browser.heldCommands.length === 1);
+      const stop = f.model.watch(f.model.imageRecovery$, () => {
+        if (
+          boundary === "publication" &&
+          resume &&
+          f.model.read(f.model.imageRecovery$)?.phase === "ready"
+        ) {
+          resume = false;
+          f.controller.setPaused(false);
+        }
+      });
+      resume = true;
+      f.controller.setPaused(true);
+      stop();
+      browser.holdMethod = null;
+      for (const held of browser.heldCommands.splice(0))
+        browser.resume(held.command, held.socket);
+      expect(f.model.getSnapshot().status).toBe("error");
+      await until(() => f.model.read(f.model.controls$).canRetryImage);
+      expect(starts(browser)).toHaveLength(1);
+      f.controller.retryImage();
+      await until(() => f.model.getSnapshot().status === "streaming");
+      expect(starts(browser)).toHaveLength(2);
+      expect(f.controller.input).not.toBeNull();
+    },
+  );
+
   it(`${transport}: pause retires valid sessions and later explicit retry freshly attaches without new sockets`, async () => {
     vi.useFakeTimers();
     const browser = new FakeBrowser();
