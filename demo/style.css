@@ -1161,9 +1161,6 @@ body {
   .demo-placeholder-content p {
     font-size: 11px;
   }
-  .demo-placeholder-features {
-    font-size: 8px;
-  }
   .demo-footer {
     flex-direction: column;
     gap: 8px;
