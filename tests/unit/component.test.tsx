@@ -263,7 +263,7 @@ it("toggles the settings menu independently without replacing live viewer owners
 
   view.rerender(viewers(false));
   expect(owner.queryByRole("button", { name: "Browser menu" })).toBeNull();
-  await waitFor(() => expect(owner.queryByRole("menu")).toBeNull());
+  await waitFor(() => expect(owner.queryAllByRole("menu")).toHaveLength(0));
   view.rerender(viewers(true));
   await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
   await userEvent.click(
@@ -349,7 +349,7 @@ it("discloses display modes in a submenu and restores focus through both levels"
   expect(screen.getByRole("menu", { name: "Browser menu" })).toBeVisible();
   expect(fit).toHaveFocus();
   await userEvent.keyboard("{Escape}");
-  expect(screen.queryByRole("menu")).toBeNull();
+  await waitFor(() => expect(screen.queryAllByRole("menu")).toHaveLength(0));
   expect(menu).toHaveFocus();
   await userEvent.click(menu);
   await userEvent.click(
@@ -358,7 +358,7 @@ it("discloses display modes in a submenu and restores focus through both levels"
   await userEvent.click(
     await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
   );
-  expect(screen.queryByRole("menu")).toBeNull();
+  await waitFor(() => expect(screen.queryAllByRole("menu")).toHaveLength(0));
   expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
     proxy,
   );

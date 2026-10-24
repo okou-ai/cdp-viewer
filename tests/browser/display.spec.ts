@@ -429,7 +429,8 @@ for (const nativeDpr of [1, 2]) {
       await view
         .getByRole("menuitemradio", { name: "Sync once on opening" })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      // Both popup levels can remain mounted briefly while closing.
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await view.evaluate((element: HTMLElement) => {
         element.style.width = "700px";
       });
@@ -443,14 +444,14 @@ for (const nativeDpr of [1, 2]) {
       await view
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await expect.poll(() => remote.evaluate(() => innerWidth)).toBe(698);
       await menu.click();
       await fit.click();
       await view
         .getByRole("menuitemradio", { name: "Sync continuously" })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await view.evaluate((element: HTMLElement) => {
         element.style.width = "740px";
         element.style.height = "500px";
@@ -528,7 +529,7 @@ for (const nativeDpr of [1, 2]) {
       await view
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
       expect(
         commands.filter((method) => method === "Page.startScreencast"),
@@ -563,6 +564,7 @@ for (const nativeDpr of [1, 2]) {
       await view
         .getByRole("menuitemradio", { name: "Do not sync automatically" })
         .click();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await view.evaluate((element: HTMLElement) => {
         element.style.width = "190px";
       });
@@ -571,7 +573,7 @@ for (const nativeDpr of [1, 2]) {
       if (!narrow) throw new Error("Narrow viewer has no geometry.");
       await expect
         .poll(async () => {
-          const popup = await view.getByRole("menu").boundingBox();
+          const popup = await mainMenu.boundingBox();
           return popup
             ? Math.max(
                 narrow.x - popup.x,
