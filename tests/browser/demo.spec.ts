@@ -1181,6 +1181,7 @@ test("playground layout keeps the preview and controls usable across appearances
     path: info.outputPath("playground-light.png"),
     fullPage: true,
   });
+  await page.getByRole("combobox", { name: "Appearance", exact: true }).hover();
   await page
     .getByRole("combobox", { name: "Appearance", exact: true })
     .selectOption("dark");

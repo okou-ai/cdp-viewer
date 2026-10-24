@@ -396,8 +396,7 @@ body {
   border-color: var(--demo-primary);
 }
 .demo-primary:hover:not(:disabled) {
-  background: var(--demo-primary);
-  filter: brightness(1.15);
+  background: color-mix(in srgb, var(--demo-primary) 92%, var(--demo-text));
 }
 .demo-square {
   width: 36px;
