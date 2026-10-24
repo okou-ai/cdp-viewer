@@ -69,12 +69,16 @@ it.each([
   changed.mockClear();
   // Separate ticks allow a React commit for each discovery observation.
   for (const elapsed of [2000, 2000, 2000, 100]) await advance(elapsed);
-  expect(queries() - initialQueries).toBe(3);
+  expect(queries() - initialQueries).toBe(0);
   expect(changed).not.toHaveBeenCalled();
   expect(view.container.querySelector(".cdpv-root")).toHaveAttribute(
     "data-status",
     paused ? "paused" : "streaming",
   );
+  // Include a full authoritative round as well as the selected-only idle checks.
+  await advance(3900);
+  expect(queries() - initialQueries).toBe(1);
+  expect(changed).not.toHaveBeenCalled();
   view.unmount();
 });
 
@@ -105,6 +109,19 @@ it("delivers real target and selection changes to replacement callbacks independ
   expect(original.mock.lastCall?.[0].status).toBe("streaming");
   expect(sibling.mock.lastCall?.[0].status).toBe("streaming");
   const sockets = [...fake.sockets];
+  const changedTarget = (index: number) => {
+    const target = fake.targets[index]!;
+    act(() => {
+      for (const socket of fake.sockets)
+        socket.emit("Target.targetInfoChanged", {
+          targetInfo: {
+            targetId: target.id,
+            type: "page",
+            title: target.title,
+          },
+        });
+    });
+  };
   original.mockClear();
   sibling.mockClear();
   view.rerender(viewers(replacement));
@@ -112,6 +129,7 @@ it("delivers real target and selection changes to replacement callbacks independ
   expect(replacement).not.toHaveBeenCalled();
 
   fake.targets[0]!.title = "Renamed page";
+  changedTarget(0);
   await advance(2000);
   expect(replacement).toHaveBeenCalledOnce();
   expect(replacement.mock.lastCall?.[0].targets).toEqual([
@@ -123,6 +141,7 @@ it("delivers real target and selection changes to replacement callbacks independ
   );
 
   fake.targets.push({ id: "page-c", title: "Added page", windowId: 0 });
+  changedTarget(fake.targets.length - 1);
   await advance(2000);
   expect(replacement.mock.lastCall?.[0].targets).toHaveLength(2);
   fireEvent.click(owner.getByRole("tab", { name: "Added page" }));
@@ -132,6 +151,10 @@ it("delivers real target and selection changes to replacement callbacks independ
     selectedTargetId: "page-c",
   });
   fake.targets = fake.targets.filter((target) => target.id !== "page-a");
+  act(() => {
+    for (const socket of fake.sockets)
+      socket.emit("Target.targetDestroyed", { targetId: "page-a" });
+  });
   await advance(2000);
   expect(replacement.mock.lastCall?.[0].targets).toEqual([
     { id: "page-c", title: "Added page" },

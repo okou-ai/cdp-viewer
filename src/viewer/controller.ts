@@ -1,4 +1,4 @@
-import { interval, timeout } from "signal-timers";
+import { timeout } from "signal-timers";
 import { CdpClient } from "../cdp/client";
 import type { CdpEvent, SocketFactory } from "../cdp/client";
 import {
@@ -26,11 +26,13 @@ import type {
   ViewerCaptureOptions,
   CdpViewerProps,
   ViewerError,
+  ViewerTarget,
   WindowSizeSync,
 } from "./types";
 import { captureSettings, capturePreferences, sameCapture } from "./capture";
 import { Screencast } from "./screencast";
 import { readFavicon } from "./favicon";
+import { TargetDiscovery } from "./discovery";
 
 interface FaviconDocument {
   wanted: boolean;
@@ -82,12 +84,11 @@ export class ViewerController {
   private client: CdpClient | null = null;
   private frames: CdpClient | null = null;
   private directory: TargetDirectory | null = null;
+  private discovery: TargetDiscovery | null = null;
   private selection: Selection | null = null;
   private disposed = false;
   private connected = false;
   private chosenOnce = false;
-  private refreshing = false;
-  private refreshWanted = false;
   private targetRevision = 0;
   private selectionRevision = 0;
   private extensionRequest = 0;
@@ -167,6 +168,7 @@ export class ViewerController {
       favicon: { wanted: true, waiting: false, ready: false },
     };
     this.selection = selection;
+    this.discovery?.watch(targetId);
     this.attach(selection).catch((error: unknown) => {
       if (this.isCurrent(selection)) this.fail(error);
     });
@@ -403,6 +405,7 @@ export class ViewerController {
             : Object.freeze([...latest, created]),
           error: null,
         });
+        this.discovery?.created(created);
         this.model.run(this.model.resetAddress$);
         this.select(targetId);
         this.options.onTabCreated?.();
@@ -500,6 +503,7 @@ export class ViewerController {
   close(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.discovery?.close();
     this.model.run(this.model.setConnected$, false);
     this.lifetime.abort();
     this.stopSelection("disposed");
@@ -602,10 +606,21 @@ export class ViewerController {
       },
     });
     this.extensions.reconcile(this.extensionDescriptors);
-    if (this.options.windowId !== undefined) {
-      interval(() => this.refresh(), 2_000, { signal: this.lifetime.signal });
-    }
-    this.refresh();
+    this.discovery = new TargetDiscovery(this.directory, {
+      signal: this.lifetime.signal,
+      scoped: this.options.windowId !== undefined,
+      changed: (targets) => this.discovered(targets),
+      failed: (error) => {
+        if (this.disposed || !this.connected) return;
+        this.stopSelection();
+        if (this.disposed || !this.connected) return;
+        this.model.transition({
+          type: "discovery-failed",
+          error: diagnostic(error),
+        });
+      },
+    });
+    this.discovery.start();
   }
 
   private disconnected(error: CdpFault, source: CdpClient): void {
@@ -613,6 +628,7 @@ export class ViewerController {
     const established = this.connected;
     const drainControl = source !== this.client;
     this.connected = false;
+    this.discovery?.close();
     this.lifetime.abort();
     this.stopSelection("disconnected", { drainControl });
     this.display?.close();
@@ -639,78 +655,48 @@ export class ViewerController {
 
   private refresh(): void {
     if (this.disposed || !this.connected) return;
-    this.refreshWanted = true;
-    if (!this.refreshing)
-      this.refreshLoop().catch((error: unknown) => {
-        if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
-      });
+    this.discovery?.refresh();
   }
 
-  private async refreshLoop(): Promise<void> {
-    this.refreshing = true;
-    while (this.refreshWanted && !this.disposed && this.connected) {
-      this.refreshWanted = false;
-      const revision = this.targetRevision;
-      try {
-        const discovered = await this.directory!.list();
-        if (this.disposed || !this.connected) break;
-        if (revision !== this.targetRevision) {
-          this.refreshWanted = true;
-          continue;
-        }
-        const order = new Map(
-          this.model
-            .getSnapshot()
-            .targets.map((target, index) => [target.id, index]),
-        );
-        const targets = Object.freeze(
-          [...discovered].sort(
-            (a, b) =>
-              (order.get(a.id) ?? order.size) - (order.get(b.id) ?? order.size),
+  private discovered(discovered: readonly ViewerTarget[]): void {
+    if (this.disposed || !this.connected) return;
+    const order = new Map(
+      this.model
+        .getSnapshot()
+        .targets.map((target, index) => [target.id, index]),
+    );
+    const targets = Object.freeze(
+      [...discovered].sort(
+        (a, b) =>
+          (order.get(a.id) ?? order.size) - (order.get(b.id) ?? order.size),
+      ),
+    );
+    const selected = this.model.getSnapshot().selectedTargetId;
+    this.model.update({ targets });
+    if (selected && !targets.some((t) => t.id === selected)) {
+      this.loseSelection(
+        diagnostic(
+          new CdpFault(
+            "target-unavailable",
+            "The selected target is no longer available in this scope.",
           ),
-        );
-        const selected = this.model.getSnapshot().selectedTargetId;
-        this.model.update({ targets });
-        if (selected && !targets.some((t) => t.id === selected)) {
-          this.loseSelection(
-            diagnostic(
-              new CdpFault(
-                "target-unavailable",
-                "The selected target is no longer available in this scope.",
-              ),
-            ),
-          );
-        } else if (!selected && !this.chosenOnce && targets[0]) {
-          this.select(targets[0].id);
-        } else if (!selected) {
-          this.model.transition({
-            type: "target-lost",
-            error: diagnostic(
-              new CdpFault(
-                "target-unavailable",
-                targets.length
-                  ? "Select a target to resume viewing."
-                  : "No page targets are available in this scope.",
-              ),
-            ),
-          });
-        }
-      } catch (error) {
-        if (!this.disposed && this.connected) {
-          if (revision !== this.targetRevision) {
-            this.refreshWanted = true;
-            continue;
-          }
-          this.stopSelection();
-          if (this.disposed || !this.connected) break;
-          this.model.transition({
-            type: "discovery-failed",
-            error: diagnostic(error),
-          });
-        }
-      }
+        ),
+      );
+    } else if (!selected && !this.chosenOnce && targets[0]) {
+      this.select(targets[0].id);
+    } else if (!selected) {
+      this.model.transition({
+        type: "target-lost",
+        error: diagnostic(
+          new CdpFault(
+            "target-unavailable",
+            targets.length
+              ? "Select a target to resume viewing."
+              : "No page targets are available in this scope.",
+          ),
+        ),
+      });
     }
-    this.refreshing = false;
   }
 
   private async attach(selection: Selection): Promise<void> {
@@ -850,7 +836,8 @@ export class ViewerController {
       !this.disposed &&
       this.connected &&
       !this.paused &&
-      this.selection === selection
+      this.selection === selection &&
+      (this.discovery?.current(selection.targetId) ?? true)
     );
   }
 
@@ -986,6 +973,7 @@ export class ViewerController {
     this.cancelCaptureUpdate();
     const old = this.selection;
     this.selection = null;
+    this.discovery?.watch(null);
     this.display?.setTarget(null);
     if (retainFrame) this.sink.invalidate();
     else this.sink.reset();
@@ -1193,7 +1181,7 @@ export class ViewerController {
         typeof params.targetId === "string"
       )
         this.retirements.delete(params.targetId);
-      this.refresh();
+      this.discovery?.event(event);
     }
   }
 }

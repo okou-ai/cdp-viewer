@@ -1111,6 +1111,15 @@ for (const nativeScrollbars of [false, true]) {
           await page.routeWebSocket(backend.endpoint, (socket) => {
             const upstream = socket.connectToServer();
             notifyTargetChange = async (targetId) => {
+              if (empty) {
+                socket.send(
+                  JSON.stringify({
+                    method: "Target.targetDestroyed",
+                    params: { targetId },
+                  }),
+                );
+                return;
+              }
               const params = await backend.session.send(
                 "Target.getTargetInfo",
                 {

@@ -38,7 +38,10 @@ Keep local input ownership separate from remote window discovery. The public
 controller verifies scope around selection/attachment, then checks the selected
 session locally for input. Background discovery invalidates it after an observed
 window mismatch or lookup failure. A pending discovery query does not block stable
-input. External movement may precede detection; this policy cannot provide atomic
+input while the selected membership observation remains fresh. Its independent
+deadline and local admission check prevent delayed positive replies from renewing
+an expired observation; receipt time is not observation time. External movement
+may precede detection; this policy cannot provide atomic
 scope-and-dispatch or cross-client admission. Test cancellation after detection
 and validate any destination owner after confirmed original cleanup.
 

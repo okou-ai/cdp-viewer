@@ -119,6 +119,14 @@ the point of use. Window membership is verified around selection/attachment and
 invalidated by background discovery; stable input does not query it per action.
 A rendered capability is not write authority.
 
+Keep target discovery in its connection-owned resource. Reconcile affected event
+targets and authoritative inventory without allowing late reads to resurrect
+removed entries or overwrite newer metadata. Bound inventory, dirty work and
+in-flight observations. Selected membership must make progress independently of
+unrelated inventory reads; its original lifetime and request-start freshness
+cannot transfer through delayed replies. Paused connections retain inventory
+reconciliation without owning an active selected observation.
+
 Resource bindings belong to their instance and lifetime. Remove only a matching
 binding during cleanup, so an old owner cannot detach a replacement. Callback
 identity changes must not recreate unrelated resources. Keep required DOM node
