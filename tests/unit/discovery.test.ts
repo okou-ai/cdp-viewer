@@ -500,6 +500,38 @@ it("does not notify a retired controller after close publication", async () => {
   }
 });
 
+it("preserves a newer selection made during discovery retirement publication", async () => {
+  const fake = browser(2);
+  const { controller, model } = mount(fake);
+  await advance();
+  expect(model.getSnapshot().navigation).not.toBeNull();
+  let replaced = false;
+  const stop = model.subscribe(() => {
+    const snapshot = model.getSnapshot();
+    if (
+      !replaced &&
+      snapshot.selectedTargetId === "owned-0" &&
+      snapshot.navigation === null &&
+      !snapshot.targets.some((target) => target.id === "owned-0")
+    ) {
+      replaced = true;
+      controller.select("owned-1");
+    }
+  });
+  try {
+    fake.targets[0]!.windowId = 1;
+    await advance(2000);
+    expect(replaced).toBe(true);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-1",
+    });
+    expect(controller.input).not.toBeNull();
+  } finally {
+    stop();
+  }
+});
+
 it("repairs silent selected and background titles on the authoritative round", async () => {
   const fake = browser(2);
   const { model } = mount(fake);

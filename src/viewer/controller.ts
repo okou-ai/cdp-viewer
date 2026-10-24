@@ -960,8 +960,10 @@ export class ViewerController {
   }
 
   private loseSelection(error: ViewerError | null): void {
+    const revision = this.selectionRevision;
     this.stopSelection();
-    if (this.lifetime.signal.aborted) return;
+    if (this.lifetime.signal.aborted || revision !== this.selectionRevision)
+      return;
     this.model.transition({ type: "target-lost", error });
   }
 
