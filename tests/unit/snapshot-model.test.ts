@@ -125,7 +125,7 @@ it.each([
 
 it.each([
   { type: "select", targetId: "page-b", paused: false },
-  { type: "paused" },
+  { type: "pause", paused: true },
   { type: "target-lost", error: null },
   { type: "failed", error: { kind: "frame", message: "Synthetic failure" } },
   {

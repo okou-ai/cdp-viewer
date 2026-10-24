@@ -132,6 +132,12 @@ session or an open socket alone does not authorize input while its image is
 unavailable. Its current capture must paint before admission resumes; an unknown
 cleanup receipt remains unavailable even when capture restart would succeed.
 
+Selection retirement captures original resources before parent intent is
+published. A synchronous callback may select or resume a successor; original
+input effects still complete, while local reset callbacks and shared display
+cleanup require the originating intent to remain current. Do not reread the
+selected resource after publication and treat it as the resource being retired.
+
 Test lifecycle transitions independently from DOM and network adapters. Verify
 ownership across replacement, delayed replies and cancellation through the
 public integration boundaries. Use explicit synchronization rather than sleeps

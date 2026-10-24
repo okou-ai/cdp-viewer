@@ -110,6 +110,20 @@ through the same policy. Unknown cleanup fences same-target acquisition.
 Pausing retires normal session resources and any subsequent acquisition needs
 fresh validation; visibility alone does not retry a failed image.
 
+The model also owns canonical parent pause and target-selection intent. Its
+immutable identity orders each accepted intent before callback-capable effects;
+explicit selection identity remains distinct from observed target retirement.
+The controller holds acquired resources, not another paused/selection intent.
+Capture and revoke the original selection before committing new intent, then
+finish that captured resource's cleanup independently. Qualify shared display,
+renderer and local reset effects against the originating committed intent so a
+synchronous observer cannot cause an older call to retire its successor.
+Commands return their originating identity before publication callbacks run.
+Late original receipts still settle cleanup; they do not publish a cached user
+decision or authorize current input. Compose parent intent and image outcomes
+before snapshot/capability effects, and test that composition as well as the
+child image policy.
+
 Retain the latest produced screencast frame at the native credit boundary so a
 static final state does not require another page change after acknowledgement.
 Keep native frame-credit defaults independent from local decode backpressure:

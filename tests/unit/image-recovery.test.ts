@@ -63,6 +63,68 @@ const starts = (browser: FakeBrowser) =>
     .filter((command) => command.method === "Page.startScreencast");
 
 for (const transport of ["shared", "split"] as const) {
+  it.each(["pause", "select"] as const)(
+    `${transport}: publication replaces parent %s before original cleanup without retiring the successor`,
+    async (action) => {
+      vi.useFakeTimers();
+      const browser = new FakeBrowser();
+      browser.targets[1]!.windowId = 0;
+      const f = mount(browser, transport);
+      await until(() => f.model.getSnapshot().status === "streaming");
+      const originalInput = f.controller.input!;
+      const original = originalInput.sessionId;
+      originalInput.key({
+        type: "rawKeyDown",
+        key: "Shift",
+        code: "ShiftLeft",
+      });
+      await originalInput.completion(originalInput.owner!);
+      browser.holdMethod = "Input.dispatchKeyEvent";
+      let replace = true;
+      const stop = f.model.watch(f.model.intent$, () => {
+        const intent = f.model.read(f.model.intent$);
+        if (
+          replace &&
+          (action === "pause" ? intent.paused : intent.targetId === "page-b")
+        ) {
+          replace = false;
+          if (action === "pause") f.controller.setPaused(false);
+          f.controller.select("page-a");
+        }
+      });
+      if (action === "pause") f.controller.setPaused(true);
+      else f.controller.select("page-b");
+      stop();
+      await until(() =>
+        browser.heldCommands.some(
+          ({ command }) => command.method === "Input.dispatchKeyEvent",
+        ),
+      );
+      expect(starts(browser)).toHaveLength(1);
+      expect(
+        browser.sockets[0]!.commands.some(
+          (command) =>
+            command.method === "Target.detachFromTarget" &&
+            command.params?.sessionId === original,
+        ),
+      ).toBe(false);
+      browser.holdMethod = null;
+      for (const held of browser.heldCommands.splice(0))
+        browser.resume(held.command, held.socket);
+      await until(() => f.model.getSnapshot().status === "streaming");
+      expect(replace).toBe(false);
+      expect(f.model.read(f.model.intent$)).toMatchObject({
+        paused: false,
+        targetId: "page-a",
+      });
+      expect(f.controller.input!.sessionId).not.toBe(original);
+      expect(starts(browser)).toHaveLength(2);
+      expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
+      f.controller.input!.text("successor remains usable");
+      await f.controller.input!.completion(f.controller.input!.owner!);
+    },
+  );
+
   it.each(["before-reply", "after-reply"])(
     `${transport}: cancels current and future display image waiters when calibration fails %s`,
     async (phase) => {

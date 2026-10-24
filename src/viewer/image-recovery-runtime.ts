@@ -8,10 +8,12 @@ import type { InputSession } from "../input/session";
 import type { FrameSink } from "../render/canvas";
 import type { ImageEvent } from "./image-recovery";
 import type { ViewerModel } from "./model";
+import type { ViewerIntent } from "./lifecycle";
 import type { Screencast } from "./screencast";
 import type { ViewerError } from "./types";
 
 export interface ImageSelection {
+  readonly intent: ViewerIntent;
   readonly targetId: string;
   sessionId: string | null;
   painted: boolean;

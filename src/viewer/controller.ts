@@ -34,6 +34,7 @@ import { readFavicon } from "./favicon";
 import { TargetDiscovery } from "./discovery";
 import { ImageRecoveryRuntime } from "./image-recovery-runtime";
 import type { ImageRetirement, ImageSelection } from "./image-recovery-runtime";
+import type { ViewerIntent } from "./lifecycle";
 
 interface FaviconDocument {
   wanted: boolean;
@@ -51,6 +52,11 @@ const minimumCaptureIntervalMs = 150;
 interface Retirement {
   input: InputSession;
   complete: Promise<void>;
+}
+
+interface SelectionRetirement {
+  readonly selection: Selection | null;
+  readonly image: ImageRetirement | null;
 }
 
 interface ControllerOptions {
@@ -85,11 +91,9 @@ export class ViewerController {
   private connected = false;
   private chosenOnce = false;
   private targetRevision = 0;
-  private selectionRevision = 0;
   private extensionRequest = 0;
   private extensionDescriptors: readonly ViewerExtension[] = [];
   private extensions: ExtensionRuntime | null = null;
-  private paused: boolean;
   private display: DisplaySync | null = null;
   private displayMode: WindowSizeSync = "off";
   private displaySize: DisplaySize | null = null;
@@ -107,7 +111,6 @@ export class ViewerController {
     private readonly sink: FrameSink,
     private readonly options: ControllerOptions,
   ) {
-    this.paused = options.paused ?? false;
     this.imageRecovery = new ImageRecoveryRuntime(model, sink, {
       client: () => this.client!,
       display: () => this.display,
@@ -121,12 +124,24 @@ export class ViewerController {
   }
 
   start(): void {
+    this.model.run(this.model.commitIntent$, {
+      type: "pause",
+      paused: this.options.paused ?? false,
+    });
     this.model.run(this.model.configure$, {
       interactive: this.options.interactive ?? false,
       scoped: this.options.windowId !== undefined,
     });
     this.waitingForCapture = true;
     this.setCapture(this.options.capture);
+  }
+
+  private get paused(): boolean {
+    return this.model.read(this.model.intent$).paused;
+  }
+
+  private get selectionRevision(): object {
+    return this.model.read(this.model.intent$).selection;
   }
 
   get input(): InputSession | null {
@@ -148,27 +163,28 @@ export class ViewerController {
       return;
     this.chosenOnce = true;
     this.extensionRequest++;
-    const revision = ++this.selectionRevision;
     const controls = this.model.read(this.model.controls$);
     const preview =
       !this.paused && (controls.streaming || controls.loadingPreview);
-    this.stopSelection("target-replaced", { retainFrame: preview });
-    if (this.disposed || !this.connected || revision !== this.selectionRevision)
-      return;
-    this.model.transition({
+    const retiring = this.takeSelection();
+    const revision = this.model.run(this.model.commitIntent$, {
       type: "select",
       targetId,
       paused: this.paused,
       preview,
     });
+    this.finishSelection(retiring, revision, "target-replaced", {
+      retainFrame: preview,
+    });
     if (
       this.paused ||
       this.disposed ||
       !this.connected ||
-      revision !== this.selectionRevision
+      revision !== this.model.read(this.model.intent$)
     )
       return;
     const selection: Selection = {
+      intent: revision,
       targetId,
       sessionId: null,
       frameSessionId: null,
@@ -188,20 +204,21 @@ export class ViewerController {
 
   setPaused(paused: boolean): void {
     if (this.disposed || this.paused === paused) return;
-    this.paused = paused;
-    if (!this.connected) return;
-    const image = this.model.read(this.model.imageRecovery$);
+    const retiring = paused ? this.takeSelection() : null;
+    const intent = this.model.run(this.model.commitIntent$, {
+      type: "pause",
+      paused,
+    });
     if (paused) {
-      const retirement = this.stopSelection("paused");
-      if (!this.connected) return;
-      this.imageRecovery.cancel(retirement);
-      // Keep original cleanup facts, then honor the intent current after callbacks.
-      if (this.disposed || !this.connected || !this.paused) return;
-      this.model.transition({ type: "paused" });
-    } else if (image) {
-      this.model.transition({ type: "image-resumed" });
-    } else {
-      const id = this.model.getSnapshot().selectedTargetId;
+      this.imageRecovery.cancel(retiring!.image);
+      this.finishSelection(retiring!, intent, "paused");
+    } else if (
+      !this.disposed &&
+      this.connected &&
+      intent === this.model.read(this.model.intent$) &&
+      !this.model.read(this.model.imageRecovery$)
+    ) {
+      const id = intent.targetId;
       if (id) this.select(id);
       else this.refresh();
     }
@@ -532,10 +549,12 @@ export class ViewerController {
   close(): void {
     if (this.disposed) return;
     this.disposed = true;
+    const retiring = this.takeSelection();
     this.discovery?.close();
     this.model.run(this.model.setConnected$, false);
     this.lifetime.abort();
-    this.stopSelection("disposed");
+    const intent = this.model.run(this.model.commitIntent$, { type: "closed" });
+    this.finishSelection(retiring, intent, "disposed");
     this.display?.close();
     this.sink.dispose();
     this.frames?.close();
@@ -642,12 +661,12 @@ export class ViewerController {
       changed: () => this.discovered(),
       failed: (error) => {
         if (this.disposed || !this.connected) return;
-        this.stopSelection();
-        if (this.disposed || !this.connected) return;
-        this.model.transition({
+        const retiring = this.takeSelection();
+        const intent = this.model.run(this.model.commitIntent$, {
           type: "discovery-failed",
           error: diagnostic(error),
         });
+        this.finishSelection(retiring, intent);
       },
     });
     this.discovery.start();
@@ -854,10 +873,12 @@ export class ViewerController {
   }
 
   private isCurrent(selection: ImageSelection): boolean {
+    const intent = this.model.read(this.model.intent$);
     return (
       !this.disposed &&
       this.connected &&
-      !this.paused &&
+      !intent.paused &&
+      selection.intent === intent &&
       this.selection === selection &&
       this.discovery?.current(selection.targetId) === true
     );
@@ -986,30 +1007,58 @@ export class ViewerController {
   }
 
   private loseSelection(error: ViewerError | null): void {
-    const revision = this.selectionRevision;
-    this.stopSelection();
-    if (this.lifetime.signal.aborted || revision !== this.selectionRevision)
-      return;
-    this.model.transition({ type: "target-lost", error });
+    const retiring = this.takeSelection();
+    const intent = this.model.run(this.model.commitIntent$, {
+      type: "target-lost",
+      error,
+    });
+    this.finishSelection(retiring, intent);
+  }
+
+  /** Capture original facts and revoke admission before any callback-visible intent commit. */
+  private takeSelection(): SelectionRetirement {
+    this.cancelCaptureUpdate();
+    const selection = this.selection;
+    const image = selection ? this.imageRecovery.retire(selection) : null;
+    this.selection = null;
+    return { selection, image };
   }
 
   private stopSelection(
+    reason: InputStop = "target-replaced",
+    { drainControl = false }: { drainControl?: boolean } = {},
+  ): void {
+    const retiring = this.takeSelection();
+    this.finishSelection(
+      retiring,
+      this.model.read(this.model.intent$),
+      reason,
+      {
+        drainControl,
+      },
+    );
+  }
+
+  private finishSelection(
+    retiring: SelectionRetirement,
+    intent: ViewerIntent,
     reason: InputStop = "target-replaced",
     {
       drainControl = false,
       retainFrame = false,
     }: { drainControl?: boolean; retainFrame?: boolean } = {},
-  ): ImageRetirement | null {
-    this.cancelCaptureUpdate();
-    const old = this.selection;
-    const imageRetirement = old ? this.imageRecovery.retire(old) : null;
-    this.selection = null;
-    this.discovery?.watch(null);
-    this.display?.setTarget(null);
-    this.display?.setSuspended(false);
-    if (retainFrame) this.sink.invalidate();
-    else this.sink.reset();
-    this.model.transition({ type: "stopped" });
+  ): void {
+    const current = () =>
+      intent === this.model.read(this.model.intent$) && this.selection === null;
+    const old = retiring.selection;
+    if (current()) this.discovery?.watch(null);
+    if (current()) this.display?.setTarget(null);
+    if (current()) this.display?.setSuspended(false);
+    if (current()) {
+      if (retainFrame) this.sink.invalidate();
+      else this.sink.reset();
+    }
+    if (current()) this.model.transition({ type: "stopped", retainFrame });
     if (old) {
       const input = old.input;
       const retire =
@@ -1039,12 +1088,11 @@ export class ViewerController {
       this.stopStream(old);
       this.releaseFrames(old);
       if (!retire) this.release(old);
-      if (input) {
+      if (input && current()) {
         this.options.onClipboardReset?.();
-        this.options.onInputReset?.(reason);
+        if (current()) this.options.onInputReset?.(reason);
       }
     }
-    return imageRetirement;
   }
 
   private release(selection: Selection): void {
@@ -1070,9 +1118,13 @@ export class ViewerController {
   }
 
   private fail(error: unknown): void {
-    this.stopSelection();
     if (this.lifetime.signal.aborted) return;
-    this.model.transition({ type: "failed", error: diagnostic(error) });
+    const retiring = this.takeSelection();
+    const intent = this.model.run(this.model.commitIntent$, {
+      type: "failed",
+      error: diagnostic(error),
+    });
+    this.finishSelection(retiring, intent);
   }
 
   private imageFailed(selection: Selection, error: unknown): void {
