@@ -1405,9 +1405,9 @@ it.each([
   ["off", "Page.getLayoutMetrics", "Page.frameResized"],
   ["initial", "Page.getLayoutMetrics", "Page.frameResized"],
   ["live", "Page.getLayoutMetrics", "Page.frameResized"],
-  ["off", "Runtime.evaluate", "Page.frameResized"],
-  ["initial", "Runtime.evaluate", "Page.frameResized"],
-  ["live", "Runtime.evaluate", "Page.frameResized"],
+  ["off", "Page.stopScreencast", "Page.frameResized"],
+  ["initial", "Page.stopScreencast", "Page.frameResized"],
+  ["live", "Page.stopScreencast", "Page.frameResized"],
   ["off", "Page.getLayoutMetrics", "Runtime.executionContextsCleared"],
 ] as const)(
   "uses current %s metrics when %s is invalidated by %s before a display write",
@@ -1461,7 +1461,7 @@ it.each([
       socket.commands.filter(
         (command) => command.method === "Page.startScreencast",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(
       socket.commands.filter(
         (command) => command.method === "Target.attachToTarget",
@@ -1512,7 +1512,7 @@ it("retains manual priority over measurements when invalidated preparation waits
 
 it.each(
   (["off", "initial", "live"] as const).flatMap((mode) =>
-    (["Page.getLayoutMetrics", "Runtime.evaluate"] as const).flatMap(
+    (["Page.getLayoutMetrics", "Page.stopScreencast"] as const).flatMap(
       (boundary) =>
         [false, true].map((offFirst) => [mode, boundary, offFirst] as const),
     ),
@@ -1653,15 +1653,14 @@ it("requires compatible painted pixels after native acknowledgements while retai
     pending: true,
     pointerBlocked: true,
   });
-  // The inconsistent raster requests one fenced refresh after the initial
-  // capture. Release its frame,
-  // rather than relying on now-obsolete frames from before that fence.
+  // Native acquisition and the inconsistent raster each require a fenced refresh.
+  // Release its presentation frame rather than relying on pre-fence images.
   await vi.waitFor(() =>
     expect(
       socket.commands.filter(
         (command) => command.method === "Page.startScreencast",
       ),
-    ).toHaveLength(2),
+    ).toHaveLength(3),
   );
   for (const deliver of browser.heldFrames.splice(0)) deliver();
   await vi.waitFor(() =>
@@ -2637,7 +2636,7 @@ it("requires a post-write native capture when size and DPR change without changi
       socket.commands.filter(
         (command) => command.method === "Page.startScreencast",
       ),
-    ).toHaveLength(2),
+    ).toHaveLength(3),
   );
   expect(resizes(browser)).toHaveLength(2);
   expect(resizes(browser)[1]!.params).toEqual(resizes(browser)[0]!.params);
@@ -2691,7 +2690,7 @@ it("requires a post-write native capture when size and DPR change without changi
     socket.commands.filter(
       (command) => command.method === "Page.startScreencast",
     ),
-  ).toHaveLength(2);
+  ).toHaveLength(3);
   expect(
     socket.commands.filter(
       (command) => command.method === "Target.attachToTarget",
@@ -2795,7 +2794,7 @@ it("keeps the default browser untouched and manually synchronizes both layout an
     browser.sockets[0]!.commands.filter(
       (c) => c.method === "Page.stopScreencast",
     ),
-  ).toHaveLength(0);
+  ).toHaveLength(1);
 });
 
 it("bounds live work to one running resize and one final desired geometry", async () => {
@@ -3262,10 +3261,6 @@ it.each([
       );
       // Keep the native raster identical while changing layout/density.
       controller.measureDisplay({ width: 320, height: 240, dpr: 4 });
-    } else {
-      // Match the original physical raster so the first native write also needs
-      // a causal capture fence, without relying on the removed profile upgrade.
-      controller.measureDisplay({ width: 400, height: 300, dpr: 2 });
     }
     const input = controller.input!,
       socket = browser.sockets[0]!;
@@ -3287,7 +3282,9 @@ it.each([
           command.method === "Page.startScreencast",
       );
     expect(transitions.at(-1)?.method).toBe("Page.startScreencast");
-    expect(transitions.length).toBeLessThanOrEqual(6);
+    expect(transitions.length).toBeLessThanOrEqual(
+      stage === "initial fence" ? 4 : 6,
+    );
     for (const [index, command] of transitions.entries())
       if (command.method === "Page.startScreencast")
         expect(transitions[index - 1]?.method).toBe("Page.stopScreencast");
@@ -3329,7 +3326,6 @@ it("keeps the running preview when stopping capture is definitely rejected", asy
   await vi.waitFor(() => expect(controller.input).not.toBeNull());
   const input = controller.input!,
     socket = browser.sockets[0]!;
-  controller.measureDisplay({ width: 400, height: 300, dpr: 2 });
   browser.holdMethod = "Page.stopScreencast";
   controller.syncDisplay();
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
@@ -3343,16 +3339,16 @@ it("keeps the running preview when stopping capture is definitely rejected", asy
     socket.commands.filter(
       (command) => command.method === "Page.startScreencast",
     ),
-  ).toHaveLength(2);
-  expect(emulations(browser)).toHaveLength(1);
+  ).toHaveLength(1);
+  expect(emulations(browser)).toHaveLength(0);
   expect(
     socket.commands.filter(
       (command) => command.method === "Emulation.clearDeviceMetricsOverride",
     ),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
   expect(controller.input).toBe(input);
   controller.syncDisplay();
-  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
   await vi.waitFor(() => expect(model.getSnapshot().error).toBeNull());
 });
 
@@ -3362,7 +3358,6 @@ it("does not restart a retired session after its capture restoration stop comple
   await vi.waitFor(() => expect(controller.input).not.toBeNull());
   const sessionId = controller.input!.sessionId,
     socket = browser.sockets[0]!;
-  controller.measureDisplay({ width: 400, height: 300, dpr: 2 });
   socket.holdReplyMethod = "Page.startScreencast";
   controller.syncDisplay();
   await vi.waitFor(() => expect(socket.heldReplies).toHaveLength(1));
@@ -3382,7 +3377,7 @@ it("does not restart a retired session after its capture restoration stop comple
   const late = socket.heldReplies.shift()!;
   socket.reply(late.command, late.result);
   controller.syncDisplay();
-  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(2));
+  await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
   await vi.waitFor(() =>
     expect(model.read(model.display$).pending).toBe(false),
   );

@@ -126,10 +126,7 @@ export class DisplayTransaction {
       );
       if (
         this.applied?.prepared.projected.key === prepared.projected.key &&
-        target.geometry.matches(
-          existingPresentation,
-          prepared.projected.input,
-        )
+        target.geometry.matches(existingPresentation, prepared.projected.input)
       ) {
         if (!policy.prepared())
           return { kind: this.current() ? "deferred" : "retired" };

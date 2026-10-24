@@ -418,15 +418,16 @@ it("defers automatic image changes through a native write and applies the latest
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   for (let width = 700; width < 750; width++)
     controller.measureDisplay({ width, height: 500, dpr: 1 });
-  expect(starts()).toHaveLength(1);
+  // The initial stream and native acquisition preceded the held display write.
+  expect(starts()).toHaveLength(2);
   browser.holdMethod = null;
   const held = browser.heldCommands[0]!;
   browser.resume(held.command, held.socket);
   await vi.waitFor(() =>
     expect(model.read(model.display$).pending).toBe(false),
   );
-  await vi.waitFor(() => expect(starts()).toHaveLength(2));
-  expect(starts()[1]!.params).toMatchObject({
+  await vi.waitFor(() => expect(starts()).toHaveLength(3));
+  expect(starts()[2]!.params).toMatchObject({
     maxWidth: 749,
     maxHeight: 500,
   });
@@ -446,9 +447,20 @@ it("requires fresh pixels when automatic bounds hide a native resize behind an i
   await vi.waitFor(() => expect(controller.input).not.toBeNull());
   const input = controller.input!,
     socket = browser.sockets[0]!;
-  const paints = sink.push.mock.calls.length;
-  browser.holdFrames = true;
-  browser.holdMethod = "Page.startScreencast";
+  let paints = sink.push.mock.calls.length;
+  const reply = socket.reply.bind(socket);
+  const nativeWrite = vi
+    .spyOn(socket, "reply")
+    .mockImplementation((command, result) => {
+      if (command.method === "Emulation.setDeviceMetricsOverride") {
+        nativeWrite.mockRestore();
+        // Acquire native geometry normally, then hold only presentation work.
+        paints = sink.push.mock.calls.length;
+        browser.holdFrames = true;
+        browser.holdMethod = "Page.startScreencast";
+      }
+      reply(command, result);
+    });
   controller.setWindowSizeSync("live");
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   // Both the old800x600 page and the new640x480 page fit this640x480 raster.

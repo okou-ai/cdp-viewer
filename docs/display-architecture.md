@@ -102,10 +102,9 @@ new capture. Independent hidden geometry changes between native reads are not at
 Missing post-fence frames and failed capture, clock or provisional window
 confirmation remain bounded failures; explicit retry acquires a new capture.
 Another observed window change restarts rebinding for that destination. Initial
-acquisition also performs the capture-profile upgrade when one is needed;
-otherwise it adds one verification restart. Same-window preparations with an
-established reference and no-op reuse
-do not gain a capture restart or a new waiter.
+acquisition adds one verification restart on the same capture lane. Same-window
+preparations with an established reference and no-op reuse do not gain a capture
+restart or a new waiter.
 Under emulation, a native window move can change compositor dimensions without
 a page resize event. The previous presentation can reject that new-size frame
 from painting while its decoded native metadata remains a calibration fact.

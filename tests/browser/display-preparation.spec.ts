@@ -20,7 +20,10 @@ test.beforeAll(async () => {
 test.afterAll(async () => server?.close());
 test.use({ deviceScaleFactor: 2 });
 
-for (const boundary of ["Page.getLayoutMetrics", "Runtime.evaluate"] as const) {
+for (const boundary of [
+  "Page.getLayoutMetrics",
+  "Page.stopScreencast",
+] as const) {
   test(`reprepares invalidated native units while awaiting ${boundary}`, async ({
     page,
   }) => {
