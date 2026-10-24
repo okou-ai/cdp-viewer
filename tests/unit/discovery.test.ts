@@ -218,6 +218,48 @@ it("uses verified creation results without another full scan and removes destruc
   ]);
 });
 
+it.each([{ windowId: 0 }, {}])(
+  "does not republish a closed tab while authoritative discovery is pending %j",
+  async (options) => {
+    const fake = browser(3);
+    const { controller, model } = mount(fake, options);
+    await advance();
+    fake.holdMethod = "Target.closeTarget";
+    controller.closeTab("owned-1");
+    await advance();
+    expect(fake.heldCommands).toHaveLength(1);
+    const close = fake.heldCommands.shift()!;
+    // The close succeeds before its corresponding target event is delivered.
+    fake.targets = fake.targets.filter((target) => target.id !== "owned-1");
+    fake.holdMethod = "Target.getTargets";
+    close.socket.reply(close.command, { success: true });
+    await advance();
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+      "owned-2",
+    ]);
+    expect(fake.heldCommands).toHaveLength(1);
+    fake.targets = fake.targets.filter((target) => target.id !== "owned-2");
+    fake.sockets[0]!.emit("Target.targetDestroyed", {
+      targetId: "owned-2",
+    });
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+    ]);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+    });
+    fake.holdMethod = null;
+    const full = fake.heldCommands.shift()!;
+    fake.resume(full.command, full.socket);
+    await advance();
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+    ]);
+  },
+);
+
 it.each(["event", "full"])(
   "keeps newer %s creation metadata when an older explicit list completes",
   async (source) => {

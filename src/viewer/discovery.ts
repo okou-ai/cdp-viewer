@@ -101,11 +101,18 @@ export class TargetDiscovery {
 
   /** Explicit newer tab operations supersede a previously captured full scan. */
   refresh(): void {
-    this.revision++;
-    if (this.scan) {
-      this.scan.invalidated = true;
-      this.scan.deadline.abort();
-    }
+    this.invalidate();
+    this.reconcile();
+  }
+
+  /** A successful close does not depend on its target event arriving first. */
+  removed(targetId: string): void {
+    if (!this.active()) return;
+    this.invalidate();
+    this.entries.delete(targetId);
+    this.dirty.delete(targetId);
+    this.expireInventory();
+    this.publish();
     this.reconcile();
   }
 
@@ -116,11 +123,7 @@ export class TargetDiscovery {
     metadataVersion: number,
   ): void {
     if (!this.active()) return;
-    this.revision++;
-    if (this.scan) {
-      this.scan.invalidated = true;
-      this.scan.deadline.abort();
-    }
+    this.invalidate();
     if (!this.entries.has(target.id) && this.entries.size >= maximumTargets) {
       this.fail(
         new CdpFault("protocol", "Invalid or oversized browser target list."),
@@ -218,6 +221,14 @@ export class TargetDiscovery {
 
   private active(): boolean {
     return !this.closed && !this.options.signal.aborted;
+  }
+
+  private invalidate(): void {
+    this.revision++;
+    if (this.scan) {
+      this.scan.invalidated = true;
+      this.scan.deadline.abort();
+    }
   }
 
   private changedTarget(id: string): boolean {

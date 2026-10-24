@@ -122,7 +122,9 @@ A rendered capability is not write authority.
 Keep target discovery in its connection-owned resource. Reconcile affected event
 targets and authoritative inventory without allowing late reads to resurrect
 removed entries or overwrite newer metadata. Bound inventory, dirty work and
-in-flight observations. Selected membership must make progress independently of
+in-flight observations. Confirmed tab closures retire their cached entries before
+other discovery results can publish them again, independently of event delivery.
+Selected membership must make progress independently of
 unrelated inventory reads; its original lifetime and request-start freshness
 cannot transfer through delayed replies. Paused connections retain inventory
 reconciliation without owning an active selected observation.

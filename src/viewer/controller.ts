@@ -461,7 +461,7 @@ export class ViewerController {
         if (next) this.select(next.id);
         else this.loseSelection(null);
       }
-      this.refresh();
+      this.discovery?.removed(targetId);
     });
   }
 
