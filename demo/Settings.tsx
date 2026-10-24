@@ -220,8 +220,8 @@ function CaptureSettings({
         </div>
         <p className="demo-hint">
           Lower settings use less bandwidth and may soften text. Changes apply
-          live and keep the remote page size. Quality defaults to 70. Default
-          resolution preserves the viewing mode's capture limits.
+          live and keep the remote page size. Quality defaults to 70. Automatic
+          resolution follows the preview size and display pixel density.
         </p>
       </div>
     </details>
