@@ -88,6 +88,10 @@ export class FakeBrowser {
   unsupportedDisplay = false;
   unsupportedContentsSize = false;
   unsupportedClock = false;
+  navigationHistory = {
+    currentIndex: 0,
+    entries: [{ id: 1, url: "https://fixture.invalid/", title: "Fixture" }],
+  };
   favicon: unknown = null;
   holdFavicon = false;
   nativeDpr = 1;
@@ -362,12 +366,7 @@ export class FakeBrowser {
           break;
         }
         case "Page.getNavigationHistory":
-          socket.reply(command, {
-            currentIndex: 0,
-            entries: [
-              { id: 1, url: "https://fixture.invalid/", title: "Fixture" },
-            ],
-          });
+          socket.reply(command, this.navigationHistory);
           break;
         case "Target.getTargetInfo": {
           const target = this.targets.find(

@@ -34,7 +34,14 @@ it.each(["shared", "split"] as const)(
   "%s: exposes explicit image retry and keeps native input and connections",
   async (transport) => {
     const f = fixture();
-    f.browser.holdMethod = "Page.getNavigationHistory";
+    f.browser.navigationHistory = {
+      currentIndex: 1,
+      entries: [
+        { id: 1, url: "https://fixture.invalid/before", title: "Before" },
+        { id: 2, url: "https://fixture.invalid/", title: "Current" },
+        { id: 3, url: "https://fixture.invalid/after", title: "After" },
+      ],
+    };
     const props = {
       cdpUrl: "wss://fixture.invalid",
       interactive: true,
@@ -43,19 +50,6 @@ it.each(["shared", "split"] as const)(
     const view = render(<CdpViewer {...props} />);
     const input = screen.getByLabelText("Remote browser input");
     await waitFor(() => expect(input).toBeEnabled());
-    await waitFor(() => expect(f.browser.heldCommands).toHaveLength(1));
-    const history = f.browser.heldCommands.shift()!;
-    f.browser.holdMethod = null;
-    act(() =>
-      history.socket.reply(history.command, {
-        currentIndex: 1,
-        entries: [
-          { id: 1, url: "https://fixture.invalid/before", title: "Before" },
-          { id: 2, url: "https://fixture.invalid/", title: "Current" },
-          { id: 3, url: "https://fixture.invalid/after", title: "After" },
-        ],
-      }),
-    );
     const address = screen.getByRole("textbox", {
       name: "Remote page address",
     });
