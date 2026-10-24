@@ -143,6 +143,8 @@ for (const { nativeDpr, zoom, transport, preEmulated } of [
           windowA: beforeWindow.windowId,
           second: false,
           interactive: true,
+          // Validate native raster rounding independently of automatic sampling.
+          captureA: { maxWidth: 4096, maxHeight: 2025 },
           transport,
         },
       );

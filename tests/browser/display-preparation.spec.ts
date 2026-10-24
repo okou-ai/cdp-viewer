@@ -111,6 +111,7 @@ for (const boundary of [
           windowA: windowId,
           second: false,
           interactive: true,
+          captureA: { maxWidth: 4096, maxHeight: 2025 },
         },
       );
       const view = page.locator("#viewer-a .cdpv-root"),
@@ -272,6 +273,7 @@ test("retains a held manual fit through mode-off and a zero-area surface", async
         second: false,
         interactive: true,
         windowSizeSync,
+        captureA: { maxWidth: 4096, maxHeight: 2025 },
       });
     await configure("live");
     const view = page.locator("#viewer-a .cdpv-root");

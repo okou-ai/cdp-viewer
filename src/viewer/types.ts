@@ -50,12 +50,13 @@ export interface ViewerNavigation {
   readonly canGoForward: boolean;
 }
 
+/** All capture bounds share a 3840×2160 total-pixel limit. */
 export interface ViewerCaptureOptions {
   /** JPEG compression quality, integer 0..100. Default: 70. */
   readonly quality?: number;
-  /** Maximum image width, integer 1..4096. Omit for the current capture profile. */
+  /** Fixed maximum image width, integer 1..4096. Omit to follow container/DPR. */
   readonly maxWidth?: number;
-  /** Maximum image height, integer 1..4096. Omit for the current capture profile. */
+  /** Fixed maximum image height, integer 1..4096. Omit to follow container/DPR. */
   readonly maxHeight?: number;
 }
 

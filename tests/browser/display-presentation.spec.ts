@@ -9,10 +9,15 @@ interface PointerObservation {
   pointer: { x: number; y: number; target: string };
 }
 
-for (const transport of ["shared", "split"] as const)
-  test.describe(`same raster across DPR changes (${transport})`, () => {
+for (const [transport, bounded] of [
+  ["shared", false],
+  ["split", false],
+  ["shared", true],
+  ["split", true],
+] as const)
+  test.describe(`same raster across ${bounded ? "bounded native resizing" : "DPR changes"} (${transport})`, () => {
     test.use({ deviceScaleFactor: 2 });
-    test("does not admit an old same-raster capture after DPR changes", async ({
+    test("does not admit old pixels until the native transition paints a fresh capture", async ({
       page,
     }) => {
       const backend = await launchNativeBackend(server.origin, true, 1);
@@ -32,25 +37,60 @@ for (const transport of ["shared", "split"] as const)
           { targetId: target.targetId },
         );
         let hold = false;
-        const held: (() => void)[] = [];
+        const held: ((device?: { width: number; height: number }) => void)[] =
+          [];
+        let holdPreparation = false;
+        let releasePreparation: (() => void) | undefined;
         let writes = 0;
         let pointers = 0;
         let starts = 0;
         let attachments = 0;
         await page.routeWebSocket(backend.endpoint, (socket) => {
           const upstream = socket.connectToServer();
+          let preparationId: number | undefined;
           socket.onMessage((message) => {
-            const c = JSON.parse(String(message));
+            const c = JSON.parse(String(message)) as {
+              id: number;
+              method: string;
+            };
             if (c.method === "Browser.setContentsSize") writes++;
             if (c.method === "Input.dispatchMouseEvent") pointers++;
             if (c.method === "Page.startScreencast") starts++;
             if (c.method === "Target.attachToTarget") attachments++;
+            if (
+              holdPreparation &&
+              c.method === "Page.getLayoutMetrics" &&
+              preparationId === undefined
+            )
+              preparationId = c.id;
             upstream.send(message);
           });
           upstream.onMessage((message) => {
-            const e = JSON.parse(String(message));
-            if (hold && e.method === "Page.screencastFrame")
-              held.push(() => socket.send(message));
+            const e = JSON.parse(String(message)) as {
+              id?: number;
+              method?: string;
+              params?: { metadata?: Record<string, unknown> };
+            };
+            if (preparationId !== undefined && e.id === preparationId)
+              releasePreparation = () => socket.send(message);
+            else if (hold && e.method === "Page.screencastFrame")
+              held.push((device) =>
+                socket.send(
+                  device
+                    ? JSON.stringify({
+                        ...e,
+                        params: {
+                          ...e.params,
+                          metadata: {
+                            ...e.params?.metadata,
+                            deviceWidth: device.width,
+                            deviceHeight: device.height,
+                          },
+                        },
+                      })
+                    : message,
+                ),
+              );
             else socket.send(message);
           });
         });
@@ -69,6 +109,9 @@ for (const transport of ["shared", "split"] as const)
             windowA: windowId,
             second: false,
             interactive: true,
+            ...(bounded
+              ? {}
+              : { captureA: { maxWidth: 4096, maxHeight: 2025 } }),
             transport,
           },
         );
@@ -99,23 +142,48 @@ for (const transport of ["shared", "split"] as const)
         });
         await expect.poll(() => held.length).toBeGreaterThan(0);
         const old = held.shift()!;
-        const local = await page.context().newCDPSession(page);
-        await local.send("Emulation.setDeviceMetricsOverride", {
-          width: 1280,
-          height: 900,
-          deviceScaleFactor: 4,
-          mobile: false,
-        });
-        await view.evaluate((e: HTMLElement) => {
-          e.style.width = "311px";
-          e.style.height = "275px";
-        });
+        const startsBefore = starts;
+        if (bounded) {
+          // Keep automatic bounds at the previous raster while native
+          // preparation consumes the new observation from the resized panel.
+          holdPreparation = true;
+          await sync();
+          await expect.poll(() => !!releasePreparation).toBe(true);
+          await view.evaluate((element: HTMLElement) => {
+            element.style.width = "929px";
+            element.style.height = "645px";
+          });
+          await canvas.evaluate(
+            (element) =>
+              new Promise<void>((resolve) => {
+                const observer = new ResizeObserver(() => {
+                  observer.disconnect();
+                  resolve();
+                });
+                observer.observe(element);
+              }),
+          );
+        } else {
+          const local = await page.context().newCDPSession(page);
+          await local.send("Emulation.setDeviceMetricsOverride", {
+            width: 1280,
+            height: 900,
+            deviceScaleFactor: 4,
+            mobile: false,
+          });
+          await view.evaluate((e: HTMLElement) => {
+            e.style.width = "311px";
+            e.style.height = "275px";
+          });
+        }
         // Page scripts cannot provide the native capture clock.
         await remote.evaluate(() => {
           Date.now = () => 0;
         });
-        const startsBefore = starts;
-        await sync();
+        if (bounded) {
+          holdPreparation = false;
+          releasePreparation!();
+        } else await sync();
         await expect
           .poll(() =>
             remote.evaluate(() => ({
@@ -124,10 +192,17 @@ for (const transport of ["shared", "split"] as const)
               dpr: devicePixelRatio,
             })),
           )
-          .toEqual({ width: 309, height: 185, dpr: 4 });
+          .toEqual(
+            bounded
+              ? { width: 927, height: 555, dpr: 2 }
+              : { width: 309, height: 185, dpr: 4 },
+          );
         await expect.poll(() => writes).toBe(2);
         await expect.poll(() => held.length).toBeGreaterThan(0);
-        old();
+        await expect.poll(() => starts).toBe(startsBefore + 1);
+        // Chrome can pair target-size metadata with cached JPEG pixels. Keep
+        // the actual old image and timestamp while updating only that metadata.
+        old(bounded ? { width: 1854, height: 1110 } : undefined);
         await expect(view.locator(".cdpv-spinning")).toHaveCount(1);
         const box = await canvas.boundingBox();
         if (!box) throw Error("No synthetic stage");
@@ -144,16 +219,21 @@ for (const transport of ["shared", "split"] as const)
         await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
         await expect
           .poll(() =>
-            canvas.evaluate((element: HTMLCanvasElement) => {
+            canvas.evaluate((element: HTMLCanvasElement, bounded) => {
               const p = element
                 .getContext("2d")!
-                .getImageData(512, 352, 1, 1).data;
+                .getImageData(
+                  bounded ? 256 : 512,
+                  bounded ? 176 : 352,
+                  1,
+                  1,
+                ).data;
               return Math.max(
                 Math.abs(p[0]! - 232),
                 Math.abs(p[1]! - 32),
                 Math.abs(p[2]! - 48),
               );
-            }),
+            }, bounded),
           )
           .toBeLessThanOrEqual(5);
         await page.mouse.click(box.x + 160, box.y + 100);
@@ -272,6 +352,7 @@ for (const dpr of [1, 2]) {
             windowA: windowId,
             second: false,
             interactive: true,
+            captureA: { maxWidth: 4096, maxHeight: 2025 },
           },
         );
         const view = page.locator("#viewer-a .cdpv-root"),
@@ -417,9 +498,12 @@ for (const dpr of [1, 2]) {
             windowA: windowId,
             second: false,
             interactive: true,
+            captureA: { maxWidth: 4096, maxHeight: 2025 },
           },
         );
         const view = page.locator("#viewer-a .cdpv-root");
+        // Hold native presentation frames at fixed detail, independently of
+        // the ordinary container/DPR capture scheduler.
         await expect(view).toHaveAttribute("data-status", "streaming");
         const canvas = view.locator("canvas");
         const raster = () =>

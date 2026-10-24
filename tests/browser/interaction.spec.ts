@@ -988,7 +988,7 @@ test("scoped input isolates pending discovery and cancels queued commits after a
     await second.remote.evaluate(() => {
       const marker = document.createElement("div");
       marker.style.cssText =
-        "position:fixed;left:0;top:0;width:32px;height:32px;background:blue";
+        "position:fixed;left:0;top:0;width:128px;height:128px;background:blue;pointer-events:none";
       document.body.append(marker);
       document.querySelector("#plain")!.addEventListener("input", () => {
         marker.style.background = "rgb(24,224,80)";

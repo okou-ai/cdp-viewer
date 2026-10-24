@@ -145,6 +145,8 @@ for (const [transport, timing] of [
         cdpUrl: backend.endpoint,
         second: false,
         interactive: true,
+        // Native window reassociation must preserve its full-raster assertions.
+        captureA: { maxWidth: 4096, maxHeight: 2025 },
         transport,
       });
       const view = page.locator("#viewer-a .cdpv-root");

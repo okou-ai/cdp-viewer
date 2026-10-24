@@ -40,6 +40,9 @@ function mount(
       url: "wss://fixture.invalid",
       socketFactory: browser.factory,
       interactive: true,
+      // Native transaction tests keep image detail fixed; automatic capture has
+      // separate coverage so it cannot intercept a held native fence request.
+      capture: { maxWidth: 4096, maxHeight: 2025 },
       ...(windowId === undefined ? {} : { windowId }),
       ...(requestTimeout === undefined ? {} : { requestTimeout }),
     },
@@ -1650,8 +1653,8 @@ it("requires compatible painted pixels after native acknowledgements while retai
     pending: true,
     pointerBlocked: true,
   });
-  // The inconsistent raster requests one fenced refresh. Release its frame,
-  // rather than relying on now-obsolete frames from before that fence.
+  // Native acquisition and the inconsistent raster each require a fenced refresh.
+  // Release its presentation frame rather than relying on pre-fence images.
   await vi.waitFor(() =>
     expect(
       socket.commands.filter(
@@ -3153,7 +3156,7 @@ it("clears queued busy state for a zero-area stage and resumes at the latest val
   );
 });
 
-it.each(["Browser.getWindowForTarget", "Page.stopScreencast"])(
+it.each(["Browser.getWindowForTarget", "Runtime.evaluate"])(
   "retains a manual sync while the surface becomes unavailable during %s",
   async (boundary) => {
     const browser = new FakeBrowser();
@@ -3239,10 +3242,10 @@ it("contains unsupported display failures without leaking provider payloads or s
 });
 
 it.each([
-  ["upgrade", "Page.stopScreencast"],
-  ["upgrade", "Page.startScreencast"],
-  ["refresh", "Page.stopScreencast"],
-  ["refresh", "Page.startScreencast"],
+  ["initial fence", "Page.stopScreencast"],
+  ["initial fence", "Page.startScreencast"],
+  ["subsequent fence", "Page.stopScreencast"],
+  ["subsequent fence", "Page.startScreencast"],
 ] as const)(
   "retains preview and retry after %s loses an applied %s acknowledgement",
   async (stage, method) => {
@@ -3250,7 +3253,7 @@ it.each([
       painted = vi.fn();
     const { controller, model } = mount(browser, "off", 0, 100, painted);
     await vi.waitFor(() => expect(controller.input).not.toBeNull());
-    if (stage === "refresh") {
+    if (stage === "subsequent fence") {
       controller.syncDisplay();
       await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
       await vi.waitFor(() =>
@@ -3279,7 +3282,9 @@ it.each([
           command.method === "Page.startScreencast",
       );
     expect(transitions.at(-1)?.method).toBe("Page.startScreencast");
-    expect(transitions.length).toBeLessThanOrEqual(stage === "upgrade" ? 4 : 6);
+    expect(transitions.length).toBeLessThanOrEqual(
+      stage === "initial fence" ? 4 : 6,
+    );
     for (const [index, command] of transitions.entries())
       if (command.method === "Page.startScreencast")
         expect(transitions[index - 1]?.method).toBe("Page.stopScreencast");
@@ -3289,16 +3294,7 @@ it.each([
     expect(
       transitions.find((command) => command.method === "Page.startScreencast")
         ?.params,
-    ).toMatchObject(
-      stage === "upgrade" && method === "Page.stopScreencast"
-        ? { maxWidth: 1920, maxHeight: 1080 }
-        : { maxWidth: 4096, maxHeight: 4096 },
-    );
-    if (stage === "upgrade")
-      expect(transitions.at(-1)?.params).toMatchObject({
-        maxWidth: 1920,
-        maxHeight: 1080,
-      });
+    ).toMatchObject({ maxWidth: 4096, maxHeight: 2025 });
     // Completing the original response cannot change the restored stream or owner.
     const held = socket.heldReplies.shift()!;
     socket.reply(held.command, held.result);
@@ -3345,6 +3341,11 @@ it("keeps the running preview when stopping capture is definitely rejected", asy
     ),
   ).toHaveLength(1);
   expect(emulations(browser)).toHaveLength(0);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Emulation.clearDeviceMetricsOverride",
+    ),
+  ).toHaveLength(0);
   expect(controller.input).toBe(input);
   controller.syncDisplay();
   await vi.waitFor(() => expect(resizes(browser)).toHaveLength(1));
@@ -3788,11 +3789,11 @@ it.each([false, true])(
   },
 );
 
-it("drops an automatic update disabled during capture preparation", async () => {
+it("drops an automatic update disabled during native metric preparation", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = mount(browser, "off", 0);
   await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
-  browser.holdMethod = "Page.stopScreencast";
+  browser.holdMethod = "Runtime.evaluate";
   controller.setWindowSizeSync("live");
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
   controller.setWindowSizeSync("off");

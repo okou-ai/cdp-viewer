@@ -1,4 +1,4 @@
-import { interval } from "signal-timers";
+import { interval, timeout } from "signal-timers";
 import { CdpClient } from "../cdp/client";
 import type { CdpEvent, SocketFactory } from "../cdp/client";
 import {
@@ -20,6 +20,7 @@ import type { FrameSink } from "../render/canvas";
 import { DisplaySync } from "../display/sync";
 import { DisplayViewport } from "../display/viewport";
 import type { DisplaySize } from "../display/geometry";
+import { positive } from "../display/geometry";
 import type { TabAction, ViewerModel } from "./model";
 import type {
   ViewerCaptureOptions,
@@ -27,7 +28,7 @@ import type {
   ViewerError,
   WindowSizeSync,
 } from "./types";
-import { captureSettings, capturePreferences } from "./capture";
+import { captureSettings, capturePreferences, sameCapture } from "./capture";
 import { Screencast } from "./screencast";
 import { readFavicon } from "./favicon";
 
@@ -45,10 +46,11 @@ interface Selection {
   stream: Screencast | null;
   input: InputSession | null;
   inputReady: boolean;
-  highDensity: boolean;
   geometry: DisplayViewport;
   favicon: FaviconDocument;
 }
+
+const minimumCaptureIntervalMs = 150;
 
 interface Retirement {
   input: InputSession;
@@ -96,6 +98,9 @@ export class ViewerController {
   private displayMode: WindowSizeSync = "off";
   private displaySize: DisplaySize | null = null;
   private capture: ViewerCaptureOptions = Object.freeze({});
+  private captureSize: DisplaySize | null = null;
+  private captureUpdate: AbortController | null = null;
+  private captureUpdated = -Infinity;
   private captureError: ViewerError | null = null;
   private waitingForCapture = false;
   private faviconPending = false;
@@ -158,7 +163,6 @@ export class ViewerController {
       stream: null,
       input: null,
       inputReady: !this.options.interactive,
-      highDensity: false,
       geometry: new DisplayViewport(),
       favicon: { wanted: true, waiting: false, ready: false },
     };
@@ -195,8 +199,13 @@ export class ViewerController {
   }
 
   measureDisplay(size: DisplaySize | null): void {
+    if (this.disposed) return;
     this.displaySize = size;
     this.display?.measure(size);
+    if (size && [size.width, size.height, size.dpr].every(positive)) {
+      this.captureSize = size;
+      this.scheduleCapture();
+    } else this.cancelCaptureUpdate();
   }
 
   syncDisplay(): void {
@@ -217,6 +226,7 @@ export class ViewerController {
       else this.model.update({ error: next });
       return;
     }
+    const changed = !sameCapture(this.capture, settings);
     this.capture = settings;
     if (
       this.captureError &&
@@ -230,10 +240,57 @@ export class ViewerController {
       this.connect().catch((error: unknown) => {
         if (!this.disposed && !this.lifetime.signal.aborted) this.fail(error);
       });
-    } else if (this.selection)
-      this.selection.stream?.configure(
-        captureSettings(settings, this.selection.highDensity),
-      );
+    } else if (changed) this.configureCapture();
+  }
+
+  private cancelCaptureUpdate(): void {
+    this.captureUpdate?.abort();
+    this.captureUpdate = null;
+  }
+
+  private configureCapture(): void {
+    this.cancelCaptureUpdate();
+    const selection = this.selection;
+    if (!selection?.stream || !this.isCurrent(selection)) return;
+    this.captureUpdated = performance.now();
+    selection.stream.configure(captureSettings(this.capture, this.captureSize));
+  }
+
+  private scheduleCapture(): void {
+    const selection = this.selection;
+    if (
+      !selection?.stream ||
+      !this.isCurrent(selection) ||
+      !this.displaySize ||
+      ![
+        this.displaySize.width,
+        this.displaySize.height,
+        this.displaySize.dpr,
+      ].every(positive) ||
+      this.model.read(this.model.display$).pending ||
+      this.captureUpdate
+    )
+      return;
+    const update = new AbortController();
+    this.captureUpdate = update;
+    timeout(
+      () => {
+        this.captureUpdate = null;
+        if (!this.isCurrent(selection)) return;
+        // A delayed stop/start may have begun a capture after this timer was
+        // queued. Retain the interval from that actual start as well.
+        if (performance.now() - this.captureUpdated < minimumCaptureIntervalMs)
+          this.scheduleCapture();
+        else this.configureCapture();
+      },
+      Math.max(
+        0,
+        Math.ceil(
+          minimumCaptureIntervalMs - (performance.now() - this.captureUpdated),
+        ),
+      ),
+      { signal: update.signal },
+    );
   }
 
   private async requestExtensionSelection(
@@ -499,7 +556,10 @@ export class ViewerController {
       presentationTimeout: this.options.requestTimeout,
       windowId: this.options.windowId,
       changed: (state) => {
-        if (!this.disposed) this.model.run(this.model.setDisplay$, state);
+        if (this.disposed) return;
+        this.model.run(this.model.setDisplay$, state);
+        if (state.pending) this.cancelCaptureUpdate();
+        else this.scheduleCapture();
       },
       failed: (error) => {
         displayError = diagnostic(error);
@@ -509,11 +569,6 @@ export class ViewerController {
         if (displayError && this.model.getSnapshot().error === displayError)
           this.model.update({ error: null });
         displayError = null;
-      },
-      capture: async () => {
-        const selection = this.selection;
-        if (selection && this.isCurrent(selection))
-          await this.upgradeCapture(selection);
       },
       refresh: async (prepare) => {
         const selection = this.selection;
@@ -735,7 +790,6 @@ export class ViewerController {
         this.streaming(selection);
       });
     }
-    selection.highDensity = this.displayMode !== "off";
     const stream = new Screencast(
       {
         client: frames,
@@ -745,13 +799,15 @@ export class ViewerController {
         failed: (error) => {
           if (this.isCurrent(selection)) this.fail(error);
         },
-        starting: (settings) =>
+        starting: (settings) => {
+          this.captureUpdated = performance.now();
           selection.geometry.setCapture({
             width: settings.maxWidth,
             height: settings.maxHeight,
-          }),
+          });
+        },
       },
-      captureSettings(this.capture, selection.highDensity),
+      captureSettings(this.capture, this.captureSize),
     );
     selection.stream = stream;
     await Promise.all([inputReady, stream.start()]);
@@ -798,11 +854,6 @@ export class ViewerController {
     );
   }
 
-  private async upgradeCapture(selection: Selection): Promise<void> {
-    if (selection.highDensity || !selection.sessionId) return;
-    await this.restartCapture(selection);
-  }
-
   private async restartCapture(
     selection: Selection,
     prepare?: () => Promise<void>,
@@ -810,7 +861,6 @@ export class ViewerController {
     const stream = selection.stream;
     if (!stream) return;
     await stream.exclusive(async () => {
-      const previousDensity = selection.highDensity;
       let phase: "stopping" | "stopped" | "starting" = "stopping";
       try {
         await stream.stop();
@@ -820,10 +870,9 @@ export class ViewerController {
         if (!this.isCurrent(selection)) return;
         phase = "starting";
         await stream.begin(
-          captureSettings(this.capture, true),
+          captureSettings(this.capture, this.captureSize),
           !selection.painted,
         );
-        if (this.isCurrent(selection)) selection.highDensity = true;
       } catch (error) {
         // Retain the original session's positive-stop restoration contract.
         const stopRejected =
@@ -837,7 +886,7 @@ export class ViewerController {
               if (phase !== "stopped") await stream.stop();
               if (!this.isCurrent(selection)) return;
               await stream.begin(
-                captureSettings(this.capture, previousDensity),
+                captureSettings(this.capture, this.captureSize),
                 !selection.painted,
               );
             } catch (restoreError) {
@@ -846,10 +895,7 @@ export class ViewerController {
         }
         throw error;
       } finally {
-        if (this.isCurrent(selection))
-          stream.configure(
-            captureSettings(this.capture, selection.highDensity),
-          );
+        if (this.isCurrent(selection)) this.configureCapture();
       }
     });
   }
@@ -937,6 +983,7 @@ export class ViewerController {
       retainFrame = false,
     }: { drainControl?: boolean; retainFrame?: boolean } = {},
   ): void {
+    this.cancelCaptureUpdate();
     const old = this.selection;
     this.selection = null;
     this.display?.setTarget(null);
@@ -1012,6 +1059,26 @@ export class ViewerController {
     if (client === this.client) {
       const selected = this.selection;
       if (selected && event.sessionId === selected.sessionId) {
+        if (
+          event.method === "Page.frameStartedNavigating" &&
+          typeof event.params.frameId === "string"
+        )
+          selected.stream?.navigationStarted(event.params.frameId);
+        else if (
+          event.method === "Page.frameNavigated" &&
+          isRecord(event.params.frame) &&
+          typeof event.params.frame.id === "string"
+        )
+          selected.stream?.navigationFinished(event.params.frame.id);
+        else if (
+          [
+            "Page.frameStoppedLoading",
+            "Page.frameDetached",
+            "Page.navigatedWithinDocument",
+          ].includes(event.method) &&
+          typeof event.params.frameId === "string"
+        )
+          selected.stream?.navigationFinished(event.params.frameId);
         if (
           event.method === "Page.frameNavigated" &&
           isRecord(event.params.frame) &&
