@@ -437,6 +437,7 @@ body {
 }
 .demo-preview-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
@@ -453,8 +454,16 @@ body {
 }
 .demo-preview-toolbar > div {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-left: auto;
   gap: 9px;
+}
+.demo-preview-toolbar > div > button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .demo-mode {
   display: flex;
