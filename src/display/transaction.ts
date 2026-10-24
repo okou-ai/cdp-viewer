@@ -1,7 +1,6 @@
 import type { Protocol } from "devtools-protocol";
 import type { CdpClient } from "../cdp/client";
 import { CdpFault, requestDetails } from "../cdp/errors";
-import { releaseRuntimeObjects } from "../cdp/runtime-objects";
 import {
   constrainDisplay,
   nativePresentation,
@@ -296,27 +295,6 @@ export class DisplayTransaction {
       if (this.current()) target.geometry.uncertain();
       return false;
     }
-  }
-
-  private async evaluate(
-    expression: string,
-    options: { contextId?: number; awaitPromise?: boolean } = {},
-  ) {
-    const { client, target } = this;
-    const release = (result: unknown) =>
-      releaseRuntimeObjects(client, target.sessionId, result);
-    const result = await client.request(
-      "Runtime.evaluate",
-      {
-        expression,
-        returnByValue: true,
-        ...options,
-      },
-      target.sessionId,
-      release,
-    );
-    release(result);
-    return result;
   }
 
   private async fenceCapture(
