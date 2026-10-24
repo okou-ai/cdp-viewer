@@ -146,7 +146,7 @@ viewing and input continue.
 | `transport?: "shared" \| "split"`             | Optional frame/control separation for interactive viewers; defaults to shared    |
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
 | `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
-| `capture?: ViewerCaptureOptions`              | Live JPEG quality and maximum capture dimensions; preserves existing profiles    |
+| `capture?: ViewerCaptureOptions`              | Live JPEG quality; automatic container/DPR bounds with optional fixed limits     |
 | `extensions?: readonly ViewerExtension[]`     | Optional per-connection adapters, reconciled by ID and configuration key         |
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
