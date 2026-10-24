@@ -115,6 +115,11 @@ measurement and preferences after the retry's capture lane is released, even
 when paint arrives before its start receipt. A failed initial/live operation
 interrupted by image loss may resume once; already completed work is not replayed
 merely because the image recovered.
+The image-recovery policy distinguishes a usable current image from a released
+capture lane. Its runtime coordinator consumes either arrival order through one
+readiness reconciliation. Current input may resume before the start reply, while
+display capture work still waits for lane release. Native receipt certainty stays
+with the original capture resource rather than the visible streaming status.
 Another observed window change restarts rebinding for that destination. Initial
 acquisition adds one verification restart on the same capture lane. Same-window
 preparations with an established reference and no-op reuse do not gain a capture

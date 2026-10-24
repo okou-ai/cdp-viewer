@@ -8,7 +8,7 @@ import {
   isRecord,
   validateConfiguration,
 } from "../cdp/errors";
-import { maximumTargets, TargetDirectory } from "../cdp/targets";
+import { TargetDirectory } from "../cdp/targets";
 import { openTab } from "../cdp/tabs";
 import { ExtensionRuntime } from "../extensions/runtime";
 import type { ViewerExtension } from "../extensions/types";
@@ -32,7 +32,8 @@ import { captureSettings, capturePreferences, sameCapture } from "./capture";
 import { Screencast } from "./screencast";
 import { readFavicon } from "./favicon";
 import { TargetDiscovery } from "./discovery";
-import { captureBoundary } from "../display/capture-boundary";
+import { ImageRecoveryRuntime } from "./image-recovery-runtime";
+import type { ImageRetirement, ImageSelection } from "./image-recovery-runtime";
 
 interface FaviconDocument {
   wanted: boolean;
@@ -40,15 +41,8 @@ interface FaviconDocument {
   ready: boolean;
 }
 
-interface Selection {
-  targetId: string;
-  sessionId: string | null;
+interface Selection extends ImageSelection {
   frameSessionId: string | null;
-  painted: boolean;
-  stream: Screencast | null;
-  input: InputSession | null;
-  inputReady: boolean;
-  geometry: DisplayViewport;
   favicon: FaviconDocument;
 }
 
@@ -81,7 +75,7 @@ export class ViewerController {
   private readonly ownedSessions = new Set<string>();
   private readonly ownedFrameSessions = new Set<string>();
   private readonly retirements = new Map<string, Retirement>();
-  private readonly captureRetirements = new Map<string, Promise<void>>();
+  private readonly imageRecovery: ImageRecoveryRuntime;
   private client: CdpClient | null = null;
   private frames: CdpClient | null = null;
   private directory: TargetDirectory | null = null;
@@ -114,6 +108,16 @@ export class ViewerController {
     private readonly options: ControllerOptions,
   ) {
     this.paused = options.paused ?? false;
+    this.imageRecovery = new ImageRecoveryRuntime(model, sink, {
+      client: () => this.client!,
+      display: () => this.display,
+      current: (selection) => this.isCurrent(selection),
+      available: () => !this.disposed && this.connected && !this.paused,
+      disposed: () => this.disposed,
+      assertMember: (targetId) => this.directory!.assertMember(targetId),
+      select: (targetId) => this.select(targetId),
+      lost: (error) => this.loseSelection(error),
+    });
   }
 
   start(): void {
@@ -188,24 +192,9 @@ export class ViewerController {
     if (!this.connected) return;
     const image = this.model.read(this.model.imageRecovery$);
     if (paused) {
-      const settled = (ready: boolean) => {
-        if (image && !this.disposed)
-          this.model.transition({
-            type: "image-settled",
-            owner: image.owner,
-            ready,
-          });
-      };
-      // Before retry dispatches start, its original positive stop still proves cleanup.
-      // Observe it before retirement callbacks can close or replace this controller.
-      if (image?.phase === "retrying")
-        this.selection?.stream?.quiesce().then(
-          () => settled(true),
-          () => settled(false),
-        );
-      this.stopSelection("paused");
+      const retirement = this.stopSelection("paused");
       if (!this.connected) return;
-      settled(image?.phase === "ready");
+      this.imageRecovery.cancel(retirement);
       this.model.transition({ type: "paused" });
     } else if (image) {
       this.model.transition({ type: "image-resumed" });
@@ -217,68 +206,7 @@ export class ViewerController {
   }
 
   retryImage(): void {
-    const image = this.model.read(this.model.imageRecovery$);
-    if (
-      !image ||
-      image.phase !== "ready" ||
-      this.paused ||
-      !this.connected ||
-      this.disposed
-    )
-      return;
-    const selection = this.selection;
-    if (!selection) {
-      this.select(image.targetId);
-      return;
-    }
-    if (!this.isCurrent(selection) || selection.targetId !== image.targetId)
-      return;
-    this.model.transition({ type: "image-retrying", owner: image.owner });
-    const current = () =>
-      this.isCurrent(selection) &&
-      this.model.read(this.model.imageRecovery$)?.owner === image.owner;
-    if (!current()) return;
-    Promise.resolve()
-      .then(async () => {
-        await this.directory!.assertMember(selection.targetId);
-        if (!current()) return;
-        await this.display?.settle();
-        if (!current()) return;
-        await selection.stream!.retry(async () => {
-          const boundary = await captureBoundary(
-            this.client!,
-            selection.sessionId!,
-            current,
-          );
-          if (boundary === null || !current()) return;
-          await this.directory!.assertMember(selection.targetId);
-          if (current()) {
-            selection.geometry.fence(boundary);
-            selection.geometry.resumePresentation();
-          }
-        });
-        // Paint may precede the start receipt; display work must wait for the lane.
-        if (
-          this.isCurrent(selection) &&
-          selection.painted &&
-          selection.inputReady &&
-          this.model.getSnapshot().status === "streaming"
-        )
-          this.display?.setSuspended(false);
-      })
-      .catch((error: unknown) => {
-        if (!current()) return;
-        const fault = diagnostic(error);
-        if (fault.kind === "scope" || fault.kind === "target-unavailable")
-          this.loseSelection(fault);
-        else
-          this.model.transition({
-            type: "image-settled",
-            owner: image.owner,
-            ready: false,
-            error: fault,
-          });
-      });
+    this.imageRecovery.retry(this.selection);
   }
 
   setExtensions(extensions: readonly ViewerExtension[]): void {
@@ -613,7 +541,7 @@ export class ViewerController {
     this.ownedSessions.clear();
     this.ownedFrameSessions.clear();
     this.retirements.clear();
-    this.captureRetirements.clear();
+    this.imageRecovery.close();
   }
 
   private async connect(): Promise<void> {
@@ -738,7 +666,7 @@ export class ViewerController {
       this.client?.close();
       this.ownedSessions.clear();
       this.retirements.clear();
-      this.captureRetirements.clear();
+      this.imageRecovery.close();
     };
     // Video loss revokes admission immediately, but a live control socket can
     // still acknowledge its original pressed/composing cleanup. Never replay it.
@@ -791,7 +719,7 @@ export class ViewerController {
 
   private async attach(selection: Selection): Promise<void> {
     const client = this.client!;
-    await this.captureRetirements.get(selection.targetId);
+    await this.imageRecovery.settle(selection.targetId);
     if (!this.isCurrent(selection)) return;
     await this.retirements.get(selection.targetId)?.complete;
     if (!this.isCurrent(selection)) return;
@@ -923,7 +851,7 @@ export class ViewerController {
     return attached.sessionId;
   }
 
-  private isCurrent(selection: Selection): boolean {
+  private isCurrent(selection: ImageSelection): boolean {
     return (
       !this.disposed &&
       this.connected &&
@@ -986,10 +914,12 @@ export class ViewerController {
       selection.painted &&
       selection.inputReady
     ) {
-      if (!selection.stream?.exclusivePending)
+      if (!this.imageRecovery.ready(selection)) {
         this.display?.setSuspended(false);
+        if (!this.isCurrent(selection)) return;
+        this.model.transition({ type: "streaming" });
+      }
       if (!this.isCurrent(selection)) return;
-      this.model.transition({ type: "streaming" });
       if (this.captureError) this.model.update({ error: this.captureError });
       this.refreshFavicon(selection);
     }
@@ -1067,9 +997,10 @@ export class ViewerController {
       drainControl = false,
       retainFrame = false,
     }: { drainControl?: boolean; retainFrame?: boolean } = {},
-  ): void {
+  ): ImageRetirement | null {
     this.cancelCaptureUpdate();
     const old = this.selection;
+    const imageRetirement = old ? this.imageRecovery.retire(old) : null;
     this.selection = null;
     this.discovery?.watch(null);
     this.display?.setTarget(null);
@@ -1111,6 +1042,7 @@ export class ViewerController {
         this.options.onInputReset?.(reason);
       }
     }
+    return imageRetirement;
   }
 
   private release(selection: Selection): void {
@@ -1155,58 +1087,7 @@ export class ViewerController {
       this.fail(error);
       return;
     }
-    const stream = selection.stream;
-    if (!stream || !this.isCurrent(selection)) return;
-    if (
-      this.captureRetirements.size >= maximumTargets &&
-      !this.captureRetirements.has(selection.targetId)
-    ) {
-      this.client?.close(
-        new CdpFault("protocol", "Too many unconfirmed capture owners."),
-      );
-      return;
-    }
-    stream.suspend();
-    if (!this.isCurrent(selection)) return;
-    const owner = {};
-    selection.painted = false;
-    let inputCleanup = Promise.resolve();
-    let captureCleanup = Promise.resolve();
-    let displayCleanup = Promise.resolve();
-    // Publish the original completion fence before cleanup callbacks can reenter selection.
-    const cleanup = Promise.resolve().then(async () => {
-      await Promise.all([inputCleanup, captureCleanup, displayCleanup]);
-    });
-    this.captureRetirements.set(selection.targetId, cleanup);
-    inputCleanup = selection.input?.suspend() ?? Promise.resolve();
-    captureCleanup = stream.quiesce();
-    if (this.isCurrent(selection)) {
-      this.display?.setSuspended(true);
-      selection.geometry.suspendPresentation();
-      displayCleanup = this.display?.settle() ?? Promise.resolve();
-    }
-    if (this.isCurrent(selection)) {
-      this.sink.reset();
-      if (this.isCurrent(selection))
-        this.model.transition({
-          type: "image-failed",
-          owner,
-          targetId: selection.targetId,
-          error: fault,
-        });
-    }
-    cleanup.then(
-      () => {
-        if (this.captureRetirements.get(selection.targetId) === cleanup)
-          this.captureRetirements.delete(selection.targetId);
-        if (!this.disposed)
-          this.model.transition({ type: "image-settled", owner, ready: true });
-      },
-      () => {
-        if (!this.disposed)
-          this.model.transition({ type: "image-settled", owner, ready: false });
-      },
-    );
+    this.imageRecovery.fail(selection, fault);
   }
 
   private onEvent(event: CdpEvent, client: CdpClient): void {
@@ -1352,7 +1233,7 @@ export class ViewerController {
         event.method === "Target.targetDestroyed" &&
         typeof params.targetId === "string"
       )
-        this.captureRetirements.delete(params.targetId);
+        this.imageRecovery.forget(params.targetId);
       this.discovery?.event(event);
     }
   }

@@ -15,6 +15,10 @@ interface ScreencastOwner {
   starting?: (settings: CaptureSettings) => void;
 }
 
+type NativeCapture =
+  | { readonly kind: "stopped" }
+  | { readonly kind: "possible"; readonly epoch: object };
+
 /** Capture may restart while its selected session and native input remain owned. */
 export class Screencast {
   private deadline: ReturnType<typeof setTimeout> | null = null;
@@ -27,7 +31,7 @@ export class Screencast {
   private quiescing: Promise<void> | null = null;
   private halted = false;
   private disposed = false;
-  private started = false;
+  private native: NativeCapture = { kind: "stopped" };
   private accepting = false;
   private revision = 0;
   private painted = false;
@@ -57,8 +61,8 @@ export class Screencast {
     return this.current() && !this.halted && this.accepting;
   }
 
-  get exclusivePending(): boolean {
-    return this.reserved;
+  get stopped(): boolean {
+    return this.native.kind === "stopped";
   }
 
   navigationStarted(frameId: string): void {
@@ -154,24 +158,29 @@ export class Screencast {
         throw new CdpFault("frame", "Capture cleanup could not be confirmed.");
       await this.reserve(async () => {
         await this.stop();
-        if (this.started)
+        if (!this.stopped)
           throw new CdpFault(
             "frame",
             "Capture cleanup could not be confirmed.",
           );
       });
-      if (this.started)
+      if (!this.stopped)
         throw new CdpFault("frame", "Capture cleanup could not be confirmed.");
     });
     return this.quiescing;
   }
 
   /** User intent alone can start a new attempt after the failed attempt settled. */
-  async retry(prepare: () => Promise<void>): Promise<void> {
+  async retry(
+    prepare: () => Promise<void>,
+    starting: () => void,
+  ): Promise<void> {
     await this.quiesce();
     if (!this.current()) return;
     await this.reserve(async () => {
       await prepare();
+      if (!this.current()) return;
+      starting();
       if (!this.current()) return;
       this.quiescing = null;
       this.halted = false;
@@ -186,6 +195,7 @@ export class Screencast {
 
   async stop(): Promise<void> {
     if (!this.current()) return;
+    const epoch = this.native.kind === "possible" ? this.native.epoch : null;
     this.accepting = false;
     this.revision++;
     this.cancelDeadline();
@@ -197,12 +207,13 @@ export class Screencast {
     );
     // A positive receipt belongs to this original resource after active selection retires.
     // It proves cleanup only; it cannot reactivate this object or grant a new input owner.
-    this.started = false;
+    if (this.native.kind === "stopped" || this.native.epoch === epoch)
+      this.native = { kind: "stopped" };
   }
 
   /** A definite stop rejection leaves the original stream active. */
   resume(): void {
-    if (!this.current() || this.halted || !this.started) return;
+    if (!this.current() || this.halted || this.stopped) return;
     this.accepting = true;
     this.waitForFrame();
   }
@@ -214,7 +225,7 @@ export class Screencast {
     this.painted = false;
     this.monitor = monitor;
     this.accepting = true;
-    this.started = true;
+    this.native = { kind: "possible", epoch: {} };
     this.owner.starting?.(settings);
     // Keep the final static state available when native frame credit is exhausted.
     await this.owner.client.request(
@@ -234,7 +245,7 @@ export class Screencast {
     this.cancelDeadline();
     this.navigationWaiter?.();
     this.navigating.clear();
-    if (this.started)
+    if (!this.stopped)
       this.owner.client.notify(
         "Page.stopScreencast",
         undefined,
@@ -301,7 +312,7 @@ export class Screencast {
       !this.reserved &&
       (!this.applied || !sameCapture(this.applied, this.desired))
     ) {
-      if (this.started) {
+      if (!this.stopped) {
         await this.stop();
         if (!this.current()) return;
       }

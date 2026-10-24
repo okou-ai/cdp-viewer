@@ -11,6 +11,8 @@ import type { TabSpace } from "./tab-layout";
 import type { ViewerError, ViewerSnapshot, WindowSizeSync } from "./types";
 import type { DisplayState } from "../display/sync";
 import type { ClipboardRecovery } from "../input/clipboard";
+import { retryingImage, transitionImage } from "./image-recovery";
+import type { ImageEvent, ImageRecovery } from "./image-recovery";
 
 export interface ViewerActions {
   select(targetId: string): void;
@@ -52,28 +54,9 @@ export type ViewerTransition =
   | { type: "discovery-failed"; error: ViewerError }
   | { type: "paused" | "streaming" | "stopped" }
   | { type: "failed"; error: ViewerError }
-  | {
-      type: "image-failed";
-      owner: object;
-      targetId: string;
-      error: ViewerError;
-    }
-  | {
-      type: "image-settled";
-      owner: object;
-      ready: boolean;
-      error?: ViewerError;
-    }
-  | { type: "image-retrying"; owner: object }
+  | ImageEvent
   | { type: "image-resumed" }
   | { type: "disconnected"; established: boolean; error: ViewerError };
-
-type ImageRecovery = {
-  readonly owner: object;
-  readonly targetId: string;
-  readonly phase: "settling" | "ready" | "retrying" | "blocked";
-  readonly error: ViewerError;
-};
 
 export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "navigation" | "error">
@@ -270,6 +253,7 @@ function createViewerSignals() {
   const controls$ = computed((get) => {
     const snapshot = get(snapshot$);
     const image = get(imageRecovery$);
+    const unavailableImage = image && image.phase !== "presented";
     const { interactive, scoped } = get(configuration$);
     const streaming = snapshot.status === "streaming";
     const empty =
@@ -293,14 +277,18 @@ function createViewerSignals() {
       emptyScoped: empty && scoped,
       recovery,
       showRecovery:
-        recovery || empty || (!!image && snapshot.status !== "paused"),
+        recovery ||
+        empty ||
+        (!!unavailableImage && snapshot.status !== "paused"),
       showImageRetry:
-        !!image && image.phase !== "blocked" && snapshot.status !== "paused",
+        !!unavailableImage &&
+        image.phase !== "blocked" &&
+        snapshot.status !== "paused",
       canRetryImage:
         image?.phase === "ready" &&
         snapshot.status !== "paused" &&
         get(internalConnected$),
-      retryingImage: image?.phase === "retrying",
+      retryingImage: retryingImage(image),
       showEmptyCreate: emptyUnscoped && interactive,
       canMutateTabs,
       canCreate: canMutateTabs && (streaming || emptyUnscoped),
@@ -310,7 +298,7 @@ function createViewerSignals() {
       canChangeSyncMode: get(canChangeSyncMode$),
       placeholderTitle:
         image && snapshot.status !== "paused"
-          ? image.phase === "retrying"
+          ? retryingImage(image)
             ? "Retrying live image…"
             : "Live image unavailable"
           : snapshot.status === "disconnected"
@@ -415,13 +403,34 @@ function createViewerSignals() {
   );
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
     const image = get(imageRecovery$);
-    // Obsolete recovery is not a new event for the successor's presentation.
-    if (
-      (event.type === "image-settled" || event.type === "image-retrying") &&
-      (image?.owner !== event.owner ||
-        (event.type === "image-retrying" && image.phase !== "ready"))
-    )
-      return;
+    if ("owner" in event) {
+      const decision = transitionImage(image, event);
+      // Acceptance precedes every semantic effect, including private presentation.
+      if (!decision.accepted) return decision;
+      set(internalImageRecovery$, decision.state);
+      if (event.type === "image-failed" || event.type === "image-retrying") {
+        set(internalClipboard$, null);
+        set(internalLoadingPreview$, false);
+      }
+      if (event.type === "image-failed")
+        set(update$, { status: "error", error: event.error, navigation: null });
+      else if (event.type === "image-retrying")
+        set(update$, { status: "connecting", error: null });
+      else if (
+        (event.type === "image-blocked" ||
+          (event.type === "image-settled" && !event.ready)) &&
+        get(snapshot$).status !== "paused"
+      )
+        set(update$, {
+          status: "error",
+          error: decision.state?.error ?? null,
+        });
+      if (decision.imageReady) {
+        set(internalLoadingPreview$, false);
+        set(update$, { status: "streaming", error: null });
+      }
+      return decision;
+    }
     if (event.type !== "streaming") set(internalClipboard$, null);
     set(
       internalLoadingPreview$,
@@ -484,37 +493,6 @@ function createViewerSignals() {
           navigation: null,
         });
         break;
-      case "image-failed":
-        set(internalImageRecovery$, {
-          owner: event.owner,
-          targetId: event.targetId,
-          phase: "settling",
-          error: event.error,
-        });
-        set(update$, { status: "error", error: event.error, navigation: null });
-        break;
-      case "image-settled": {
-        if (image) {
-          set(internalImageRecovery$, {
-            ...image,
-            phase: event.ready ? "ready" : "blocked",
-            error: event.error ?? image.error,
-          });
-          if (!event.ready && get(snapshot$).status !== "paused")
-            set(update$, {
-              status: "error",
-              error: event.error ?? image.error,
-            });
-        }
-        break;
-      }
-      case "image-retrying": {
-        if (image) {
-          set(internalImageRecovery$, { ...image, phase: "retrying" });
-          set(update$, { status: "connecting", error: null });
-        }
-        break;
-      }
       case "image-resumed": {
         if (image) set(update$, { status: "error", error: image.error });
         break;

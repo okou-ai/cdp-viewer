@@ -94,13 +94,21 @@ and actual replacement paint/readiness removes the backdrop.
 Keep image failure separate from connection and selected-session lifetime. A
 failed capture revokes image/input admission and clears pixels immediately;
 valid native sessions may still own useful display configuration. The model
-owns explicit recovery intent, phase and UI capability. Capture resources own
-serialized attempt revisions, stop receipts and bounded IO, never a second UI
-recovery cache. Original input cleanup and a positively stopped capture precede
-another attempt; only current painted output and initialized input restore
-admission. Unknown cleanup cannot acquire replacement authority. Pausing retires
-normal session resources and any subsequent acquisition needs fresh validation;
-visibility alone does not retry a failed image.
+owns a pure recovery policy with explicit preparation, possible-start and
+readiness stages. A runtime coordinator binds its effects and outcomes to the
+original selection resources; it does not retain another semantic phase or
+capture queue. Validate owner and legal stage before every model effect, so an
+obsolete outcome cannot alter a successor's private presentation either.
+Capture resources own serialized attempt revisions, native possible-start epochs,
+positive stop receipts and bounded IO. A stopped receipt remains an original
+resource fact after admission retires; it cannot restore that owner's authority
+and cannot settle a newer possible start. Read-only preparation preserves that
+proof. Original input cleanup and a positively stopped capture precede another
+attempt; only current painted output and initialized input restore admission.
+Paint readiness and capture-lane release are independent milestones reconciled
+through the same policy. Unknown cleanup fences same-target acquisition.
+Pausing retires normal session resources and any subsequent acquisition needs
+fresh validation; visibility alone does not retry a failed image.
 
 Retain the latest produced screencast frame at the native credit boundary so a
 static final state does not require another page change after acknowledgement.

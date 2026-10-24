@@ -216,6 +216,15 @@ it.each(["connecting", "streaming"] as const)(
       { type: "image-settled", owner, ready: true },
       { type: "image-settled", owner, ready: false },
       { type: "image-retrying", owner },
+      { type: "image-starting", owner },
+      { type: "image-painted", owner },
+      { type: "image-released", owner },
+      { type: "image-cancelled", owner, stopped: true },
+      {
+        type: "image-blocked",
+        owner,
+        error: { kind: "frame", message: "Synthetic obsolete failure" },
+      },
     ] satisfies ViewerTransition[]) {
       model.transition(event);
       expect(model.getSnapshot()).toBe(snapshot);

@@ -190,6 +190,12 @@ for (const transport of ["shared", "split"] as const) {
     });
     expect(f.model.getSnapshot().status).toBe("connecting");
     expect(f.controller.input).toBeNull();
+    await until(
+      () => f.model.read(f.model.imageRecovery$)?.phase === "waiting-image",
+    );
+    expect(f.model.read(f.model.controls$).retryingImage).toBe(true);
+    f.controller.retryImage();
+    expect(starts(browser)).toHaveLength(2);
     oldPaint({ width: 800, height: 600 });
     const pushes = vi.mocked(f.sink.push).mock.calls.length;
     f.frameSocket().emit(
@@ -340,6 +346,47 @@ for (const transport of ["shared", "split"] as const) {
     expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
   });
 
+  it.each(["pause", "select"])(
+    `${transport}: reentrant %s at the start boundary preserves actual native certainty`,
+    async (action) => {
+      vi.useFakeTimers();
+      const browser = new FakeBrowser();
+      browser.targets[1]!.windowId = 0;
+      const f = mount(browser, transport);
+      await until(() => f.model.getSnapshot().status === "streaming");
+      f.failImage();
+      await until(() => f.model.read(f.model.controls$).canRetryImage);
+      let interrupted = false;
+      const stop = f.model.watch(f.model.imageRecovery$, () => {
+        if (
+          interrupted ||
+          f.model.read(f.model.imageRecovery$)?.phase !== "starting"
+        )
+          return;
+        interrupted = true;
+        if (action === "select") f.controller.select("page-b");
+        else {
+          f.controller.setPaused(true);
+          f.controller.setPaused(false);
+        }
+      });
+      f.controller.retryImage();
+      await until(() => interrupted);
+      stop();
+      if (action === "pause") {
+        await until(() => f.model.read(f.model.controls$).canRetryImage);
+        expect(starts(browser)).toHaveLength(1);
+        f.controller.retryImage();
+      }
+      await until(() => f.model.getSnapshot().status === "streaming");
+      expect(starts(browser)).toHaveLength(2);
+      expect(f.model.getSnapshot().selectedTargetId).toBe(
+        action === "select" ? "page-b" : "page-a",
+      );
+      expect(f.controller.input).not.toBeNull();
+    },
+  );
+
   it(`${transport}: pause after a possible retry start cannot reuse an unconfirmed stop`, async () => {
     vi.useFakeTimers();
     const browser = new FakeBrowser();
@@ -363,6 +410,16 @@ for (const transport of ["shared", "split"] as const) {
     expect(starts(browser)).toHaveLength(2);
     expect(f.controller.input).toBeNull();
     expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
+    const attachments = () =>
+      browser.sockets
+        .flatMap((socket) => socket.commands)
+        .filter((command) => command.method === "Target.attachToTarget").length;
+    const originalAttachments = attachments();
+    // A toolbar selection cannot bypass the original uncertain capture fence either.
+    f.controller.select("page-a");
+    await until(() => f.model.getSnapshot().status === "error");
+    expect(attachments()).toBe(originalAttachments);
+    expect(starts(browser)).toHaveLength(2);
   });
 }
 
@@ -463,7 +520,7 @@ it("does not start an obsolete retry after a publication selects a new target", 
   const stop = f.model.subscribe(() => {
     if (
       f.model.getSnapshot().status === "connecting" &&
-      f.model.read(f.model.imageRecovery$)?.phase === "retrying"
+      f.model.read(f.model.controls$).retryingImage
     )
       f.controller.select("page-b");
   });

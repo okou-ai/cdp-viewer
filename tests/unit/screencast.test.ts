@@ -53,6 +53,40 @@ it("keeps a frame painted before the initial start reply and cancels its deadlin
   expect(failed).not.toHaveBeenCalled();
 });
 
+it("records an original positive stop after disposal without reviving admission", async () => {
+  vi.useFakeTimers();
+  const { socket, capture, ready } = await stream();
+  expect(capture.stopped).toBe(false);
+  socket.reply(socket.commands[0]!);
+  await ready;
+  const stopped = capture.stop();
+  const original = socket.commands.at(-1)!;
+  expect(capture.stopped).toBe(false);
+  capture.dispose();
+  socket.reply(original);
+  await stopped;
+  expect(capture.stopped).toBe(true);
+  expect(capture.acceptingFrames).toBe(false);
+});
+
+it("cannot apply an older stop receipt to a newer possible start epoch", async () => {
+  vi.useFakeTimers();
+  const { socket, capture, ready } = await stream();
+  socket.reply(socket.commands[0]!);
+  await ready;
+  const stopped = capture.stop();
+  const original = socket.commands.at(-1)!;
+  // Exercise the resource's receipt boundary independently of its caller's lane.
+  const newer = capture.begin(defaultCapture);
+  const start = socket.commands.at(-1)!;
+  socket.reply(original);
+  await stopped;
+  expect(capture.stopped).toBe(false);
+  socket.reply(start);
+  await newer;
+  expect(capture.stopped).toBe(false);
+});
+
 it("rejects old paint/error continuations while accepting a static restart frame before its reply", async () => {
   vi.useFakeTimers();
   const { socket, sink, capture, failed } = await stream();
