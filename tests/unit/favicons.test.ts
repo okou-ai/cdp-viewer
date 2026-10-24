@@ -1,3 +1,4 @@
+import { updateModel } from "./inventory";
 import { afterEach, expect, it, vi } from "vitest";
 import { ViewerController } from "../../src/viewer/controller";
 import { createViewerModel } from "../../src/viewer/model";
@@ -388,7 +389,7 @@ it("rejects a favicon whose canonical URL exceeds the metadata bound", async () 
 it("keeps URL outcomes private, cached, instance-owned and pruned to current scope", () => {
   const model = createViewerModel();
   const sibling = createViewerModel();
-  model.update({ targets: [{ id: "page-a", title: "A" }] });
+  updateModel(model, { targets: [{ id: "page-a", title: "A" }] });
   const notify = vi.fn();
   model.subscribe(notify);
   const set = () =>
@@ -410,7 +411,7 @@ it("keeps URL outcomes private, cached, instance-owned and pruned to current sco
   expect(sibling.read(sibling.favicons$).size).toBe(0);
   expect(notify).not.toHaveBeenCalled();
   expect(JSON.stringify(model.getSnapshot())).not.toContain("fixture.invalid");
-  model.update({ targets: [] });
+  updateModel(model, { targets: [] });
   expect(model.read(model.favicons$).size).toBe(0);
   model.run(model.setFavicon$, {
     targetId: "page-a",

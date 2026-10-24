@@ -101,8 +101,10 @@ that round. A full round has a ten-second completion deadline; failure clears
 unverified targets instead of retaining them
 indefinitely. Cadence plus completion can take up to twenty seconds while the
 JavaScript event loop runs, and background timer suspension can delay discovery.
-Metadata events and partial rounds do not renew skipped targets' membership
-expiry; each target needs a current check to extend that budget.
+Title events neither renew membership age nor discard a valid in-flight window
+check. Current checks can complete during continuous title changes; their age is
+measured from request start. Older results cannot replace newer membership or
+revive a removed target.
 Selection/activation and completed attachment verify membership. Interactive input
 then sends directly to the selected session, without a window query per event.
 Selected membership expires twelve seconds after its last verification request

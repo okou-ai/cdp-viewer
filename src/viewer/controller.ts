@@ -26,7 +26,6 @@ import type {
   ViewerCaptureOptions,
   CdpViewerProps,
   ViewerError,
-  ViewerTarget,
   WindowSizeSync,
 } from "./types";
 import { captureSettings, capturePreferences, sameCapture } from "./capture";
@@ -389,8 +388,7 @@ export class ViewerController {
           current,
         );
         if (!current()) return;
-        const verifiedAt = performance.now();
-        const metadataVersion = this.discovery!.beginMetadata();
+        const observation = this.discovery!.beginCreation(targetId);
         const targets = await directory.list();
         if (!current()) return;
         if (!targets.some((target) => target.id === targetId))
@@ -400,14 +398,12 @@ export class ViewerController {
           );
         this.targetRevision++;
         const created = targets.find((target) => target.id === targetId)!;
-        const latest = this.model.getSnapshot().targets;
-        this.model.update({
-          targets: latest.some((target) => target.id === targetId)
-            ? latest
-            : Object.freeze([...latest, created]),
-          error: null,
-        });
-        this.discovery?.created(created, verifiedAt, metadataVersion);
+        if (!this.discovery!.created(created, observation))
+          throw new CdpFault(
+            "tab",
+            "The new tab is no longer available in this scope.",
+          );
+        this.model.update({ error: null });
         this.model.run(this.model.resetAddress$);
         this.select(targetId);
         this.options.onTabCreated?.();
@@ -441,13 +437,10 @@ export class ViewerController {
       if (!result.success)
         throw new CdpFault("tab", "The browser did not close the tab.");
       this.targetRevision++;
+      this.discovery?.removed(targetId);
       this.options.onTabClosed?.(targetId);
-      const targets = Object.freeze(
-        this.model
-          .getSnapshot()
-          .targets.filter((target) => target.id !== targetId),
-      );
-      this.model.update({ targets, error: null });
+      const targets = this.model.getSnapshot().targets;
+      this.model.update({ error: null });
       if (this.model.getSnapshot().selectedTargetId === targetId) {
         this.loseSelection(null);
       }
@@ -461,7 +454,6 @@ export class ViewerController {
         if (next) this.select(next.id);
         else this.loseSelection(null);
       }
-      this.discovery?.removed(targetId);
     });
   }
 
@@ -608,10 +600,10 @@ export class ViewerController {
       },
     });
     this.extensions.reconcile(this.extensionDescriptors);
-    this.discovery = new TargetDiscovery(this.directory, {
+    this.discovery = new TargetDiscovery(this.directory, this.model, {
       signal: this.lifetime.signal,
       scoped: this.options.windowId !== undefined,
-      changed: (targets) => this.discovered(targets),
+      changed: () => this.discovered(),
       failed: (error) => {
         if (this.disposed || !this.connected) return;
         this.stopSelection();
@@ -660,21 +652,10 @@ export class ViewerController {
     this.discovery?.refresh();
   }
 
-  private discovered(discovered: readonly ViewerTarget[]): void {
+  private discovered(): void {
     if (this.disposed || !this.connected) return;
-    const order = new Map(
-      this.model
-        .getSnapshot()
-        .targets.map((target, index) => [target.id, index]),
-    );
-    const targets = Object.freeze(
-      [...discovered].sort(
-        (a, b) =>
-          (order.get(a.id) ?? order.size) - (order.get(b.id) ?? order.size),
-      ),
-    );
+    const targets = this.model.getSnapshot().targets;
     const selected = this.model.getSnapshot().selectedTargetId;
-    this.model.update({ targets });
     if (selected && !targets.some((t) => t.id === selected)) {
       this.loseSelection(
         diagnostic(

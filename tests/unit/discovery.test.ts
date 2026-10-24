@@ -310,6 +310,85 @@ it.each(["event", "full"])(
   },
 );
 
+it.each([{ windowId: 0 }, {}])(
+  "rejects a retired creation while its old explicit list completes %j",
+  async (options) => {
+    const fake = browser(1);
+    const { controller, model } = mount(fake, options);
+    await advance();
+    const socket = fake.sockets[0]!;
+    socket.holdReplyMethod = "Target.getTargets";
+    controller.createTab();
+    await advance();
+    const identify = socket.heldReplies.shift()!;
+    expect(identify).toBeDefined();
+    socket.holdReplyMethod = null;
+    socket.reply(identify.command, identify.result);
+    socket.holdReplyMethod = "Target.getTargets";
+    await advance();
+    const list = socket.heldReplies.shift()!;
+    expect(list).toBeDefined();
+    const created = fake.targets.at(-1)!;
+    const scoped = "windowId" in options;
+    if (scoped) {
+      socket.holdReplyMethod = "Browser.getWindowForTarget";
+      socket.reply(list.command, list.result);
+      await advance();
+      expect(socket.heldReplies).toHaveLength(2);
+    }
+    const attaches = count(fake, "Target.attachToTarget");
+    fake.targets = fake.targets.filter((target) => target.id !== created.id);
+    socket.emit("Target.targetDestroyed", { targetId: created.id });
+    socket.holdReplyMethod = null;
+    if (scoped)
+      for (const held of socket.heldReplies.splice(0))
+        socket.reply(held.command, held.result);
+    else socket.reply(list.command, list.result);
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+      targets: [{ id: "owned-0" }],
+      error: { kind: "tab" },
+    });
+    expect(count(fake, "Target.attachToTarget")).toBe(attaches);
+    expect(controller.input).not.toBeNull();
+  },
+);
+
+it.each(["negative", "failure"])(
+  "ignores an older selected %s after a newer positive scope result",
+  async (outcome) => {
+    const fake = browser(1);
+    const { controller, model } = mount(fake);
+    await advance();
+    fake.holdMethod = "Browser.getWindowForTarget";
+    await advance(2000);
+    expect(fake.heldCommands).toHaveLength(1);
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: { ...info(fake.targets[0]!), title: "New title" },
+    });
+    await advance();
+    expect(fake.heldCommands).toHaveLength(2);
+    const selected = fake.heldCommands.shift()!;
+    const newer = fake.heldCommands.shift()!;
+    fake.holdMethod = null;
+    newer.socket.reply(newer.command, { windowId: 0 });
+    await advance();
+    if (outcome === "negative")
+      selected.socket.reply(selected.command, { windowId: 2 });
+    else selected.socket.reject(selected.command, -32000);
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+      targets: [{ id: "owned-0", title: "New title" }],
+      error: null,
+    });
+    expect(controller.input).not.toBeNull();
+  },
+);
+
 it("repairs silent selected and background titles on the authoritative round", async () => {
   const fake = browser(2);
   const { model } = mount(fake);
@@ -606,7 +685,7 @@ it("blocks local admission when observation age expires before its timer runs", 
   }
 });
 
-it("expires membership that repeated metadata changes prevent full scans from verifying", async () => {
+it("accepts negative membership despite overlapping title changes", async () => {
   const fake = browser(2);
   const { controller, model } = mount(fake);
   await advance();
@@ -621,34 +700,67 @@ it("expires membership that repeated metadata changes prevent full scans from ve
       targetInfo: info(background),
     });
   };
-  const settleOlderObservation = async () => {
-    expect(fake.heldCommands).toHaveLength(1);
-    const held = fake.heldCommands.shift()!;
-    held.socket.reply(held.command, { windowId: 2 });
-    await advance();
-  };
   changed();
   await advance();
-  for (let tick = 1; tick <= 9; tick++) {
-    await advance(2000);
-    changed();
-    await settleOlderObservation();
-    if (tick === 5) {
-      // A newer event also supersedes this full round's background observation.
-      changed();
-      await settleOlderObservation();
-    }
-  }
-  expect(model.getSnapshot().targets).toHaveLength(2);
+  expect(fake.heldCommands).toHaveLength(1);
+  changed();
+  const held = fake.heldCommands.shift()!;
+  fake.holdCommand = null;
+  held.socket.reply(held.command, { windowId: 2 });
+  await advance();
+  expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+    "owned-0",
+  ]);
   expect(controller.input).not.toBeNull();
-  await advance(2000);
+  await advance(21_000);
   expect(model.getSnapshot()).toMatchObject({
-    status: "unavailable",
-    selectedTargetId: null,
-    targets: [],
+    status: "streaming",
+    selectedTargetId: "owned-0",
+    targets: [{ id: "owned-0", title: "Owned 0" }],
   });
-  expect(controller.input).toBeNull();
 });
+
+it.each(["before", "after"])(
+  "keeps healthy membership progressing when titles arrive %s replies",
+  async (ordering) => {
+    const fake = browser(2);
+    const { controller, model } = mount(fake);
+    await advance();
+    const target = fake.targets[1]!;
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === target.id;
+    const changed = (tick: number) => {
+      target.title = "Background " + tick;
+      fake.sockets[0]!.emit("Target.targetInfoChanged", {
+        targetInfo: info(target),
+      });
+    };
+    changed(0);
+    await advance();
+    for (let tick = 1; tick <= 41; tick++) {
+      await advance(1000);
+      expect(fake.heldCommands).toHaveLength(1);
+      if (ordering === "before") changed(tick);
+      const held = fake.heldCommands.shift()!;
+      held.socket.reply(held.command, { windowId: 0 });
+      await advance();
+      if (ordering === "after") {
+        changed(tick);
+        await advance();
+      }
+      expect(model.getSnapshot()).toMatchObject({
+        status: "streaming",
+        selectedTargetId: "owned-0",
+        targets: [
+          { id: "owned-0" },
+          { id: target.id, title: "Background " + tick },
+        ],
+      });
+      expect(controller.input).not.toBeNull();
+    }
+  },
+);
 
 it.each([false, true])(
   "keeps current checks fresh through metadata churn, selected=%s",
@@ -700,7 +812,7 @@ it.each([false, true])(
   },
 );
 
-it("anchors a background entry's renewed expiry to its verification request start", async () => {
+it("does not renew inventory age from a delayed background proof's receipt", async () => {
   const fake = browser(2);
   const { model } = mount(fake, { windowId: 0, paused: true });
   await advance();
@@ -708,32 +820,19 @@ it("anchors a background entry's renewed expiry to its verification request star
   fake.holdCommand = (command) =>
     command.method === "Browser.getWindowForTarget" &&
     command.params?.targetId === target.id;
-  const changed = () =>
-    fake.sockets[0]!.emit("Target.targetInfoChanged", {
-      targetInfo: info(target),
-    });
-  const settle = async () => {
-    expect(fake.heldCommands).toHaveLength(1);
-    const held = fake.heldCommands.shift()!;
-    held.socket.reply(held.command, { windowId: 0 });
-    await advance();
-  };
   await advance(9000);
-  changed();
+  fake.sockets[0]!.emit("Target.targetInfoChanged", {
+    targetInfo: info(target),
+  });
   await advance(9000);
-  // This current positive reply is from the request at 9000ms, not 18000ms.
-  await settle();
-  changed();
-  await settle();
-  await advance(9000);
-  // Keep newer work settling before its RPC timeout, but superseded by events.
-  changed();
-  await settle();
-  changed();
-  await settle();
+  expect(fake.heldCommands).toHaveLength(1);
+  const held = fake.heldCommands.shift()!;
+  // The positive reply is current, but it cannot renew the last full inventory.
+  held.socket.reply(held.command, { windowId: 0 });
+  await advance();
+  expect(fake.heldCommands).toHaveLength(1);
   await advance(1999);
   expect(model.getSnapshot().status).toBe("paused");
-  expect(model.getSnapshot().targets).toHaveLength(2);
   await advance(1);
   expect(model.getSnapshot()).toMatchObject({
     status: "unavailable",
