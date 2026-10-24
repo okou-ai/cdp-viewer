@@ -274,7 +274,10 @@ for (const dpr of [1, 2]) {
         });
         const remote = await created;
         await remote.setContent(
-          '<style>html,body{margin:0;background:#eee}</style><input id="plain">',
+          // A fixed corner marker makes native resize produce a real paint.
+          // A uniform static page may emit only its preceding-size frame, never
+          // reaching the clipped-frame injection boundary this case exercises.
+          '<style>html,body{margin:0;background:#eee}body::after{content:"";position:fixed;right:0;bottom:0;width:16px;height:16px;background:#444}</style><input id="plain">',
         );
         const { windowId } = await backend.session.send(
           "Browser.getWindowForTarget",

@@ -88,6 +88,10 @@ export class FakeBrowser {
   unsupportedDisplay = false;
   unsupportedContentsSize = false;
   unsupportedClock = false;
+  navigationHistory = {
+    currentIndex: 0,
+    entries: [{ id: 1, url: "https://fixture.invalid/", title: "Fixture" }],
+  };
   favicon: unknown = null;
   holdFavicon = false;
   nativeDpr = 1;
@@ -167,7 +171,7 @@ export class FakeBrowser {
       bounds.width / size.width,
       bounds.height / size.height,
     );
-    const timestamp = this.clocks.has(sessionId)
+    const timestamp = this.clocks.has(this.sessions.get(sessionId) ?? sessionId)
       ? (this.nativeClock += this.frameClockStep)
       : undefined;
     const emit = () =>
@@ -233,7 +237,10 @@ export class FakeBrowser {
               socket.reply(command, { result: { type: "undefined" } });
               break;
             }
-            this.clocks.add(command.sessionId!);
+            // A page's native clock is shared by control and capture sessions.
+            this.clocks.add(
+              this.sessions.get(command.sessionId!) ?? command.sessionId!,
+            );
             this.nativeClock += 0.01;
             const sampled = Math.floor(this.nativeClock * 1000);
             this.nativeClock = sampled / 1000;
@@ -359,12 +366,7 @@ export class FakeBrowser {
           break;
         }
         case "Page.getNavigationHistory":
-          socket.reply(command, {
-            currentIndex: 0,
-            entries: [
-              { id: 1, url: "https://fixture.invalid/", title: "Fixture" },
-            ],
-          });
+          socket.reply(command, this.navigationHistory);
           break;
         case "Target.getTargetInfo": {
           const target = this.targets.find(

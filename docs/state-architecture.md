@@ -91,6 +91,39 @@ it grants no input or session authority. Renderer invalidation still retires old
 decodes immediately. All other selection-loss and cleanup paths clear pixels,
 and actual replacement paint/readiness removes the backdrop.
 
+Keep image failure separate from connection and selected-session lifetime. A
+failed capture revokes image/input admission and clears pixels immediately;
+valid native sessions may still own useful display configuration. The model
+owns a pure recovery policy with explicit preparation, possible-start and
+readiness stages. A runtime coordinator binds its effects and outcomes to the
+original selection resources; it does not retain another semantic phase or
+capture queue. Validate owner and legal stage before every model effect, so an
+obsolete outcome cannot alter a successor's private presentation either.
+Capture resources own serialized attempt revisions, native possible-start epochs,
+positive stop receipts and bounded IO. A stopped receipt remains an original
+resource fact after admission retires; it cannot restore that owner's authority
+and cannot settle a newer possible start. Read-only preparation preserves that
+proof. Original input cleanup and a positively stopped capture precede another
+attempt; only current painted output and initialized input restore admission.
+Paint readiness and capture-lane release are independent milestones reconciled
+through the same policy. Unknown cleanup fences same-target acquisition.
+Pausing retires normal session resources and any subsequent acquisition needs
+fresh validation; visibility alone does not retry a failed image.
+
+The model also owns canonical parent pause and target-selection intent. Its
+immutable identity orders each accepted intent before callback-capable effects;
+explicit selection identity remains distinct from observed target retirement.
+The controller holds acquired resources, not another paused/selection intent.
+Capture and revoke the original selection before committing new intent, then
+finish that captured resource's cleanup independently. Qualify shared display,
+renderer and local reset effects against the originating committed intent so a
+synchronous observer cannot cause an older call to retire its successor.
+Commands return their originating identity before publication callbacks run.
+Late original receipts still settle cleanup; they do not publish a cached user
+decision or authorize current input. Compose parent intent and image outcomes
+before snapshot/capability effects, and test that composition as well as the
+child image policy.
+
 Retain the latest produced screencast frame at the native credit boundary so a
 static final state does not require another page change after acknowledgement.
 Keep native frame-credit defaults independent from local decode backpressure:

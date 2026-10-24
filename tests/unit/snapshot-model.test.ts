@@ -125,7 +125,7 @@ it.each([
 
 it.each([
   { type: "select", targetId: "page-b", paused: false },
-  { type: "paused" },
+  { type: "pause", paused: true },
   { type: "target-lost", error: null },
   { type: "failed", error: { kind: "frame", message: "Synthetic failure" } },
   {
@@ -184,6 +184,55 @@ it("keeps error owner identity while repeated reports only replace notifications
   stop();
   stopNotice();
 });
+
+it.each(["connecting", "streaming"] as const)(
+  "ignores obsolete image events without clearing current %s presentation",
+  (status) => {
+    const model = streamingViewer();
+    const owner = {};
+    model.transition({
+      type: "image-failed",
+      owner,
+      targetId: "page-a",
+      error: { kind: "frame", message: "Synthetic old image failure" },
+    });
+    model.transition({
+      type: "select",
+      targetId: "page-b",
+      paused: false,
+      preview: true,
+    });
+    if (status === "streaming") {
+      model.transition({ type: "streaming" });
+      model.run(model.setClipboard$, {
+        message: "Current selection copy recovery",
+        text: "Synthetic current text",
+      });
+    }
+    const snapshot = model.getSnapshot();
+    const controls = model.read(model.controls$);
+    const clipboard = model.read(model.clipboard$);
+    for (const event of [
+      { type: "image-settled", owner, ready: true },
+      { type: "image-settled", owner, ready: false },
+      { type: "image-retrying", owner },
+      { type: "image-starting", owner },
+      { type: "image-painted", owner },
+      { type: "image-released", owner },
+      { type: "image-cancelled", owner, stopped: true },
+      {
+        type: "image-blocked",
+        owner,
+        error: { kind: "frame", message: "Synthetic obsolete failure" },
+      },
+    ] satisfies ViewerTransition[]) {
+      model.transition(event);
+      expect(model.getSnapshot()).toBe(snapshot);
+      expect(model.read(model.controls$)).toBe(controls);
+      expect(model.read(model.clipboard$)).toBe(clipboard);
+    }
+  },
+);
 
 it("runs private reset and selection effects even with an unchanged snapshot", () => {
   const model = createViewerModel();

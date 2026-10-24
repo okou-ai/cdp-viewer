@@ -500,17 +500,25 @@ it("does not notify a retired controller after close publication", async () => {
   }
 });
 
-it("preserves a newer selection made during discovery retirement publication", async () => {
+it("preserves a newer selection made during discovery target-loss publication", async () => {
   const fake = browser(2);
   const { controller, model } = mount(fake);
   await advance();
   expect(model.getSnapshot().navigation).not.toBeNull();
   let replaced = false;
+  let tornRetirement = false;
   const stop = model.subscribe(() => {
     const snapshot = model.getSnapshot();
     if (
-      !replaced &&
       snapshot.selectedTargetId === "owned-0" &&
+      snapshot.navigation === null &&
+      !snapshot.targets.some((target) => target.id === "owned-0")
+    )
+      tornRetirement = true;
+    if (
+      !replaced &&
+      snapshot.selectedTargetId === null &&
+      snapshot.status === "unavailable" &&
       snapshot.navigation === null &&
       !snapshot.targets.some((target) => target.id === "owned-0")
     ) {
@@ -521,6 +529,7 @@ it("preserves a newer selection made during discovery retirement publication", a
   try {
     fake.targets[0]!.windowId = 1;
     await advance(2000);
+    expect(tornRetirement).toBe(false);
     expect(replaced).toBe(true);
     expect(model.getSnapshot()).toMatchObject({
       status: "streaming",
