@@ -329,9 +329,34 @@ for (const nativeDpr of [1, 2]) {
       const menuPosition = await menu.boundingBox();
       await menu.click();
       expect(await menu.boundingBox()).toEqual(menuPosition);
-      await expect(
-        view.getByRole("menuitemradio", { name: "Do not sync automatically" }),
-      ).toHaveAttribute("aria-checked", "true");
+      const fit = view.getByRole("menuitem", { name: "Fit to this viewer" });
+      const modes = view.getByRole("menu", { name: "Fit to this viewer" });
+      const mainMenu = view.getByRole("menu", {
+        name: "Browser menu",
+        exact: true,
+      });
+      await expect(view.getByRole("menuitemradio")).toHaveCount(0);
+      await expect(view.getByRole("separator")).toHaveCount(0);
+      await fit.hover();
+      await expect(modes).toBeVisible();
+      await expect(modes).toHaveAttribute("data-side", "left");
+      await expect
+        .poll(async () => {
+          const parent = await mainMenu.boundingBox();
+          const child = await modes.boundingBox();
+          return parent && child ? child.x + child.width - parent.x : Infinity;
+        })
+        .toBeLessThanOrEqual(0);
+      const off = view.getByRole("menuitemradio", {
+        name: "Do not sync automatically",
+      });
+      await off.hover();
+      await expect(off).toHaveAttribute("aria-checked", "true");
+      await off.focus();
+      await page.keyboard.press("Escape");
+      await expect(modes).toHaveCount(0);
+      await expect(mainMenu).toBeVisible();
+      await expect(fit).toBeFocused();
       await view
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
@@ -400,10 +425,12 @@ for (const nativeDpr of [1, 2]) {
       await expect(remote.locator("body")).toHaveAttribute("data-wheel", "120");
       await page.keyboard.press("F8");
       await menu.click();
+      await fit.click();
       await view
         .getByRole("menuitemradio", { name: "Sync once on opening" })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      // Both popup levels can remain mounted briefly while closing.
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await view.evaluate((element: HTMLElement) => {
         element.style.width = "700px";
       });
@@ -417,13 +444,14 @@ for (const nativeDpr of [1, 2]) {
       await view
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await expect.poll(() => remote.evaluate(() => innerWidth)).toBe(698);
       await menu.click();
+      await fit.click();
       await view
         .getByRole("menuitemradio", { name: "Sync continuously" })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await view.evaluate((element: HTMLElement) => {
         element.style.width = "740px";
         element.style.height = "500px";
@@ -501,7 +529,7 @@ for (const nativeDpr of [1, 2]) {
       await view
         .getByRole("menuitem", { name: "Sync now", exact: true })
         .click();
-      await expect(view.getByRole("menu")).not.toBeVisible();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
       expect(
         commands.filter((method) => method === "Page.startScreencast"),
@@ -532,9 +560,11 @@ for (const nativeDpr of [1, 2]) {
       ).toHaveLength(2 + captureFences);
       await expect(page.locator("#host-submissions")).toHaveText("0");
       await menu.click();
+      await fit.click();
       await view
         .getByRole("menuitemradio", { name: "Do not sync automatically" })
         .click();
+      await expect(view.getByRole("menu")).toHaveCount(0);
       await view.evaluate((element: HTMLElement) => {
         element.style.width = "190px";
       });
@@ -543,7 +573,7 @@ for (const nativeDpr of [1, 2]) {
       if (!narrow) throw new Error("Narrow viewer has no geometry.");
       await expect
         .poll(async () => {
-          const popup = await view.getByRole("menu").boundingBox();
+          const popup = await mainMenu.boundingBox();
           return popup
             ? Math.max(
                 narrow.x - popup.x,
@@ -555,7 +585,34 @@ for (const nativeDpr of [1, 2]) {
       await expect(
         view.getByRole("menuitem", { name: "Sync now", exact: true }),
       ).toBeInViewport({ ratio: 1 });
-      await page.keyboard.press("Escape");
+      await fit.click();
+      await expect(modes).toBeVisible();
+      await expect(modes).toHaveAttribute("data-side", "left");
+      await expect
+        .poll(async () => {
+          const popup = await modes.boundingBox();
+          return popup
+            ? Math.max(
+                narrow.x - popup.x,
+                popup.x + popup.width - narrow.x - narrow.width,
+                narrow.y - popup.y,
+                popup.y + popup.height - narrow.y - narrow.height,
+              )
+            : Infinity;
+        })
+        .toBeLessThanOrEqual(1);
+      for (const name of [
+        "Do not sync automatically",
+        "Sync once on opening",
+        "Sync continuously",
+      ]) {
+        await expect(view.getByRole("menuitemradio", { name })).toBeInViewport({
+          ratio: 1,
+        });
+      }
+      await off.click();
+      await expect(view.getByRole("menu")).toHaveCount(0);
+      await expect(menu).toBeFocused();
       await localCdp.detach();
     } finally {
       await backend.close();

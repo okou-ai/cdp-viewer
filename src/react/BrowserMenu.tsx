@@ -1,5 +1,12 @@
 import { Menu } from "@base-ui/react/menu";
-import { Check, EllipsisVertical, LoaderCircle, Maximize } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  EllipsisVertical,
+  LoaderCircle,
+  Maximize,
+  Scaling,
+} from "lucide-react";
 import { viewerScope } from "./context";
 import { useViewerElements } from "./runtime";
 
@@ -44,42 +51,71 @@ export function BrowserMenu() {
           sideOffset={6}
           collisionPadding={8}
         >
-          <Menu.Popup className="cdpv-browser-menu">
-            <Menu.Group>
-              <Menu.GroupLabel className="cdpv-browser-menu-heading">
+          <Menu.Popup className="cdpv-browser-menu" aria-label="Browser menu">
+            <Menu.SubmenuRoot>
+              <Menu.SubmenuTrigger className="cdpv-browser-menu-item">
+                <Scaling size={16} aria-hidden="true" />
                 Fit to this viewer
-              </Menu.GroupLabel>
-              <Menu.RadioGroup
-                value={mode}
-                onValueChange={(value) => {
-                  if (typeof value === "string") chooseMode(value);
-                }}
+                <ChevronRight
+                  className="cdpv-browser-menu-chevron"
+                  size={16}
+                  aria-hidden="true"
+                />
+              </Menu.SubmenuTrigger>
+              <Menu.Portal
+                container={container}
+                className="cdpv-browser-menu-container"
               >
-                {(
-                  [
-                    ["off", "Do not sync automatically"],
-                    ["initial", "Sync once on opening"],
-                    ["live", "Sync continuously"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Menu.RadioItem
-                    key={value}
-                    value={value}
-                    closeOnClick
-                    disabled={!controls.canChangeSyncMode}
-                    className="cdpv-browser-menu-item"
+                <Menu.Positioner
+                  className="cdpv-browser-menu-positioner"
+                  side="left"
+                  align="start"
+                  sideOffset={6}
+                  alignOffset={-5}
+                  collisionPadding={8}
+                  collisionAvoidance={{
+                    side: "shift",
+                    align: "shift",
+                    fallbackAxisSide: "none",
+                  }}
+                >
+                  <Menu.Popup
+                    className="cdpv-browser-menu cdpv-browser-submenu"
+                    aria-label="Fit to this viewer"
                   >
-                    <span className="cdpv-browser-menu-check">
-                      <Menu.RadioItemIndicator>
-                        <Check size={16} aria-hidden="true" />
-                      </Menu.RadioItemIndicator>
-                    </span>
-                    {label}
-                  </Menu.RadioItem>
-                ))}
-              </Menu.RadioGroup>
-            </Menu.Group>
-            <Menu.Separator className="cdpv-browser-menu-separator" />
+                    <Menu.RadioGroup
+                      value={mode}
+                      onValueChange={(value) => {
+                        if (typeof value === "string") chooseMode(value);
+                      }}
+                    >
+                      {(
+                        [
+                          ["off", "Do not sync automatically"],
+                          ["initial", "Sync once on opening"],
+                          ["live", "Sync continuously"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <Menu.RadioItem
+                          key={value}
+                          value={value}
+                          closeOnClick
+                          disabled={!controls.canChangeSyncMode}
+                          className="cdpv-browser-menu-item"
+                        >
+                          <span className="cdpv-browser-menu-check">
+                            <Menu.RadioItemIndicator>
+                              <Check size={16} aria-hidden="true" />
+                            </Menu.RadioItemIndicator>
+                          </span>
+                          {label}
+                        </Menu.RadioItem>
+                      ))}
+                    </Menu.RadioGroup>
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.SubmenuRoot>
             <Menu.Item
               className="cdpv-browser-menu-item"
               disabled={!controls.canSyncDisplay}
