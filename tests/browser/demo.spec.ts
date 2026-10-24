@@ -187,6 +187,37 @@ test("demo routes native input and navigation to independent windows", async ({
     info.outputPath("backend"),
     new URL(demoUrl).origin,
   );
+  const captures: { width: number; height: number; completed: boolean }[] = [];
+  page.on("websocket", (socket) => {
+    if (socket.url() !== backend.endpoint) return;
+    const pending = new Map<number, (typeof captures)[number]>();
+    socket.on("framesent", ({ payload }) => {
+      const command = JSON.parse(String(payload)) as {
+        id: number;
+        method?: string;
+        params?: { maxWidth: number; maxHeight: number };
+      };
+      if (command.method !== "Page.startScreencast" || !command.params) return;
+      const capture = {
+        width: command.params.maxWidth,
+        height: command.params.maxHeight,
+        completed: false,
+      };
+      captures.push(capture);
+      pending.set(command.id, capture);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      const response = JSON.parse(String(payload)) as {
+        id?: number;
+        error?: unknown;
+      };
+      if (response.id === undefined) return;
+      const capture = pending.get(response.id);
+      if (!capture) return;
+      capture.completed = response.error === undefined;
+      pending.delete(response.id);
+    });
+  });
   try {
     async function editor() {
       const created = backend.context.waitForEvent("page");
@@ -251,12 +282,34 @@ test("demo routes native input and navigation to independent windows", async ({
     await a.getByRole("button", { name: "Remove viewer 1" }).click();
     await expect(a).toHaveCount(0);
     expect(first.remote.isClosed()).toBe(false);
+    const beforeResize = captures.length;
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    const bounds = await bView.locator("canvas").evaluate((canvas) => {
+      const box = canvas.getBoundingClientRect();
+      return {
+        width: Math.floor(box.width * devicePixelRatio),
+        height: Math.floor(box.height * devicePixelRatio),
+      };
+    });
+    // Finish the native resize capture before this navigation/input scenario.
+    // Concurrent capture replacement is exercised by capture-navigation.spec.ts.
+    await expect
+      .poll(() =>
+        captures
+          .slice(beforeResize)
+          .some(
+            (capture) =>
+              capture.completed &&
+              capture.width === bounds.width &&
+              capture.height === bounds.height,
+          ),
+      )
+      .toBe(true);
     await bView.getByRole("img", { name: "Live browser view" }).click();
     await page.keyboard.insertText(" alive");
     await expect(second.remote.getByLabel("Fixture input")).toHaveValue(
