@@ -34,6 +34,7 @@ it.each(["shared", "split"] as const)(
   "%s: exposes explicit image retry and keeps native input and connections",
   async (transport) => {
     const f = fixture();
+    f.browser.holdMethod = "Page.getNavigationHistory";
     const props = {
       cdpUrl: "wss://fixture.invalid",
       interactive: true,
@@ -42,6 +43,29 @@ it.each(["shared", "split"] as const)(
     const view = render(<CdpViewer {...props} />);
     const input = screen.getByLabelText("Remote browser input");
     await waitFor(() => expect(input).toBeEnabled());
+    await waitFor(() => expect(f.browser.heldCommands).toHaveLength(1));
+    const history = f.browser.heldCommands.shift()!;
+    f.browser.holdMethod = null;
+    act(() =>
+      history.socket.reply(history.command, {
+        currentIndex: 1,
+        entries: [
+          { id: 1, url: "https://fixture.invalid/before", title: "Before" },
+          { id: 2, url: "https://fixture.invalid/", title: "Current" },
+          { id: 3, url: "https://fixture.invalid/after", title: "After" },
+        ],
+      }),
+    );
+    const address = screen.getByRole("textbox", {
+      name: "Remote page address",
+    });
+    const back = screen.getByRole("button", { name: "Back remote page" });
+    const forward = screen.getByRole("button", { name: "Forward remote page" });
+    await waitFor(() =>
+      expect(address).toHaveValue("https://fixture.invalid/"),
+    );
+    expect(back).toBeEnabled();
+    expect(forward).toBeEnabled();
     const frame = f.browser.sockets[transport === "split" ? 1 : 0]!;
     const session = frame.commands.find(
       (command) => command.method === "Page.startScreencast",
@@ -59,6 +83,8 @@ it.each(["shared", "split"] as const)(
       screen.getByRole("button", { name: "Reconnect viewer" }),
     ).toBeEnabled();
     expect(input).toBeDisabled();
+    expect(back).toBeDisabled();
+    expect(forward).toBeDisabled();
     expect(f.clear.mock.calls.length).toBeGreaterThan(clears);
     view.rerender(<CdpViewer {...props} capture={{ quality: 40 }} />);
     f.browser.holdFrames = true;
@@ -72,6 +98,9 @@ it.each(["shared", "split"] as const)(
     expect(input).toBeDisabled();
     act(() => f.browser.heldFrames.shift()!());
     await waitFor(() => expect(input).toBeEnabled());
+    expect(address).toHaveValue("https://fixture.invalid/");
+    expect(back).toBeEnabled();
+    expect(forward).toBeEnabled();
     expect(screen.getByLabelText("Remote browser input")).toBe(input);
     expect(f.browser.sockets).toEqual(sockets);
     expect(

@@ -264,7 +264,8 @@ the original capture and input cleanup are confirmed. It starts one new capture
 on the same valid sessions, preserving their native display settings, without
 reloading the page, reconnecting sockets or replaying input. Repeated clicks do
 not start overlapping attempts. Input resumes only after a fresh image paints
-and input initialization is ready.
+and input initialization is ready. The known page address and history are retained;
+navigation actions resume with the current image.
 
 **Reconnect viewer** remains a separate action for connection loss or recovery
 whose original cleanup/fresh image cannot be confirmed. Unsupported capabilities

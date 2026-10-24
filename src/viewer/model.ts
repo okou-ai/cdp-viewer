@@ -438,7 +438,7 @@ function createViewerSignals() {
         set(internalLoadingPreview$, false);
       }
       if (event.type === "image-failed")
-        set(update$, { status: "error", error: event.error, navigation: null });
+        set(update$, { status: "error", error: event.error });
       else if (event.type === "image-retrying")
         set(update$, { status: "connecting", error: null });
       else if (
