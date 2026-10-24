@@ -104,7 +104,10 @@ confirmation remain bounded failures; explicit retry acquires a new capture.
 
 Suspend new display transactions during image recovery while joining original
 native work under its original owner. Retain valid applied native adaptation
-instead of detaching its session to retry an image. Capture retry uses the same
+instead of detaching its session to retry an image.
+Cancel image waiters against the halted capture, including waiters registered
+after a delayed start reply. Original native effects still settle independently.
+Capture retry uses the same
 serialized stop/start and elapsed native-clock boundary as presentation fencing;
 it cannot replace missing proof with a local generation or an older frame. Resume
 queued display intent after current image readiness, preserving the latest

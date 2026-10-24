@@ -102,6 +102,7 @@ export class DisplayViewport {
   private version = 0;
   private timestamp = -Infinity;
   private captureAfter = -Infinity;
+  private presentationSuspended = false;
   private nativeCapture: NativeCapture = { timestamp: -Infinity };
   private painted: FrameGeometry | null = null;
   private decoded: FrameGeometry | null = null;
@@ -337,6 +338,10 @@ export class DisplayViewport {
     budget: number,
     request: FrameWait,
   ): Promise<Presentation> {
+    if (this.presentationSuspended)
+      return Promise.reject(
+        new CdpFault("display", "Display synchronization was cancelled."),
+      );
     if (budget <= 0) return Promise.reject(presentationTimeout());
     if (
       request.kind === "native"
@@ -379,6 +384,17 @@ export class DisplayViewport {
     this.waiting?.finish(
       new CdpFault("display", "Display synchronization was cancelled."),
     );
+  }
+
+  /** A halted image cannot satisfy current or subsequently registered display waiters. */
+  suspendPresentation(): void {
+    this.presentationSuspended = true;
+    this.cancelPresentation();
+  }
+
+  /** A validated new capture may establish fresh presentation facts again. */
+  resumePresentation(): void {
+    this.presentationSuspended = false;
   }
 
   read(

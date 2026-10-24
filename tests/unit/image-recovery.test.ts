@@ -63,6 +63,43 @@ const starts = (browser: FakeBrowser) =>
     .filter((command) => command.method === "Page.startScreencast");
 
 for (const transport of ["shared", "split"] as const) {
+  it.each(["before-reply", "after-reply"])(
+    `${transport}: cancels current and future display image waiters when calibration fails %s`,
+    async (phase) => {
+      vi.useFakeTimers();
+      const browser = new FakeBrowser();
+      const f = mount(browser, transport);
+      await until(() => f.model.getSnapshot().status === "streaming");
+      browser.holdFrames = true;
+      if (phase === "before-reply")
+        f.frameSocket().holdReplyMethod = "Page.startScreencast";
+      f.controller.measureDisplay({ width: 640, height: 480, dpr: 1 });
+      f.controller.setWindowSizeSync("initial");
+      await until(() => browser.heldFrames.length > 0);
+      expect(f.model.read(f.model.display$).pending).toBe(true);
+      vi.mocked(f.sink.push).mockImplementationOnce((_data, _paint, failed) =>
+        failed(new CdpFault("frame", "Synthetic calibration image failure.")),
+      );
+      browser.heldFrames.shift()!();
+      await until(() => f.model.getSnapshot().status === "error");
+      if (phase === "before-reply") {
+        const socket = f.frameSocket();
+        socket.holdReplyMethod = null;
+        for (const reply of socket.heldReplies.splice(0))
+          socket.reply(reply.command, reply.result);
+      }
+      await until(() => f.model.read(f.model.controls$).canRetryImage);
+      // All native effects have settled without advancing the impossible image wait's deadline.
+      expect(f.model.read(f.model.display$).pending).toBe(false);
+      expect(f.controller.input).toBeNull();
+      const beforeRetry = starts(browser).length;
+      browser.holdFrames = false;
+      f.controller.retryImage();
+      await until(() => f.model.getSnapshot().status === "streaming");
+      expect(starts(browser)).toHaveLength(beforeRetry + 1);
+    },
+  );
+
   it.each(["select", "pause"])(
     `${transport}: retains a positive original stop receipt after %s retires its active owner`,
     async (boundary) => {

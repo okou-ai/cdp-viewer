@@ -242,7 +242,10 @@ export class ViewerController {
           );
           if (boundary === null || !current()) return;
           await this.directory!.assertMember(selection.targetId);
-          if (current()) selection.geometry.fence(boundary);
+          if (current()) {
+            selection.geometry.fence(boundary);
+            selection.geometry.resumePresentation();
+          }
         });
       })
       .catch((error: unknown) => {
@@ -1160,6 +1163,7 @@ export class ViewerController {
     captureCleanup = stream.quiesce();
     if (this.isCurrent(selection)) {
       this.display?.setSuspended(true);
+      selection.geometry.suspendPresentation();
       displayCleanup = this.display?.settle() ?? Promise.resolve();
     }
     if (this.isCurrent(selection)) {
