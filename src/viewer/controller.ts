@@ -188,14 +188,24 @@ export class ViewerController {
     if (!this.connected) return;
     const image = this.model.read(this.model.imageRecovery$);
     if (paused) {
+      const settled = (ready: boolean) => {
+        if (image && !this.disposed)
+          this.model.transition({
+            type: "image-settled",
+            owner: image.owner,
+            ready,
+          });
+      };
+      // Before retry dispatches start, its original positive stop still proves cleanup.
+      // Observe it before retirement callbacks can close or replace this controller.
+      if (image?.phase === "retrying")
+        this.selection?.stream?.quiesce().then(
+          () => settled(true),
+          () => settled(false),
+        );
       this.stopSelection("paused");
       if (!this.connected) return;
-      if (image)
-        this.model.transition({
-          type: "image-settled",
-          owner: image.owner,
-          ready: image.phase === "ready",
-        });
+      settled(image?.phase === "ready");
       this.model.transition({ type: "paused" });
     } else if (image) {
       this.model.transition({ type: "image-resumed" });

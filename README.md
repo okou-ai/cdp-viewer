@@ -276,7 +276,9 @@ WebSocket reconnect loop.
 Pausing, hiding or moving a failed viewer offscreen does not start a retry.
 Returning it to view leaves recovery explicit. If pause already released its
 sessions after confirmed cleanup, retry revalidates and attaches the same target
-on the existing connection. Losing that target still requires an explicit valid
+on the existing connection. Cancelling retry before a new capture starts retains
+the confirmed cleanup; an uncertain possible start still requires reconnect.
+Losing that target still requires an explicit valid
 target selection; recovery never silently picks a replacement.
 
 Unavailable/zero-size surfaces retain the last valid bounds; before the first

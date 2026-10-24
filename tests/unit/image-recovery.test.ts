@@ -293,6 +293,32 @@ for (const transport of ["shared", "split"] as const) {
     expect(f.controller.input).toBe(input);
   });
 
+  it(`${transport}: pause before a retry start retains confirmed cleanup for a later explicit retry`, async () => {
+    vi.useFakeTimers();
+    const browser = new FakeBrowser();
+    const f = mount(browser, transport);
+    await until(() => f.model.getSnapshot().status === "streaming");
+    const originalSession = f.controller.input!.sessionId;
+    f.failImage();
+    await until(() => f.model.read(f.model.controls$).canRetryImage);
+    browser.holdMethod = "Runtime.evaluate";
+    f.controller.retryImage();
+    await until(() => browser.heldCommands.length === 1);
+    expect(starts(browser)).toHaveLength(1);
+    f.controller.setPaused(true);
+    f.controller.setPaused(false);
+    browser.holdMethod = null;
+    for (const held of browser.heldCommands.splice(0))
+      browser.resume(held.command, held.socket);
+    await until(() => f.model.read(f.model.controls$).canRetryImage);
+    expect(starts(browser)).toHaveLength(1);
+    f.controller.retryImage();
+    await until(() => f.model.getSnapshot().status === "streaming");
+    expect(starts(browser)).toHaveLength(2);
+    expect(f.controller.input!.sessionId).not.toBe(originalSession);
+    expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
+  });
+
   it(`${transport}: pause retires valid sessions and later explicit retry freshly attaches without new sockets`, async () => {
     vi.useFakeTimers();
     const browser = new FakeBrowser();
@@ -311,6 +337,31 @@ for (const transport of ["shared", "split"] as const) {
     f.controller.retryImage();
     await until(() => f.model.getSnapshot().status === "streaming");
     expect(f.controller.input!.sessionId).not.toBe(old);
+    expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
+  });
+
+  it(`${transport}: pause after a possible retry start cannot reuse an unconfirmed stop`, async () => {
+    vi.useFakeTimers();
+    const browser = new FakeBrowser();
+    const f = mount(browser, transport);
+    await until(() => f.model.getSnapshot().status === "streaming");
+    f.failImage();
+    await until(() => f.model.read(f.model.controls$).canRetryImage);
+    browser.holdMethod = "Page.startScreencast";
+    f.controller.retryImage();
+    await until(() => browser.heldCommands.length === 1);
+    expect(starts(browser)).toHaveLength(2);
+    f.controller.setPaused(true);
+    f.controller.setPaused(false);
+    browser.holdMethod = null;
+    for (const held of browser.heldCommands.splice(0))
+      browser.resume(held.command, held.socket);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.model.read(f.model.imageRecovery$)?.phase).toBe("blocked");
+    f.controller.retryImage();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(starts(browser)).toHaveLength(2);
+    expect(f.controller.input).toBeNull();
     expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
   });
 }

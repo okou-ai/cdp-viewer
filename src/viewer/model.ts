@@ -414,6 +414,14 @@ function createViewerSignals() {
     set(update$, patch),
   );
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
+    const image = get(imageRecovery$);
+    // Obsolete recovery is not a new event for the successor's presentation.
+    if (
+      (event.type === "image-settled" || event.type === "image-retrying") &&
+      (image?.owner !== event.owner ||
+        (event.type === "image-retrying" && image.phase !== "ready"))
+    )
+      return;
     if (event.type !== "streaming") set(internalClipboard$, null);
     set(
       internalLoadingPreview$,
@@ -456,7 +464,7 @@ function createViewerSignals() {
         if (get(snapshot$).selectedTargetId)
           set(update$, {
             status: "paused",
-            error: get(imageRecovery$)?.error ?? null,
+            error: image?.error ?? null,
             navigation: null,
           });
         break;
@@ -486,8 +494,7 @@ function createViewerSignals() {
         set(update$, { status: "error", error: event.error, navigation: null });
         break;
       case "image-settled": {
-        const image = get(imageRecovery$);
-        if (image?.owner === event.owner) {
+        if (image) {
           set(internalImageRecovery$, {
             ...image,
             phase: event.ready ? "ready" : "blocked",
@@ -502,15 +509,13 @@ function createViewerSignals() {
         break;
       }
       case "image-retrying": {
-        const image = get(imageRecovery$);
-        if (image?.owner === event.owner && image.phase === "ready") {
+        if (image) {
           set(internalImageRecovery$, { ...image, phase: "retrying" });
           set(update$, { status: "connecting", error: null });
         }
         break;
       }
       case "image-resumed": {
-        const image = get(imageRecovery$);
         if (image) set(update$, { status: "error", error: image.error });
         break;
       }
