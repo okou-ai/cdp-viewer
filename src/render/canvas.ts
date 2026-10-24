@@ -1,6 +1,7 @@
 import { CdpFault } from "../cdp/errors";
 import {
   maximumEncodedFrameLength,
+  maximumFrameArea,
   maximumFrameDimension,
 } from "../display/limits";
 import type { Viewport } from "../display/geometry";
@@ -136,7 +137,8 @@ export class CanvasRenderer implements FrameSink {
           decoded.width < 1 ||
           decoded.height < 1 ||
           decoded.width > maximumFrameDimension ||
-          decoded.height > maximumFrameDimension
+          decoded.height > maximumFrameDimension ||
+          decoded.width * decoded.height > maximumFrameArea
         ) {
           throw new CdpFault(
             "frame",

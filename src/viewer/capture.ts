@@ -1,10 +1,7 @@
 import { CdpFault, isRecord } from "../cdp/errors";
 import { positive } from "../display/geometry";
 import type { DisplaySize } from "../display/geometry";
-import {
-  maximumAutomaticCaptureArea,
-  maximumFrameDimension,
-} from "../display/limits";
+import { maximumFrameArea, maximumFrameDimension } from "../display/limits";
 import type { ViewerCaptureOptions } from "./types";
 
 export type CaptureSettings = Readonly<Required<ViewerCaptureOptions>>;
@@ -52,7 +49,7 @@ export function captureSettings(
       size.dpr,
       maximumFrameDimension / size.width,
       maximumFrameDimension / size.height,
-      Math.sqrt(maximumAutomaticCaptureArea / size.width / size.height),
+      Math.sqrt(maximumFrameArea / size.width / size.height),
     );
     bounds = {
       quality: defaultCapture.quality,
@@ -67,20 +64,30 @@ export function captureSettings(
     100,
     "capture.quality",
   );
-  const maxWidth = setting(
+  let maxWidth = setting(
     options?.maxWidth,
     bounds.maxWidth,
     1,
     maximumFrameDimension,
     "capture.maxWidth",
   );
-  const maxHeight = setting(
+  let maxHeight = setting(
     options?.maxHeight,
     bounds.maxHeight,
     1,
     maximumFrameDimension,
     "capture.maxHeight",
   );
+  // Only automatic axes yield to the shared budget; fixed pairs are validated.
+  if (options?.maxWidth === undefined)
+    maxWidth = Math.min(maxWidth, Math.floor(maximumFrameArea / maxHeight));
+  if (options?.maxHeight === undefined)
+    maxHeight = Math.min(maxHeight, Math.floor(maximumFrameArea / maxWidth));
+  if (maxWidth * maxHeight > maximumFrameArea)
+    throw new CdpFault(
+      "configuration",
+      `capture.maxWidth × capture.maxHeight must not exceed ${maximumFrameArea} pixels.`,
+    );
   return Object.freeze({ quality, maxWidth, maxHeight });
 }
 

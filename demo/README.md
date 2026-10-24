@@ -125,8 +125,8 @@ offscreen/document visibility behavior still applies.
 **Image detail** separates JPEG quality (0–100) from maximum capture resolution.
 The initial values match the library defaults: quality 70 and **Automatic
 (container and DPR)** resolution. Automatic bounds follow the preview's physical
-pixel demand within 4096 pixels per edge and 3840×2160 total pixels. Choose a
-fixed maximum to save bandwidth or retain more detail;
+pixel demand. All resolutions share limits of 4096 pixels per edge and 3840×2160
+total pixels. Choose a fixed maximum to save bandwidth or retain more detail;
 the remote page keeps its viewport and aspect ratio. Text can soften at smaller
 resolutions, especially when enlarged. Both controls apply live, preserving the
 viewer, selected page and native input, and appear in Usage. Changing local

@@ -42,7 +42,7 @@ function mount(
       interactive: true,
       // Native transaction tests keep image detail fixed; automatic capture has
       // separate coverage so it cannot intercept a held native fence request.
-      capture: { maxWidth: 4096, maxHeight: 4096 },
+      capture: { maxWidth: 4096, maxHeight: 2025 },
       ...(windowId === undefined ? {} : { windowId }),
       ...(requestTimeout === undefined ? {} : { requestTimeout }),
     },
@@ -3297,7 +3297,7 @@ it.each([
     expect(
       transitions.find((command) => command.method === "Page.startScreencast")
         ?.params,
-    ).toMatchObject({ maxWidth: 4096, maxHeight: 4096 });
+    ).toMatchObject({ maxWidth: 4096, maxHeight: 2025 });
     // Completing the original response cannot change the restored stream or owner.
     const held = socket.heldReplies.shift()!;
     socket.reply(held.command, held.result);

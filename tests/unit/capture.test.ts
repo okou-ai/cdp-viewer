@@ -123,6 +123,89 @@ it("sizes omitted axes from the physical surface and honors independent fixed bo
 });
 
 it.each([
+  { maxWidth: 3840, maxHeight: 2160 },
+  { maxWidth: 2160, maxHeight: 3840 },
+  { maxWidth: 4096, maxHeight: 2025 },
+  { maxWidth: 2025, maxHeight: 4096 },
+])("accepts fixed bounds at the common pixel ceiling: %j", (capture) => {
+  expect(captureSettings(capture)).toEqual({ quality: 70, ...capture });
+});
+
+it.each([
+  { maxWidth: 4096, maxHeight: 4096 },
+  { maxWidth: 4096, maxHeight: 2026 },
+  { maxWidth: 2026, maxHeight: 4096 },
+  { maxWidth: 3840, maxHeight: 2161 },
+])("rejects fixed bounds above the common pixel ceiling: %j", (capture) => {
+  expect(() => captureSettings(capture)).toThrowError(
+    /must not exceed 8294400 pixels/,
+  );
+});
+
+it.each([
+  [
+    "width",
+    "shared",
+    { maxWidth: 4096 },
+    { width: 640, height: 2100 },
+    { width: 640, height: 3000 },
+    { width: 640, height: 1000 },
+    { maxWidth: 4096, maxHeight: 2025 },
+    { maxWidth: 4096, maxHeight: 1000 },
+  ],
+  [
+    "height",
+    "split",
+    { maxHeight: 4096 },
+    { width: 2100, height: 640 },
+    { width: 3000, height: 640 },
+    { width: 1000, height: 640 },
+    { maxWidth: 2025, maxHeight: 4096 },
+    { maxWidth: 1000, maxHeight: 4096 },
+  ],
+] as const)(
+  "keeps fixed %s and fits its automatic counterpart across %s measurements",
+  async (
+    _axis,
+    transport,
+    capture,
+    initial,
+    larger,
+    smaller,
+    capped,
+    final,
+  ) => {
+    vi.useFakeTimers();
+    const { browser, controller, model } = mount(
+      undefined,
+      capture,
+      0,
+      { ...initial, dpr: 1 },
+      transport,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(model.getSnapshot().status).toBe("streaming");
+    const input = controller.input;
+    const starts = () =>
+      browser.sockets.flatMap((socket) =>
+        socket.commands.filter((c) => c.method === "Page.startScreencast"),
+      );
+    expect(starts()).toHaveLength(1);
+    expect(starts()[0]!.params).toMatchObject(capped);
+    controller.measureDisplay({ ...larger, dpr: 1 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(starts()).toHaveLength(1);
+    controller.measureDisplay({ ...smaller, dpr: 1 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(starts()).toHaveLength(2);
+    expect(starts()[1]!.params).toMatchObject(final);
+    expect(starts()[1]!.sessionId).toBe(starts()[0]!.sessionId);
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
+it.each([
   [{ width: 960, height: 540, dpr: 1 }, 960, 540],
   [{ width: 960, height: 540, dpr: 2 }, 1920, 1080],
   [{ width: 640, height: 480, dpr: 1.25 }, 800, 600],
@@ -477,71 +560,79 @@ it("accepts bounded adapted frames and retains input mapping without repeating n
   ).toHaveLength(0);
 });
 
-it("rejects invalid initial settings before opening and starts when they are corrected", async () => {
-  const { browser, controller, model } = mount(undefined, { quality: -1 });
-  expect(browser.sockets).toHaveLength(0);
-  expect(model.getSnapshot()).toMatchObject({
-    status: "error",
-    error: { kind: "configuration" },
-  });
-  controller.setCapture({ quality: 0 });
-  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
-  expect(browser.sockets).toHaveLength(1);
-  expect(
-    browser.sockets[0]!.commands.find(
-      (c) => c.method === "Page.startScreencast",
-    )?.params,
-  ).toEqual({
-    format: "jpeg",
-    ...defaultCapture,
-    quality: 0,
-    sendLastFrame: true,
-  });
-});
-
-it("reconfigures only capture while preserving selected input and rejecting invalid updates", async () => {
-  const { browser, controller, model, sink, resetInput } = mount();
-  await vi.waitFor(() => expect(controller.input).not.toBeNull());
-  const input = controller.input;
-  const socket = browser.sockets[0]!;
-  const selected = model.getSnapshot().selectedTargetId;
-  const before = socket.commands.length;
-  sink.reset.mockClear();
-  resetInput.mockClear();
-  controller.setCapture({ maxWidth: 1280, maxHeight: 720 });
-  await vi.waitFor(() =>
+it.each([{ quality: -1 }, { maxWidth: 4096, maxHeight: 4096 }])(
+  "rejects invalid initial settings before opening and starts after correction: %j",
+  async (capture) => {
+    const { browser, controller, model } = mount(undefined, capture);
+    expect(browser.sockets).toHaveLength(0);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "error",
+      error: { kind: "configuration" },
+    });
+    controller.setCapture({ quality: 0 });
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    expect(browser.sockets).toHaveLength(1);
     expect(
-      socket.commands.filter((c) => c.method === "Page.startScreencast"),
-    ).toHaveLength(2),
-  );
-  expect(controller.input).toBe(input);
-  expect(model.getSnapshot().selectedTargetId).toBe(selected);
-  expect(resetInput).not.toHaveBeenCalled();
-  expect(sink.reset).not.toHaveBeenCalled();
-  expect(sink.invalidate).toHaveBeenCalledOnce();
-  expect(socket.commands.slice(before).map((c) => c.method)).toEqual([
-    "Page.stopScreencast",
-    "Page.startScreencast",
-    "Page.screencastFrameAck",
-  ]);
-  expect(browser.sockets).toHaveLength(1);
-  const count = socket.commands.length;
-  controller.setCapture({ quality: 70, maxWidth: 1280, maxHeight: 720 });
-  expect(socket.commands).toHaveLength(count);
-  controller.setCapture({ maxWidth: 0 });
-  expect(model.getSnapshot()).toMatchObject({
-    status: "streaming",
-    error: { kind: "configuration" },
-  });
-  const error = model.getSnapshot().error;
-  controller.setCapture({ maxWidth: 0 });
-  expect(model.getSnapshot().error).toBe(error);
-  expect(controller.input).toBe(input);
-  expect(socket.commands).toHaveLength(count);
-  controller.setCapture({ maxWidth: 1280, maxHeight: 720 });
-  expect(model.getSnapshot().error).toBeNull();
-  expect(socket.commands).toHaveLength(count);
-});
+      browser.sockets[0]!.commands.find(
+        (c) => c.method === "Page.startScreencast",
+      )?.params,
+    ).toEqual({
+      format: "jpeg",
+      ...defaultCapture,
+      quality: 0,
+      sendLastFrame: true,
+    });
+  },
+);
+
+it.each([{ maxWidth: 0 }, { maxWidth: 4096, maxHeight: 4096 }])(
+  "preserves selected input and the last capture after an invalid runtime update: %j",
+  async (invalid) => {
+    const { browser, controller, model, sink, resetInput } = mount();
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    const input = controller.input;
+    const socket = browser.sockets[0]!;
+    const selected = model.getSnapshot().selectedTargetId;
+    const before = socket.commands.length;
+    sink.reset.mockClear();
+    resetInput.mockClear();
+    controller.setCapture({ maxWidth: 1280, maxHeight: 720 });
+    await vi.waitFor(() =>
+      expect(
+        socket.commands.filter((c) => c.method === "Page.startScreencast"),
+      ).toHaveLength(2),
+    );
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().selectedTargetId).toBe(selected);
+    expect(resetInput).not.toHaveBeenCalled();
+    expect(sink.reset).not.toHaveBeenCalled();
+    expect(sink.invalidate).toHaveBeenCalledOnce();
+    expect(socket.commands.slice(before).map((c) => c.method)).toEqual([
+      "Page.stopScreencast",
+      "Page.startScreencast",
+      "Page.screencastFrameAck",
+    ]);
+    expect(browser.sockets).toHaveLength(1);
+    const count = socket.commands.length;
+    controller.setCapture({ quality: 70, maxWidth: 1280, maxHeight: 720 });
+    expect(socket.commands).toHaveLength(count);
+    controller.setCapture(invalid);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      error: { kind: "configuration" },
+    });
+    const error = model.getSnapshot().error;
+    controller.setCapture(invalid);
+    expect(model.getSnapshot().error).toBe(error);
+    expect(controller.input).toBe(input);
+    expect(socket.commands).toHaveLength(count);
+    controller.setCapture({ maxWidth: 1280, maxHeight: 720 });
+    expect(model.getSnapshot().error).toBeNull();
+    expect(socket.commands).toHaveLength(count);
+  },
+);
 
 it("coalesces pending capture settings and continues acknowledging discarded frames", async () => {
   const { browser, controller, sink } = mount();

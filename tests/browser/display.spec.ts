@@ -315,7 +315,7 @@ for (const nativeDpr of [1, 2]) {
           windowA: windowId,
           second: false,
           interactive: true,
-          captureA: { maxWidth: 4096, maxHeight: 4096 },
+          captureA: { maxWidth: 4096, maxHeight: 2025 },
           hostForm: true,
         },
       );

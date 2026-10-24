@@ -73,7 +73,7 @@ for (const stage of ["initial fence", "subsequent fence"] as const) {
             windowA: windowId,
             second: false,
             interactive: true,
-            captureA: { maxWidth: 4096, maxHeight: 4096 },
+            captureA: { maxWidth: 4096, maxHeight: 2025 },
           },
         );
         const view = page.locator("#viewer-a .cdpv-root"),

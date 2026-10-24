@@ -22,11 +22,11 @@ function context() {
   );
   return drawing;
 }
-function bitmap(width = 4): DecodedFrame {
+function bitmap(width = 4, height = 4): DecodedFrame {
   return {
     source: document.createElement("canvas"),
     width,
-    height: 4,
+    height,
     close: vi.fn(),
   };
 }
@@ -79,19 +79,60 @@ it("closes old decoded images without painting after reset or disposal", async (
   expect(painted).not.toHaveBeenCalled();
 });
 
-it("reports invalid dimensions and closes the bitmap", async () => {
-  const drawing = context();
-  const image = bitmap(5000);
-  const renderer = new CanvasRenderer(document.createElement("canvas"), () =>
-    Promise.resolve(image),
-  );
-  const failure = vi.fn();
-  renderer.push("invalid", vi.fn(), failure);
-  await vi.waitFor(() => expect(failure).toHaveBeenCalledTimes(1));
-  expect(drawing.drawImage).not.toHaveBeenCalled();
-  expect(image.close).toHaveBeenCalledTimes(1);
-  renderer.dispose();
-});
+it.each([
+  [5000, 4],
+  [4096, 4096],
+  [4096, 2026],
+  [2026, 4096],
+])(
+  "rejects an oversized %ix%i decoded frame and closes its bitmap",
+  async (width, height) => {
+    const drawing = context();
+    const image = bitmap(width, height);
+    const canvas = document.createElement("canvas");
+    const previous = { width: canvas.width, height: canvas.height };
+    const renderer = new CanvasRenderer(canvas, () => Promise.resolve(image));
+    const failure = vi.fn();
+    const painted = vi.fn();
+    renderer.push("invalid", painted, failure);
+    await vi.waitFor(() => expect(failure).toHaveBeenCalledTimes(1));
+    expect(failure).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "frame" }),
+    );
+    expect(drawing.drawImage).not.toHaveBeenCalled();
+    expect(painted).not.toHaveBeenCalled();
+    expect({ width: canvas.width, height: canvas.height }).toEqual(previous);
+    expect(image.close).toHaveBeenCalledTimes(1);
+    renderer.dispose();
+  },
+);
+
+it.each([
+  [3840, 2160],
+  [4096, 2025],
+  [2025, 4096],
+])(
+  "paints a %ix%i frame at the common pixel ceiling",
+  async (width, height) => {
+    const drawing = context();
+    const image = bitmap(width, height);
+    const canvas = document.createElement("canvas");
+    const renderer = new CanvasRenderer(canvas, () => Promise.resolve(image));
+    const painted = vi.fn();
+    const failed = vi.fn();
+    renderer.push("bounded", painted, failed);
+    await vi.waitFor(() => expect(painted).toHaveBeenCalledOnce());
+    expect(painted).toHaveBeenCalledWith({ width, height });
+    expect(failed).not.toHaveBeenCalled();
+    expect(drawing.drawImage).toHaveBeenCalledOnce();
+    expect({ width: canvas.width, height: canvas.height }).toEqual({
+      width,
+      height,
+    });
+    expect(image.close).toHaveBeenCalledOnce();
+    renderer.dispose();
+  },
+);
 
 it("checks actual decoded dimensions before drawing and commits only after draw", async () => {
   const drawing = context();

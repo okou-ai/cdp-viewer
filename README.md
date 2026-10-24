@@ -211,11 +211,14 @@ Choose JPEG compression quality and maximum capture dimensions independently:
 All three `ViewerCaptureOptions` fields are optional. Quality defaults to 70.
 Omitted dimensions automatically follow the visible canvas container in CSS pixels
 multiplied by the local device pixel ratio (DPR). Automatic bounds preserve the
-container aspect ratio within 4096 pixels per edge and 3840×2160 total pixels.
+container aspect ratio. All capture bounds share limits of 4096 pixels per edge
+and 3840×2160 total pixels, including explicit settings.
 Supplied dimensions override their respective automatic bounds independently,
 including during display synchronization. Quality must be an integer from 0 to
-100; each fixed dimension must be an integer from 1 to 4096. Fixed overrides can
-intentionally exceed the automatic pixel budget, within those per-edge limits.
+100; each fixed dimension must be an integer from 1 to 4096. If both dimensions
+are fixed, their product must fit the total pixel budget or the configuration is
+rejected. If one dimension is fixed, the automatic axis fits the remaining budget
+while preserving the fixed value.
 These are capture ceilings: Chrome preserves the source aspect ratio and may
 produce a smaller image. Higher settings can increase bandwidth and decoding
 work; lower resolution can soften small text, especially when enlarged or on a
@@ -360,8 +363,8 @@ necessary: logical and physical edges are capped at 4096, and physical area at
 A density that cannot fit within the physical budget at minimum dimensions is
 refused with a recoverable diagnostic.
 These are protective product limits, not a universal performance guarantee.
-Opting into adaptation raises the screencast ceiling to 4096 × 4096 once on the
-same session; untouched viewing retains JPEG quality 70 and 1920 × 1080 caps.
+Capture detail follows the independent image settings described above, within
+the same capture edge and area limits in every display mode.
 High DPR still increases capture, transport and decode cost within those limits.
 
 Native sizing and emulation require browser support. Non-normal windows must be

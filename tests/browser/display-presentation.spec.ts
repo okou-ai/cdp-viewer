@@ -111,7 +111,7 @@ for (const [transport, bounded] of [
             interactive: true,
             ...(bounded
               ? {}
-              : { captureA: { maxWidth: 4096, maxHeight: 4096 } }),
+              : { captureA: { maxWidth: 4096, maxHeight: 2025 } }),
             transport,
           },
         );
@@ -352,7 +352,7 @@ for (const dpr of [1, 2]) {
             windowA: windowId,
             second: false,
             interactive: true,
-            captureA: { maxWidth: 4096, maxHeight: 4096 },
+            captureA: { maxWidth: 4096, maxHeight: 2025 },
           },
         );
         const view = page.locator("#viewer-a .cdpv-root"),
@@ -498,7 +498,7 @@ for (const dpr of [1, 2]) {
             windowA: windowId,
             second: false,
             interactive: true,
-            captureA: { maxWidth: 4096, maxHeight: 4096 },
+            captureA: { maxWidth: 4096, maxHeight: 2025 },
           },
         );
         const view = page.locator("#viewer-a .cdpv-root");
