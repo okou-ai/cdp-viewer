@@ -150,13 +150,13 @@ export class Screencast {
         throw new CdpFault("frame", "Capture cleanup could not be confirmed.");
       await this.reserve(async () => {
         await this.stop();
-        if (!this.current())
+        if (this.started)
           throw new CdpFault(
             "frame",
             "Capture cleanup could not be confirmed.",
           );
       });
-      if (!this.current() || this.started)
+      if (this.started)
         throw new CdpFault("frame", "Capture cleanup could not be confirmed.");
     });
     return this.quiescing;
@@ -191,7 +191,9 @@ export class Screencast {
       undefined,
       this.owner.sessionId,
     );
-    if (this.current()) this.started = false;
+    // A positive receipt belongs to this original resource after active selection retires.
+    // It proves cleanup only; it cannot reactivate this object or grant a new input owner.
+    this.started = false;
   }
 
   /** A definite stop rejection leaves the original stream active. */

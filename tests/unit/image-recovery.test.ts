@@ -63,6 +63,36 @@ const starts = (browser: FakeBrowser) =>
     .filter((command) => command.method === "Page.startScreencast");
 
 for (const transport of ["shared", "split"] as const) {
+  it.each(["select", "pause"])(
+    `${transport}: retains a positive original stop receipt after %s retires its active owner`,
+    async (boundary) => {
+      vi.useFakeTimers();
+      const browser = new FakeBrowser();
+      const f = mount(browser, transport);
+      await until(() => f.model.getSnapshot().status === "streaming");
+      const originalSession = f.controller.input!.sessionId;
+      browser.holdMethod = "Page.stopScreencast";
+      f.failImage();
+      await until(() => browser.heldCommands.length === 1);
+      const stop = browser.heldCommands.shift()!;
+      if (boundary === "select") f.controller.select("page-a");
+      else {
+        f.controller.setPaused(true);
+        f.controller.setPaused(false);
+      }
+      browser.holdMethod = null;
+      stop.socket.reply(stop.command);
+      if (boundary === "pause") {
+        await until(() => f.model.read(f.model.controls$).canRetryImage);
+        f.controller.retryImage();
+      }
+      await until(() => f.model.getSnapshot().status === "streaming");
+      expect(f.controller.input!.sessionId).not.toBe(originalSession);
+      expect(starts(browser)).toHaveLength(2);
+      expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
+    },
+  );
+
   it(`${transport}: confirms original stop, coalesces retry and requires current paint without replacing sessions`, async () => {
     vi.useFakeTimers();
     const browser = new FakeBrowser();
