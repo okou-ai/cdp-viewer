@@ -97,6 +97,27 @@ it("offers image recovery in a view-only viewer and keeps reconnect as a distinc
   )!.sessionId!;
   f.decode.mockRejectedValueOnce(new Error("Synthetic decode failure"));
   act(() => f.browser.frame(socket, session));
+  const retry = await screen.findByRole("button", { name: "Retry live image" });
+  await waitFor(() => expect(retry).toBeEnabled());
+  await userEvent.click(retry);
+  await waitFor(() =>
+    expect(
+      view.container.querySelector('[data-status="streaming"]'),
+    ).toBeInTheDocument(),
+  );
+  expect(f.browser.sockets).toHaveLength(1);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Target.attachToTarget",
+    ),
+  ).toHaveLength(1);
+  expect(
+    socket.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    ),
+  ).toHaveLength(2);
+  f.decode.mockRejectedValueOnce(new Error("Synthetic second image failure"));
+  act(() => f.browser.frame(socket, session));
   await screen.findByRole("button", { name: "Retry live image" });
   await userEvent.click(
     screen.getByRole("button", { name: "Reconnect viewer" }),
