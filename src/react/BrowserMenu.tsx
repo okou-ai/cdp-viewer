@@ -1,7 +1,7 @@
 import { Menu } from "@base-ui/react/menu";
 import {
   Check,
-  ChevronLeft,
+  ChevronRight,
   EllipsisVertical,
   LoaderCircle,
   Maximize,
@@ -56,7 +56,7 @@ export function BrowserMenu() {
               <Menu.SubmenuTrigger className="cdpv-browser-menu-item">
                 <Scaling size={16} aria-hidden="true" />
                 Fit to this viewer
-                <ChevronLeft
+                <ChevronRight
                   className="cdpv-browser-menu-chevron"
                   size={16}
                   aria-hidden="true"
