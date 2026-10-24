@@ -247,7 +247,7 @@ test("demo applies transport changes explicitly and keeps narrow controls usable
   page,
 }, info) => {
   await openDemo(page);
-  const backend = await launchNativeBackend(server.origin);
+  const backend = await launchNativeBackend(new URL(demoUrl).origin);
   try {
     const opened = backend.context.waitForEvent("page");
     await backend.session.send("Target.createTarget", {
@@ -300,7 +300,7 @@ test("demo exposes independent live capture quality and resolution controls", as
   await openDemo(page);
   const backend = await launchBackend(
     info.outputPath("backend"),
-    server.origin,
+    new URL(demoUrl).origin,
   );
   try {
     const remote = backend.context.pages()[0]!;
