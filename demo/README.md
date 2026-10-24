@@ -77,6 +77,10 @@ theme, size, corner radius, control mode and settings-menu visibility. Its
 illustrated controls are decorative; a connection starts only when you choose
 **Connect**.
 
+The Preview toolbar wraps its controls on narrow panels so Mode, Transport and
+Pause/Resume remain fully visible. Its extra rows leave the configured preview
+size and the surrounding stage's minimum height unchanged.
+
 Drag the preview's lower-right corner to resize it. Height, Width, the dimension
 caption and Usage stay in sync. The preview stays anchored at the top left while
 resizing. Height ranges from 240 to 800px; width ranges from 50% to 100% of the

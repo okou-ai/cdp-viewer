@@ -74,6 +74,175 @@ async function expectColor(viewer: Locator, color: [number, number, number]) {
     .toBeLessThanOrEqual(4);
 }
 
+async function expectToolbarBounds(owner: Locator) {
+  const toolbar = owner.locator(".demo-preview-toolbar");
+  await expect(toolbar.locator("select, button")).toHaveCount(3);
+  await expect
+    .poll(() =>
+      toolbar.evaluate((element) => {
+        const boundaries = [
+          element,
+          element.closest(".demo-preview")!,
+          element.closest(".demo-panel")!,
+        ].map((ancestor) => ancestor.getBoundingClientRect());
+        const controls = Array.from(
+          element.querySelectorAll(
+            ".demo-preview-label, .demo-mode, select, button",
+          ),
+        );
+        const clipped = controls
+          .filter((control) => {
+            const bounds = control.getBoundingClientRect();
+            return (
+              !bounds.width ||
+              !bounds.height ||
+              boundaries.some(
+                (boundary) =>
+                  bounds.left < boundary.left ||
+                  bounds.right > boundary.right ||
+                  bounds.top < boundary.top ||
+                  bounds.bottom > boundary.bottom,
+              )
+            );
+          })
+          .map(
+            (control) =>
+              control.getAttribute("aria-label") ?? control.textContent?.trim(),
+          );
+        const peers = controls.filter(
+          (control) => control.tagName !== "SELECT",
+        );
+        const overlapping = peers
+          .filter((control, index) => {
+            const bounds = control.getBoundingClientRect();
+            return peers.slice(index + 1).some((other) => {
+              const next = other.getBoundingClientRect();
+              return (
+                bounds.left < next.right &&
+                bounds.right > next.left &&
+                bounds.top < next.bottom &&
+                bounds.bottom > next.top
+              );
+            });
+          })
+          .map((control) => control.textContent?.trim());
+        return { clipped, overlapping };
+      }),
+    )
+    .toEqual({ clipped: [], overlapping: [] });
+}
+
+for (const width of [320, 360, 390]) {
+  test(`demo preview toolbar keeps controls visible and operable at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await openDemo(page);
+    const first = panel(page, 1);
+    const mode = first.getByLabel("Control mode");
+    const transport = first.getByLabel("Transport mode");
+    const pause = first.getByRole("button", {
+      name: "Pause stream",
+      exact: true,
+    });
+    await expect(pause).toBeDisabled();
+    await expectToolbarBounds(first);
+    const stage = first.locator(".demo-stage");
+    const initialStage = (await stage.boundingBox())!;
+    const initialPreview = (await first
+      .locator(".demo-disconnected")
+      .boundingBox())!;
+    await expect(stage).toHaveCSS("min-height", "360px");
+
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      new URL(demoUrl).origin,
+    );
+    try {
+      await backend.context.pages()[0]!.goto(server.origin + "/fixture/red");
+      let sockets = 0;
+      page.on("websocket", (socket) => {
+        if (socket.url() === backend.endpoint) sockets++;
+      });
+      await configure(first, backend.endpoint);
+      const view = first.getByRole("region", {
+        name: "Remote browser viewer",
+      });
+      await expectColor(view, [232, 32, 48]);
+      const originalView = await view.elementHandle();
+      const originalInput = await view
+        .getByLabel("Remote browser input")
+        .elementHandle();
+      expect(sockets).toBe(1);
+      await expectToolbarBounds(first);
+
+      await mode.focus();
+      await expect(mode).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(transport).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(pause).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(view).toHaveAttribute("data-status", "paused");
+      const resume = first.getByRole("button", {
+        name: "Resume stream",
+        exact: true,
+      });
+      await expect(resume).toHaveAttribute("aria-pressed", "true");
+      await expect(resume).toBeFocused();
+      await expectToolbarBounds(first);
+      await resume.click();
+      await expectColor(view, [232, 32, 48]);
+
+      await pause.click();
+      await expect(view).toHaveAttribute("data-status", "paused");
+      await resume.press("Enter");
+      await expectColor(view, [232, 32, 48]);
+      await expect(pause).toHaveAttribute("aria-pressed", "false");
+      await expectToolbarBounds(first);
+      expect(sockets).toBe(1);
+      expect(
+        await view.evaluate(
+          (element, previous) => element === previous,
+          originalView,
+        ),
+      ).toBe(true);
+      expect(
+        await view
+          .getByLabel("Remote browser input")
+          .evaluate((element, previous) => element === previous, originalInput),
+      ).toBe(true);
+      const preview = (await view.boundingBox())!;
+      expect(preview.width).toBe(initialPreview.width);
+      expect(preview.height).toBe(initialPreview.height);
+      expect((await stage.boundingBox())!.height).toBe(initialStage.height);
+      await first.locator(".demo-preview").screenshot({
+        path: info.outputPath(`preview-toolbar-${width}.png`),
+      });
+    } finally {
+      await backend.close();
+    }
+  });
+}
+
+test("demo preview toolbar keeps complete controls in desktop multi-panel layouts", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openDemo(page);
+  await expectToolbarBounds(panel(page, 1));
+  await page.getByRole("button", { name: "Add viewer" }).click();
+  for (const width of [1280, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expectToolbarBounds(panel(page, 1));
+    await expectToolbarBounds(panel(page, 2));
+  }
+  await page.screenshot({
+    path: info.outputPath("preview-toolbar-two-panels.png"),
+    fullPage: true,
+  });
+});
+
 test("demo applies transport changes explicitly and keeps narrow controls usable", async ({
   page,
 }, info) => {
