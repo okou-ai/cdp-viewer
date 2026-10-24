@@ -21,6 +21,7 @@ type Execution =
   | { readonly kind: DisplayStage; readonly intent: DisplayIntent };
 
 export interface DisplayPolicy {
+  readonly suspended: boolean;
   readonly mode: WindowSizeSync;
   readonly local: DisplaySize | null;
   readonly selection: Selection | null;
@@ -44,6 +45,7 @@ export type DisplayOutcome =
   | { readonly kind: "deferred" | "retired" | "failed" };
 
 export type DisplayEvent =
+  | { readonly type: "suspend"; readonly value: boolean }
   | { readonly type: "select"; readonly owner: object | null }
   | { readonly type: "mode"; readonly mode: WindowSizeSync }
   | { readonly type: "measure"; readonly size: DisplaySize | null }
@@ -62,6 +64,7 @@ export type DisplayEvent =
 
 export function createDisplayPolicy(): DisplayPolicy {
   return {
+    suspended: false,
     mode: "off",
     local: null,
     selection: null,
@@ -86,6 +89,7 @@ export function canBeginDisplay(
   readonly pending: Request;
 } {
   return (
+    !policy.suspended &&
     policy.execution.kind === "idle" &&
     !!policy.local &&
     !!policy.selection &&
@@ -98,6 +102,7 @@ function currentPreparation(
   intent: DisplayIntent,
 ): boolean {
   return (
+    !policy.suspended &&
     policy.execution.kind === "preparing" &&
     activeDisplayIntent(policy) === intent &&
     policy.selection?.owner === intent.owner &&
@@ -127,6 +132,10 @@ export function transitionDisplay(
 ): DisplayPolicy {
   if (policy.execution.kind === "closed") return policy;
   switch (event.type) {
+    case "suspend":
+      return policy.suspended === event.value
+        ? policy
+        : { ...policy, suspended: event.value };
     case "close":
       return { ...createDisplayPolicy(), execution: { kind: "closed" } };
     case "select":
@@ -225,7 +234,8 @@ export function transitionDisplay(
       const previous = policy.execution.kind;
       if (
         (event.stage === "writing" &&
-          (previous !== "prepared" ||
+          (policy.suspended ||
+            previous !== "prepared" ||
             policy.selection?.owner !== event.intent.owner ||
             policy.revision !== event.intent.revision ||
             !policy.local)) ||

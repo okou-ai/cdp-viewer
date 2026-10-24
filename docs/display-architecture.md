@@ -101,6 +101,14 @@ continues translating subsequent same-window bounds and own writes without a
 new capture. Independent hidden geometry changes between native reads are not atomic.
 Missing post-fence frames and failed capture, clock or provisional window
 confirmation remain bounded failures; explicit retry acquires a new capture.
+
+Suspend new display transactions during image recovery while joining original
+native work under its original owner. Retain valid applied native adaptation
+instead of detaching its session to retry an image. Capture retry uses the same
+serialized stop/start and elapsed native-clock boundary as presentation fencing;
+it cannot replace missing proof with a local generation or an older frame. Resume
+queued display intent after current image readiness, preserving the latest
+measurement and preferences.
 Another observed window change restarts rebinding for that destination. Initial
 acquisition adds one verification restart on the same capture lane. Same-window
 preparations with an established reference and no-op reuse do not gain a capture

@@ -23,6 +23,9 @@ export class Screencast {
   private busy = false;
   private working: Promise<void> | null = null;
   private reserved = false;
+  private exclusiveWork: Promise<void> | null = null;
+  private quiescing: Promise<void> | null = null;
+  private halted = false;
   private disposed = false;
   private started = false;
   private accepting = false;
@@ -51,7 +54,7 @@ export class Screencast {
   }
 
   get acceptingFrames(): boolean {
-    return this.current() && this.accepting;
+    return this.current() && !this.halted && this.accepting;
   }
 
   navigationStarted(frameId: string): void {
@@ -89,20 +92,92 @@ export class Screencast {
   }
 
   /** Display refresh/recovery shares the capture lane and retains the latest preferences. */
-  async exclusive(operation: () => Promise<void>): Promise<void> {
+  exclusive(operation: () => Promise<void>): Promise<void> {
+    if (this.halted)
+      return Promise.reject(
+        new CdpFault(
+          "frame",
+          "The live image must be retried before capture work can continue.",
+        ),
+      );
+    return this.reserve(operation);
+  }
+
+  private reserve(operation: () => Promise<void>): Promise<void> {
     if (this.reserved)
-      throw new CdpFault(
-        "protocol",
-        "A capture operation is already in progress.",
+      return Promise.reject(
+        new CdpFault("protocol", "A capture operation is already in progress."),
       );
     this.reserved = true;
-    try {
+    const work: Promise<void> = Promise.resolve()
+      .then(async () => {
+        await this.working;
+        if (this.current()) await operation();
+      })
+      .finally(() => {
+        this.reserved = false;
+        if (this.exclusiveWork === work) this.exclusiveWork = null;
+        this.schedule();
+      });
+    this.exclusiveWork = work;
+    return work;
+  }
+
+  /** Revoke an image attempt without disposing its selected native session. */
+  suspend(): void {
+    if (!this.current() || this.halted) return;
+    this.halted = true;
+    this.accepting = false;
+    this.revision++;
+    this.cancelDeadline();
+    this.owner.sink.invalidate();
+    this.navigationWaiter?.();
+  }
+
+  /** A failed attempt retains its session only after original stop is confirmed. */
+  quiesce(): Promise<void> {
+    if (this.quiescing) return this.quiescing;
+    const previous = this.exclusiveWork;
+    this.quiescing = Promise.resolve().then(async () => {
       await this.working;
-      if (this.current()) await operation();
-    } finally {
-      this.reserved = false;
-      this.schedule();
-    }
+      try {
+        await previous;
+      } catch (error) {
+        // The failed attempt keeps its diagnostic; cleanup still needs a stop receipt.
+        if (!this.halted) throw error;
+      }
+      if (!this.current())
+        throw new CdpFault("frame", "Capture cleanup could not be confirmed.");
+      await this.reserve(async () => {
+        await this.stop();
+        if (!this.current())
+          throw new CdpFault(
+            "frame",
+            "Capture cleanup could not be confirmed.",
+          );
+      });
+      if (!this.current() || this.started)
+        throw new CdpFault("frame", "Capture cleanup could not be confirmed.");
+    });
+    return this.quiescing;
+  }
+
+  /** User intent alone can start a new attempt after the failed attempt settled. */
+  async retry(prepare: () => Promise<void>): Promise<void> {
+    await this.quiesce();
+    if (!this.current()) return;
+    await this.reserve(async () => {
+      await prepare();
+      if (!this.current()) return;
+      this.quiescing = null;
+      this.halted = false;
+      this.applied = null;
+      try {
+        await this.begin(this.desired);
+      } catch (error) {
+        this.fail(error);
+      }
+    });
   }
 
   async stop(): Promise<void> {
@@ -121,13 +196,15 @@ export class Screencast {
 
   /** A definite stop rejection leaves the original stream active. */
   resume(): void {
-    if (!this.current() || !this.started) return;
+    if (!this.current() || this.halted || !this.started) return;
     this.accepting = true;
     this.waitForFrame();
   }
 
   async begin(settings: CaptureSettings, monitor = true): Promise<void> {
     if (!this.current()) return;
+    if (this.halted)
+      throw new CdpFault("frame", "The live image is unavailable.");
     this.painted = false;
     this.monitor = monitor;
     this.accepting = true;
@@ -180,14 +257,15 @@ export class Screencast {
   }
 
   private fail(error: unknown): void {
-    if (!this.current()) return;
-    this.dispose();
+    if (!this.current() || this.halted) return;
+    this.suspend();
     this.owner.failed(error);
   }
 
   private schedule(): void {
     if (
       !this.current() ||
+      this.halted ||
       this.busy ||
       this.reserved ||
       (this.applied && sameCapture(this.applied, this.desired))
@@ -213,6 +291,7 @@ export class Screencast {
     let recoveredNavigation = false;
     while (
       this.current() &&
+      !this.halted &&
       !this.reserved &&
       (!this.applied || !sameCapture(this.applied, this.desired))
     ) {

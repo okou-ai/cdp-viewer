@@ -134,6 +134,15 @@ export class InputSession {
     if (!this.lifecycle.owns(owner)) throw new Error("Input cancelled");
   }
 
+  /** Revoke old input and join its effects without disposing the native session. */
+  async suspend(): Promise<void> {
+    if (!this.accepting)
+      throw new CdpFault("input", "Input cleanup is unavailable.");
+    this.transition("failed");
+    await this.queue.settle();
+    await this.effects.completion();
+  }
+
   /** Stop admission, join original effects/late cleanup, then finish disposal. */
   retire(
     reason: Exclude<InputStop, "disconnected"> = "disposed",

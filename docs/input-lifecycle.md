@@ -125,6 +125,13 @@ reuse within that controller. Other targets keep independent admission. This
 local fence is not a lease shared by separate viewers or clients, and connection
 teardown cannot guarantee remote cleanup.
 
+Image recovery may suspend input without disposing its native session. Publish
+the successor input generation and cancel unsent work, then join original native
+effects and pressed/composing cleanup without granting another owner. A useful
+session or an open socket alone does not authorize input while its image is
+unavailable. Its current capture must paint before admission resumes; an unknown
+cleanup receipt remains unavailable even when capture restart would succeed.
+
 Test lifecycle transitions independently from DOM and network adapters. Verify
 ownership across replacement, delayed replies and cancellation through the
 public integration boundaries. Use explicit synchronization rather than sleeps

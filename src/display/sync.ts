@@ -35,6 +35,7 @@ export class DisplaySync {
   private transaction: DisplayTransaction | null = null;
   private scheduled = false;
   private started = -Infinity;
+  private working: Promise<void> | null = null;
 
   constructor(
     private readonly client: CdpClient,
@@ -57,6 +58,14 @@ export class DisplaySync {
 
   setMode(mode: WindowSizeSync): void {
     this.dispatch({ type: "mode", mode });
+  }
+
+  setSuspended(value: boolean): void {
+    this.dispatch({ type: "suspend", value });
+  }
+
+  settle(): Promise<void> {
+    return this.working ?? Promise.resolve();
   }
 
   measure(size: DisplaySize | null): void {
@@ -85,7 +94,7 @@ export class DisplaySync {
 
   private publish(): void {
     this.host.changed({
-      ready: !!this.policy.local && !!this.target,
+      ready: !this.policy.suspended && !!this.policy.local && !!this.target,
       pending:
         !!activeDisplayIntent(this.policy) ||
         (this.scheduled && !!this.policy.pending),
@@ -105,24 +114,29 @@ export class DisplaySync {
     timeout(
       () => {
         this.scheduled = false;
-        this.drain().catch((error: unknown) => {
-          const intent = activeDisplayIntent(this.policy);
-          if (!intent) return;
-          this.dispatch({
-            type: "finished",
-            intent,
-            outcome: { kind: "failed" },
+        const work: Promise<void> = this.drain()
+          .catch((error: unknown) => {
+            const intent = activeDisplayIntent(this.policy);
+            if (!intent) return;
+            this.dispatch({
+              type: "finished",
+              intent,
+              outcome: { kind: "failed" },
+            });
+            if (this.target === intent.owner && !this.host.signal.aborted)
+              this.host.failed(
+                new CdpFault(
+                  "display",
+                  "The browser display could not be synchronized. Try again.",
+                  undefined,
+                  requestDetails(error),
+                ),
+              );
+          })
+          .finally(() => {
+            if (this.working === work) this.working = null;
           });
-          if (this.target === intent.owner && !this.host.signal.aborted)
-            this.host.failed(
-              new CdpFault(
-                "display",
-                "The browser display could not be synchronized. Try again.",
-                undefined,
-                requestDetails(error),
-              ),
-            );
-        });
+        this.working = work;
       },
       Math.max(0, minimumSyncIntervalMs - (performance.now() - this.started)),
       { signal: this.host.signal },

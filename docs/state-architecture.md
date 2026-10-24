@@ -91,6 +91,17 @@ it grants no input or session authority. Renderer invalidation still retires old
 decodes immediately. All other selection-loss and cleanup paths clear pixels,
 and actual replacement paint/readiness removes the backdrop.
 
+Keep image failure separate from connection and selected-session lifetime. A
+failed capture revokes image/input admission and clears pixels immediately;
+valid native sessions may still own useful display configuration. The model
+owns explicit recovery intent, phase and UI capability. Capture resources own
+serialized attempt revisions, stop receipts and bounded IO, never a second UI
+recovery cache. Original input cleanup and a positively stopped capture precede
+another attempt; only current painted output and initialized input restore
+admission. Unknown cleanup cannot acquire replacement authority. Pausing retires
+normal session resources and any subsequent acquisition needs fresh validation;
+visibility alone does not retry a failed image.
+
 Retain the latest produced screencast frame at the native credit boundary so a
 static final state does not require another page change after acknowledgement.
 Keep native frame-credit defaults independent from local decode backpressure:

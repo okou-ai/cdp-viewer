@@ -243,6 +243,7 @@ export class ViewerBinding {
       dismissClipboard: () => this.native?.clearClipboard(),
       selectClipboard: () => clipboard.current?.select(),
       syncDisplay: () => controller.syncDisplay(),
+      retryImage: () => controller.retryImage(),
       onWindowSizeSyncChange: (mode) =>
         this.committed?.onWindowSizeSyncChange?.(mode),
     };

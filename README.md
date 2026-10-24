@@ -257,6 +257,28 @@ A capture restart explicitly rejected during observed document replacement gets
 one recovery attempt after navigation settles, on the same selected session.
 The wait is bounded by the existing frame deadline; other capture failures retain
 their diagnostics.
+
+An image-only failure clears the image and disables input while retaining usable
+connections and selected sessions. **Retry live image** becomes available after
+the original capture and input cleanup are confirmed. It starts one new capture
+on the same valid sessions, preserving their native display settings, without
+reloading the page, reconnecting sockets or replaying input. Repeated clicks do
+not start overlapping attempts. Input resumes only after a fresh image paints
+and input initialization is ready.
+
+**Reconnect viewer** remains a separate action for connection loss or recovery
+whose original cleanup/fresh image cannot be confirmed. Unsupported capabilities
+and configuration/scope errors do not offer image retry. Image retry uses native
+Page/Runtime reads to confirm a fresh capture; it does not add those reads to
+ordinary viewing or each input event. There is no automatic image retry or
+WebSocket reconnect loop.
+
+Pausing, hiding or moving a failed viewer offscreen does not start a retry.
+Returning it to view leaves recovery explicit. If pause already released its
+sessions after confirmed cleanup, retry revalidates and attaches the same target
+on the existing connection. Losing that target still requires an explicit valid
+target selection; recovery never silently picks a replacement.
+
 Unavailable/zero-size surfaces retain the last valid bounds; before the first
 measurement the bounded fallback is 1920×1080. Changes while paused apply on
 resume. Equal effective settings do not restart. Remove a fixed dimension to

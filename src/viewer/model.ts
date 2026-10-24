@@ -21,6 +21,7 @@ export interface ViewerActions {
   dismissClipboard?(): void;
   selectClipboard?(): void;
   syncDisplay?(): void;
+  retryImage?(): void;
   onWindowSizeSyncChange?(mode: WindowSizeSync): void;
 }
 
@@ -51,7 +52,28 @@ export type ViewerTransition =
   | { type: "discovery-failed"; error: ViewerError }
   | { type: "paused" | "streaming" | "stopped" }
   | { type: "failed"; error: ViewerError }
+  | {
+      type: "image-failed";
+      owner: object;
+      targetId: string;
+      error: ViewerError;
+    }
+  | {
+      type: "image-settled";
+      owner: object;
+      ready: boolean;
+      error?: ViewerError;
+    }
+  | { type: "image-retrying"; owner: object }
+  | { type: "image-resumed" }
   | { type: "disconnected"; established: boolean; error: ViewerError };
+
+type ImageRecovery = {
+  readonly owner: object;
+  readonly targetId: string;
+  readonly phase: "settling" | "ready" | "retrying" | "blocked";
+  readonly error: ViewerError;
+};
 
 export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "navigation" | "error">
@@ -77,6 +99,9 @@ function createViewerSignals() {
   const internalInventory$ = state(initialInventory());
   const inventoryState$ = computed((get) => get(internalInventory$));
   const internalLoadingPreview$ = state(false);
+  const internalImageRecovery$ = state<ImageRecovery | null>(null);
+  const imageRecovery$ = computed((get) => get(internalImageRecovery$));
+  const retryImage$ = command(({ get }) => get(actions$)?.retryImage?.());
   const internalFavicons$ = state<ReadonlyMap<string, Favicon>>(new Map());
   const favicons$ = computed((get) => get(internalFavicons$));
   const setFavicon$ = command(
@@ -244,6 +269,7 @@ function createViewerSignals() {
   const revision$ = computed((get) => get(internalRevision$));
   const controls$ = computed((get) => {
     const snapshot = get(snapshot$);
+    const image = get(imageRecovery$);
     const { interactive, scoped } = get(configuration$);
     const streaming = snapshot.status === "streaming";
     const empty =
@@ -266,7 +292,15 @@ function createViewerSignals() {
       emptyUnscoped,
       emptyScoped: empty && scoped,
       recovery,
-      showRecovery: recovery || empty,
+      showRecovery:
+        recovery || empty || (!!image && snapshot.status !== "paused"),
+      showImageRetry:
+        !!image && image.phase !== "blocked" && snapshot.status !== "paused",
+      canRetryImage:
+        image?.phase === "ready" &&
+        snapshot.status !== "paused" &&
+        get(internalConnected$),
+      retryingImage: image?.phase === "retrying",
       showEmptyCreate: emptyUnscoped && interactive,
       canMutateTabs,
       canCreate: canMutateTabs && (streaming || emptyUnscoped),
@@ -275,21 +309,25 @@ function createViewerSignals() {
         streaming && get(display$).ready && !get(display$).pending,
       canChangeSyncMode: get(canChangeSyncMode$),
       placeholderTitle:
-        snapshot.status === "disconnected"
-          ? "Browser disconnected"
-          : snapshot.status === "error"
-            ? snapshot.error?.kind === "connection"
-              ? "Unable to connect"
-              : "Unable to show browser"
-            : empty
-              ? "No tabs open"
-              : snapshot.status === "paused"
-                ? "Viewing paused"
-                : snapshot.status === "connecting"
-                  ? "Connecting to browser…"
-                  : recovery
-                    ? "Browser view unavailable"
-                    : "Choose a tab to continue",
+        image && snapshot.status !== "paused"
+          ? image.phase === "retrying"
+            ? "Retrying live image…"
+            : "Live image unavailable"
+          : snapshot.status === "disconnected"
+            ? "Browser disconnected"
+            : snapshot.status === "error"
+              ? snapshot.error?.kind === "connection"
+                ? "Unable to connect"
+                : "Unable to show browser"
+              : empty
+                ? "No tabs open"
+                : snapshot.status === "paused"
+                  ? "Viewing paused"
+                  : snapshot.status === "connecting"
+                    ? "Connecting to browser…"
+                    : recovery
+                      ? "Browser view unavailable"
+                      : "Choose a tab to continue",
     });
   });
   const address$ = computed((get) => {
@@ -383,6 +421,7 @@ function createViewerSignals() {
     );
     switch (event.type) {
       case "reset":
+        set(internalImageRecovery$, null);
         set(inventoryUpdate$, { type: "reset" });
         set(internalFavicons$, new Map());
         set(internalConnected$, false);
@@ -390,6 +429,7 @@ function createViewerSignals() {
         set(update$, initialSnapshot());
         break;
       case "select":
+        set(internalImageRecovery$, null);
         set(update$, {
           selectedTargetId: event.targetId,
           status: event.paused ? "paused" : "connecting",
@@ -399,6 +439,7 @@ function createViewerSignals() {
         break;
       case "target-lost":
       case "discovery-failed":
+        set(internalImageRecovery$, null);
         if (event.type === "discovery-failed") {
           const inventory = get(internalInventory$);
           if (inventory.entries.size || inventory.ready || inventory.round)
@@ -413,9 +454,14 @@ function createViewerSignals() {
         break;
       case "paused":
         if (get(snapshot$).selectedTargetId)
-          set(update$, { status: "paused", error: null, navigation: null });
+          set(update$, {
+            status: "paused",
+            error: get(imageRecovery$)?.error ?? null,
+            navigation: null,
+          });
         break;
       case "streaming":
+        set(internalImageRecovery$, null);
         set(update$, { status: "streaming", error: null });
         break;
       case "stopped":
@@ -423,13 +469,53 @@ function createViewerSignals() {
         if (get(snapshot$).navigation) set(update$, { navigation: null });
         break;
       case "failed":
+        set(internalImageRecovery$, null);
         set(update$, {
           status: "error",
           error: event.error,
           navigation: null,
         });
         break;
+      case "image-failed":
+        set(internalImageRecovery$, {
+          owner: event.owner,
+          targetId: event.targetId,
+          phase: "settling",
+          error: event.error,
+        });
+        set(update$, { status: "error", error: event.error, navigation: null });
+        break;
+      case "image-settled": {
+        const image = get(imageRecovery$);
+        if (image?.owner === event.owner) {
+          set(internalImageRecovery$, {
+            ...image,
+            phase: event.ready ? "ready" : "blocked",
+            error: event.error ?? image.error,
+          });
+          if (!event.ready && get(snapshot$).status !== "paused")
+            set(update$, {
+              status: "error",
+              error: event.error ?? image.error,
+            });
+        }
+        break;
+      }
+      case "image-retrying": {
+        const image = get(imageRecovery$);
+        if (image?.owner === event.owner && image.phase === "ready") {
+          set(internalImageRecovery$, { ...image, phase: "retrying" });
+          set(update$, { status: "connecting", error: null });
+        }
+        break;
+      }
+      case "image-resumed": {
+        const image = get(imageRecovery$);
+        if (image) set(update$, { status: "error", error: image.error });
+        break;
+      }
       case "disconnected":
+        set(internalImageRecovery$, null);
         set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(update$, {
@@ -451,6 +537,7 @@ function createViewerSignals() {
   });
   const unbind$ = command(({ get, set }, actions: ViewerActions) => {
     if (get(actions$) === actions) {
+      set(internalImageRecovery$, null);
       set(actions$, null);
       set(pendingTab$, null);
       set(internalConnected$, false);
@@ -533,6 +620,8 @@ function createViewerSignals() {
     address$,
     tabAction$,
     controls$,
+    imageRecovery$,
+    retryImage$,
     configure$,
     setConnected$,
     setTabAction$,

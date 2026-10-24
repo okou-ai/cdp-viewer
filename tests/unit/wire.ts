@@ -167,7 +167,7 @@ export class FakeBrowser {
       bounds.width / size.width,
       bounds.height / size.height,
     );
-    const timestamp = this.clocks.has(sessionId)
+    const timestamp = this.clocks.has(this.sessions.get(sessionId) ?? sessionId)
       ? (this.nativeClock += this.frameClockStep)
       : undefined;
     const emit = () =>
@@ -233,7 +233,10 @@ export class FakeBrowser {
               socket.reply(command, { result: { type: "undefined" } });
               break;
             }
-            this.clocks.add(command.sessionId!);
+            // A page's native clock is shared by control and capture sessions.
+            this.clocks.add(
+              this.sessions.get(command.sessionId!) ?? command.sessionId!,
+            );
             this.nativeClock += 0.01;
             const sampled = Math.floor(this.nativeClock * 1000);
             this.nativeClock = sampled / 1000;
