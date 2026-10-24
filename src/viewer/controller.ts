@@ -247,6 +247,14 @@ export class ViewerController {
             selection.geometry.resumePresentation();
           }
         });
+        // Paint may precede the start receipt; display work must wait for the lane.
+        if (
+          this.isCurrent(selection) &&
+          selection.painted &&
+          selection.inputReady &&
+          this.model.getSnapshot().status === "streaming"
+        )
+          this.display?.setSuspended(false);
       })
       .catch((error: unknown) => {
         if (!current()) return;
@@ -968,7 +976,8 @@ export class ViewerController {
       selection.painted &&
       selection.inputReady
     ) {
-      this.display?.setSuspended(false);
+      if (!selection.stream?.exclusivePending)
+        this.display?.setSuspended(false);
       if (!this.isCurrent(selection)) return;
       this.model.transition({ type: "streaming" });
       if (this.captureError) this.model.update({ error: this.captureError });

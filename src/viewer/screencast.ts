@@ -57,6 +57,10 @@ export class Screencast {
     return this.current() && !this.halted && this.accepting;
   }
 
+  get exclusivePending(): boolean {
+    return this.reserved;
+  }
+
   navigationStarted(frameId: string): void {
     this.navigationRevision++;
     this.navigating.add(frameId);

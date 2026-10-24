@@ -111,7 +111,10 @@ Capture retry uses the same
 serialized stop/start and elapsed native-clock boundary as presentation fencing;
 it cannot replace missing proof with a local generation or an older frame. Resume
 queued display intent after current image readiness, preserving the latest
-measurement and preferences.
+measurement and preferences after the retry's capture lane is released, even
+when paint arrives before its start receipt. A failed initial/live operation
+interrupted by image loss may resume once; already completed work is not replayed
+merely because the image recovered.
 Another observed window change restarts rebinding for that destination. Initial
 acquisition adds one verification restart on the same capture lane. Same-window
 preparations with an established reference and no-op reuse do not gain a capture

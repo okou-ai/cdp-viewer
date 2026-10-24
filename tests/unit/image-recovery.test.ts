@@ -94,9 +94,32 @@ for (const transport of ["shared", "split"] as const) {
       expect(f.controller.input).toBeNull();
       const beforeRetry = starts(browser).length;
       browser.holdFrames = false;
+      f.controller.measureDisplay({ width: 720, height: 420, dpr: 1 });
+      await vi.advanceTimersByTimeAsync(151);
+      const socket = f.frameSocket();
+      socket.holdReplyMethod = "Page.startScreencast";
+      const sizing = () =>
+        browser.sockets
+          .flatMap((wire) => wire.commands)
+          .filter(
+            (command) =>
+              command.method === "Emulation.setDeviceMetricsOverride",
+          ).length;
+      const beforeSizing = sizing();
       f.controller.retryImage();
       await until(() => f.model.getSnapshot().status === "streaming");
       expect(starts(browser)).toHaveLength(beforeRetry + 1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sizing()).toBe(beforeSizing);
+      socket.holdReplyMethod = null;
+      for (const reply of socket.heldReplies.splice(0))
+        socket.reply(reply.command, reply.result);
+      await until(
+        () =>
+          browser.windowSizes.get(0)?.width === 720 &&
+          browser.windowSizes.get(0)?.height === 420,
+      );
+      expect(f.controller.input).not.toBeNull();
     },
   );
 

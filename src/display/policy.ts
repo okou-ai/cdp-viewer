@@ -132,10 +132,26 @@ export function transitionDisplay(
 ): DisplayPolicy {
   if (policy.execution.kind === "closed") return policy;
   switch (event.type) {
-    case "suspend":
-      return policy.suspended === event.value
-        ? policy
-        : { ...policy, suspended: event.value };
+    case "suspend": {
+      if (policy.suspended === event.value) return policy;
+      const retryAutomatic =
+        !event.value &&
+        policy.execution.kind === "failed" &&
+        policy.selection &&
+        policy.mode !== "off" &&
+        (policy.mode === "live" || !policy.selection.completed);
+      const pending: Request | null =
+        policy.pending ?? (retryAutomatic ? { source: "automatic" } : null);
+      return {
+        ...policy,
+        suspended: event.value,
+        pending,
+        execution:
+          !event.value && policy.execution.kind === "failed" && pending
+            ? { kind: "idle" }
+            : policy.execution,
+      };
+    }
     case "close":
       return { ...createDisplayPolicy(), execution: { kind: "closed" } };
     case "select":

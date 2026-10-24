@@ -252,6 +252,52 @@ it.each(["mode", "manual", "select"] as const)(
   },
 );
 
+it.each(["initial", "live"] as const)(
+  "resumes interrupted %s work once after image recovery without a new measurement",
+  (mode) => {
+    const started = begin(ready(mode));
+    const failed = apply(
+      advance(started.policy, started.intent, "presenting"),
+      { type: "suspend", value: true },
+      { type: "finished", intent: started.intent, outcome: { kind: "failed" } },
+    );
+    expect(canBeginDisplay(failed)).toBe(false);
+    const next = begin(
+      transitionDisplay(failed, { type: "suspend", value: false }),
+    );
+    expect(decideDisplay(next.policy, next.intent, 0)).toEqual({
+      kind: "fit",
+      size: local,
+    });
+    const rejected = apply(
+      next.policy,
+      { type: "finished", intent: next.intent, outcome: { kind: "failed" } },
+      { type: "suspend", value: false },
+    );
+    expect(canBeginDisplay(rejected)).toBe(false);
+  },
+);
+
+it.each(["initial", "live"] as const)(
+  "does not replay completed %s work when an image recovers",
+  (mode) => {
+    const started = begin(ready(mode));
+    const recovered = apply(
+      advance(started.policy, started.intent, "presenting"),
+      {
+        type: "finished",
+        intent: started.intent,
+        outcome: completed("painted"),
+      },
+      { type: "suspend", value: true },
+      { type: "suspend", value: false },
+    );
+    expect(recovered.selection?.completed).toBe(true);
+    expect(canBeginDisplay(recovered)).toBe(false);
+    expect(recovered.initial.size).toBe(mode === "initial" ? 1 : 0);
+  },
+);
+
 function permutations<T>(values: readonly T[]): T[][] {
   if (!values.length) return [[]];
   return values.flatMap((value, index) =>
