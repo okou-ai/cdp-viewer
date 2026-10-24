@@ -23,7 +23,12 @@ function browser(pages = 20) {
 
 function mount(
   fake: FakeBrowser,
-  options: { windowId?: number; paused?: boolean; requestTimeout?: number } = {
+  options: {
+    windowId?: number;
+    paused?: boolean;
+    requestTimeout?: number;
+    onTabClosed?: (targetId: string) => void;
+  } = {
     windowId: 0,
   },
 ) {
@@ -388,6 +393,112 @@ it.each(["negative", "failure"])(
     expect(controller.input).not.toBeNull();
   },
 );
+
+it("keeps a newer explicit selection made during creation publication", async () => {
+  const fake = browser(1);
+  const { controller, model } = mount(fake);
+  await advance();
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === "new-1" &&
+    fake.heldCommands.length === 0;
+  let replaced = false;
+  const stop = model.subscribe(() => {
+    if (
+      !replaced &&
+      model.getSnapshot().targets.some((target) => target.id === "new-1")
+    ) {
+      replaced = true;
+      controller.select("owned-0");
+    }
+  });
+  try {
+    controller.createTab();
+    await advance();
+    expect(replaced).toBe(true);
+    expect(fake.heldCommands).toHaveLength(1);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+    });
+    const held = fake.heldCommands.shift()!;
+    fake.holdCommand = null;
+    held.socket.reply(held.command, { windowId: 0 });
+    await advance();
+    expect(model.getSnapshot().selectedTargetId).toBe("owned-0");
+  } finally {
+    stop();
+  }
+});
+
+it("does not activate an obsolete selection after synchronous model publication", async () => {
+  const fake = browser(2);
+  const { controller, model } = mount(fake);
+  await advance();
+  let replaced = false;
+  const stop = model.subscribe(() => {
+    if (!replaced && model.getSnapshot().selectedTargetId === "owned-1") {
+      replaced = true;
+      controller.select("owned-0");
+    }
+  });
+  try {
+    controller.select("owned-1");
+    await advance();
+    expect(replaced).toBe(true);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+    });
+    expect(
+      fake.sockets[0]!.commands.some(
+        (command) =>
+          command.method === "Target.activateTarget" &&
+          command.params?.targetId === "owned-1",
+      ),
+    ).toBe(false);
+    expect(controller.input).not.toBeNull();
+  } finally {
+    stop();
+  }
+});
+
+it("does not notify a retired controller after close publication", async () => {
+  const fake = browser(2);
+  const closed = vi.fn();
+  const { controller, model } = mount(fake, {
+    windowId: 0,
+    onTabClosed: closed,
+  });
+  await advance();
+  let retired = false;
+  const stop = model.subscribe(() => {
+    if (
+      !retired &&
+      !model.getSnapshot().targets.some((target) => target.id === "owned-1")
+    ) {
+      retired = true;
+      controller.close();
+    }
+  });
+  try {
+    fake.holdMethod = "Target.closeTarget";
+    controller.closeTab("owned-1");
+    await advance();
+    expect(fake.heldCommands).toHaveLength(1);
+    const held = fake.heldCommands.shift()!;
+    fake.targets.pop();
+    fake.holdMethod = null;
+    held.socket.reply(held.command, { success: true });
+    await advance();
+    expect(retired).toBe(true);
+    expect(closed).not.toHaveBeenCalled();
+    expect(controller.input).toBeNull();
+    expect(count(fake, "Target.getTargets")).toBe(1);
+  } finally {
+    stop();
+  }
+});
 
 it("repairs silent selected and background titles on the authoritative round", async () => {
   const fake = browser(2);

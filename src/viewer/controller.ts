@@ -142,19 +142,26 @@ export class ViewerController {
       return;
     this.chosenOnce = true;
     this.extensionRequest++;
-    this.selectionRevision++;
+    const revision = ++this.selectionRevision;
     const controls = this.model.read(this.model.controls$);
     const preview =
       !this.paused && (controls.streaming || controls.loadingPreview);
     this.stopSelection("target-replaced", { retainFrame: preview });
-    if (this.disposed || !this.connected) return;
+    if (this.disposed || !this.connected || revision !== this.selectionRevision)
+      return;
     this.model.transition({
       type: "select",
       targetId,
       paused: this.paused,
       preview,
     });
-    if (this.paused) return;
+    if (
+      this.paused ||
+      this.disposed ||
+      !this.connected ||
+      revision !== this.selectionRevision
+    )
+      return;
     const selection: Selection = {
       targetId,
       sessionId: null,
@@ -398,15 +405,24 @@ export class ViewerController {
           );
         this.targetRevision++;
         const created = targets.find((target) => target.id === targetId)!;
-        if (!this.discovery!.created(created, observation))
+        const accepted = this.discovery!.created(created, observation);
+        if (!current()) return;
+        if (!accepted)
           throw new CdpFault(
             "tab",
             "The new tab is no longer available in this scope.",
           );
         this.model.update({ error: null });
+        if (!current()) return;
         this.model.run(this.model.resetAddress$);
+        if (!current()) return;
         this.select(targetId);
-        this.options.onTabCreated?.();
+        if (
+          !this.disposed &&
+          this.connected &&
+          this.model.getSnapshot().selectedTargetId === targetId
+        )
+          this.options.onTabCreated?.();
       },
       current,
     );
@@ -438,9 +454,12 @@ export class ViewerController {
         throw new CdpFault("tab", "The browser did not close the tab.");
       this.targetRevision++;
       this.discovery?.removed(targetId);
+      if (this.disposed || !this.connected) return;
       this.options.onTabClosed?.(targetId);
+      if (this.disposed || !this.connected) return;
       const targets = this.model.getSnapshot().targets;
       this.model.update({ error: null });
+      if (this.disposed || !this.connected) return;
       if (this.model.getSnapshot().selectedTargetId === targetId) {
         this.loseSelection(null);
       }
