@@ -248,11 +248,17 @@ it("toggles the settings menu independently without replacing live viewer owners
   view.rerender(viewers(true));
   await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
   await userEvent.click(
-    owner.getByRole("menuitemradio", { name: "Sync continuously" }),
+    owner.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
+  await userEvent.click(
+    await owner.findByRole("menuitemradio", { name: "Sync continuously" }),
   );
   await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
+  await userEvent.click(
+    owner.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
   expect(
-    owner.getByRole("menuitemradio", { name: "Sync continuously" }),
+    await owner.findByRole("menuitemradio", { name: "Sync continuously" }),
   ).toHaveAttribute("aria-checked", "true");
 
   view.rerender(viewers(false));
@@ -260,8 +266,11 @@ it("toggles the settings menu independently without replacing live viewer owners
   await waitFor(() => expect(owner.queryByRole("menu")).toBeNull());
   view.rerender(viewers(true));
   await userEvent.click(owner.getByRole("button", { name: "Browser menu" }));
+  await userEvent.click(
+    owner.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
   expect(
-    owner.getByRole("menuitemradio", { name: "Sync continuously" }),
+    await owner.findByRole("menuitemradio", { name: "Sync continuously" }),
   ).toHaveAttribute("aria-checked", "true");
   expect(sibling.getByRole("button", { name: "Browser menu" })).toBe(
     siblingMenu,
@@ -315,6 +324,47 @@ it("keeps host-controlled synchronization working with the settings menu hidden"
   expect(fake.sockets).toHaveLength(1);
 });
 
+it("discloses display modes in a submenu and restores focus through both levels", async () => {
+  const fake = browser();
+  render(<CdpViewer cdpUrl="wss://fixture.invalid" interactive />);
+  const proxy = await screen.findByRole("textbox", {
+    name: "Remote browser input",
+  });
+  await waitFor(() => expect(proxy).toBeEnabled());
+  const menu = screen.getByRole("button", { name: "Browser menu" });
+  await userEvent.click(menu);
+  const fit = screen.getByRole("menuitem", { name: "Fit to this viewer" });
+  expect(screen.queryByRole("menuitemradio")).toBeNull();
+  expect(screen.queryByRole("separator")).toBeNull();
+  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeVisible();
+  await userEvent.click(fit);
+  expect(
+    await screen.findByRole("menu", { name: "Fit to this viewer" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("menuitemradio", { name: "Do not sync automatically" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("menu", { name: "Fit to this viewer" })).toBeNull();
+  expect(screen.getByRole("menu", { name: "Browser menu" })).toBeVisible();
+  expect(fit).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(menu).toHaveFocus();
+  await userEvent.click(menu);
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
+  await userEvent.click(
+    await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
+  );
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    proxy,
+  );
+  expect(fake.sockets).toHaveLength(1);
+});
+
 it("owns the browser menu mode and combined manual sync without replacing native input", async () => {
   const fake = browser();
   vi.spyOn(
@@ -340,13 +390,22 @@ it("owns the browser menu mode and combined manual sync without replacing native
   await userEvent.click(menu);
   expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeEnabled();
   await userEvent.click(
-    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+    screen.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
+  await userEvent.click(
+    await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
   );
   expect(changed).toHaveBeenCalledWith("live");
   await userEvent.click(menu);
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
   expect(
-    screen.getByRole("menuitemradio", { name: "Do not sync automatically" }),
+    await screen.findByRole("menuitemradio", {
+      name: "Do not sync automatically",
+    }),
   ).toHaveAttribute("aria-checked", "true");
+  await userEvent.keyboard("{Escape}");
   await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
   await waitFor(() =>
     expect(fake.windowSizes.get(0)).toEqual({ width: 640, height: 480 }),
@@ -359,11 +418,14 @@ it("owns the browser menu mode and combined manual sync without replacing native
     />,
   );
   await userEvent.click(menu);
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
   expect(
-    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+    await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
   ).toHaveAttribute("aria-checked", "true");
   expect(
-    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+    await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
   ).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
     proxy,
@@ -388,7 +450,10 @@ it("keeps a menu-owned mode when the host changes callback identity", async () =
   );
   await userEvent.click(screen.getByRole("button", { name: "Browser menu" }));
   await userEvent.click(
-    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+    screen.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
+  await userEvent.click(
+    await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
   );
   expect(changed).toHaveBeenCalledWith("live");
   view.rerender(
@@ -399,8 +464,11 @@ it("keeps a menu-owned mode when the host changes callback identity", async () =
     />,
   );
   await userEvent.click(screen.getByRole("button", { name: "Browser menu" }));
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit to this viewer" }),
+  );
   expect(
-    screen.getByRole("menuitemradio", { name: "Sync continuously" }),
+    await screen.findByRole("menuitemradio", { name: "Sync continuously" }),
   ).toHaveAttribute("aria-checked", "true");
   expect(fake.sockets).toHaveLength(1);
 });

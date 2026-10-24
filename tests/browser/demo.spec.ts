@@ -829,6 +829,7 @@ test.describe("controlled window-size synchronization", () => {
         return logical;
       };
       await menu.click();
+      await view.getByRole("menuitem", { name: "Fit to this viewer" }).click();
       await expect(
         view.getByRole("menuitemradio", { name: "Do not sync automatically" }),
       ).toHaveAttribute("aria-checked", "true");
@@ -855,9 +856,11 @@ test.describe("controlled window-size synchronization", () => {
 
       await mode.selectOption("live");
       await menu.click();
+      await view.getByRole("menuitem", { name: "Fit to this viewer" }).click();
       await expect(
         view.getByRole("menuitemradio", { name: "Sync continuously" }),
       ).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
       await expect(a.getByLabel("Component code")).toContainText(
         'useState<WindowSizeSync>("live")',
@@ -882,6 +885,7 @@ test.describe("controlled window-size synchronization", () => {
       const fitted = await expectFit();
 
       await menu.click();
+      await view.getByRole("menuitem", { name: "Fit to this viewer" }).click();
       await view
         .getByRole("menuitemradio", { name: "Do not sync automatically" })
         .click();
