@@ -87,6 +87,7 @@ it("sends native text while optional caret metadata is still pending", async () 
 
 it("preserves distinct text commits behind pending pointer preparation", async () => {
   const { browser, socket, input } = await mount(0);
+  socket.emit("Page.frameResized", {}, input.sessionId);
   browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
@@ -145,6 +146,7 @@ it("preserves text/key send order while input acknowledgements are held", async 
 
 it("does not merge a preflight text batch across a queued key", async () => {
   const { browser, socket, input } = await mount(0);
+  socket.emit("Page.frameResized", {}, input.sessionId);
   browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
@@ -172,6 +174,7 @@ it("does not merge a preflight text batch across a queued key", async () => {
 
 it("discards queued old-owner text while retaining the per-payload bound", async () => {
   const { browser, socket, input } = await mount(0);
+  socket.emit("Page.frameResized", {}, input.sessionId);
   browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
@@ -196,6 +199,7 @@ it("discards queued old-owner text while retaining the per-payload bound", async
 
 it("keeps commits bounded and separate during scoped preparation", async () => {
   const { browser, socket, input } = await mount(0);
+  socket.emit("Page.frameResized", {}, input.sessionId);
   browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));

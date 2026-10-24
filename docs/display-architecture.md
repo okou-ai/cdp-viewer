@@ -11,7 +11,8 @@ interaction instructions belong in the [demo guide](../demo/README.md).
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [Policy](../src/display/policy.ts)                  | Pure transitions for connection mode, observations, explicit intent, execution stage and window history |
 | [Synchronizer](../src/display/sync.ts)              | Bridge policy to one selected-session executor; own bounded, coalesced scheduling                       |
-| [Native transaction](../src/display/transaction.ts) | Prepare, dispatch, confirm presentation and recover using the original connection/session               |
+| [Native preparation](../src/display/preparation.ts) | Own selected-window calibration and acquire coherent native/runtime/layout snapshots                    |
+| [Native transaction](../src/display/transaction.ts) | Dispatch, confirm presentation and recover using the original connection/session                        |
 | [Session viewport](../src/display/viewport.ts)      | Own calibrated, acknowledged, decoded and painted geometry facts and immutable input mappings           |
 | [Geometry functions](../src/display/geometry.ts)    | Calculate native sizing and projection without acquiring resources                                      |
 | [Viewer controller](../src/viewer/controller.ts)    | Own target/session lifetime, capture transitions and frame acknowledgement                              |
@@ -54,10 +55,83 @@ rejects obsolete or incompatible images before changing the canvas. Native
 acknowledgements alone cannot finish a transaction or authorize fresh-layout
 fallback over old visible pixels.
 
+Native contents sizing and compositor dimensions are separate rounding
+boundaries. Before its first emulation write, the selected transaction calibrates
+the current decoded frame's native device extent against the browser's outer window
+bounds. Initial page layout may already be emulated and cannot substitute for
+that native frame. An unavailable first frame waits within the geometry owner's
+existing single settlement slot and deadline, without polling or another waiter.
+Native structural observations have an immutable identity separate from input
+and paint revisions. A changed metadata extent retires preparation immediately,
+before asynchronous decoding; only that observation's accepted decode can make
+it usable for calibration. An older decode cannot validate a newer observation.
+Identical-sized animation frames retain the accepted identity without requiring
+a quiet period. Capture invalidation retires both metadata and decode authority.
+The native observation owner exposes one immutable snapshot containing accepted
+frame evidence and a validity check over its observation identity and geometry
+revision. Decode acceptance changes pending evidence into accepted evidence
+without replacing that structural identity. The selected preparation owner reads
+window, runtime and layout against that snapshot. It retains a frame/window reference only while that pair is
+current, independently of later layout reads. A stable move in an unscoped viewer
+replaces the old window's reference using accepted native facts and observed bounds;
+an unavailable new-window frame uses the same bounded native waiter. Scoped
+membership and mid-operation window identity checks still apply. The transaction
+revalidates its snapshot after capture preparation and before the first write.
+
+Frame metadata has no window identity. Reference acquisition progresses through
+unbound, observed-window, captured-window and verified-calibration phases in one
+selected preparation owner. First and changed-window acquisition share that path.
+The observed window retains its identity and outer extent; the captured phase
+adds the receipt returned by the existing serialized native-only refresh after
+its confirmed elapsed-clock boundary. An accepted frame records that same local
+capture receipt. It is an association with a capture boundary, not a remote
+window identifier or a globally atomic generation. Native-only fencing preserves
+the current painted/input receipt.
+
+One synchronous confirmation boundary may install verified calibration. It
+checks the selected owner and original attempt, scope/normal window state,
+confirming identity/extent, snapshot freshness and accepted frame/capture
+association together. An observed identity/extent change starts acquisition for
+that observation; delayed metadata cannot bind an earlier extent to later bounds.
+Failure retires unfinished acquisition, so a late provisional reply cannot
+install calibration after a sibling read has failed. Calibration verified before
+that failure retains its separate lifetime. Creating the operation snapshot still
+requires all concurrent reads and current snapshot evidence. Verified calibration
+continues translating subsequent same-window bounds and own writes without a
+new capture. Independent hidden geometry changes between native reads are not atomic.
+Missing post-fence frames and failed capture, clock or provisional window
+confirmation remain bounded failures; explicit retry acquires a new capture.
+Another observed window change restarts rebinding for that destination. Initial
+acquisition also performs the capture-profile upgrade when one is needed;
+otherwise it adds one verification restart. Same-window preparations with an
+established reference and no-op reuse
+do not gain a capture restart or a new waiter.
+Under emulation, a native window move can change compositor dimensions without
+a page resize event. The previous presentation can reject that new-size frame
+from painting while its decoded native metadata remains a calibration fact.
+Painted geometry alone still authorizes presentation and input; native calibration
+does not make rejected pixels usable. Acknowledged effects bind the dispatched
+projection and actual native presentation in one immutable receipt. Presentation
+consumes that receipt as a unit; only matching painted pixels complete it and
+allow its reuse. Preparation expires when own writes start, while verified native
+calibration survives those writes within the same selected window.
+After a contents-size
+acknowledgement it reads and verifies that same window again, translating the
+contents by the observed outer-bounds delta. Presentation and no-op reuse use
+that native result rather than the requested integral DIP. Frame metadata and
+decoded-pixel tolerances remain unchanged; input still follows painted geometry.
+This constant-size reference belongs to one selected session and window. It must
+not be initialized from an already emulated layout or transferred to another
+selection. The translation assumes stable native window chrome; an incompatible
+content extent still cannot complete presentation. There is one additional
+browser-window read per native sizing operation and no per-frame read.
+
 Density changes with an unchanged logical viewport, same-raster transitions and
 rollback also need causal capture evidence. Compare the current logical viewport
 under both the previous and projected scale; different native dimensions alone
-do not guarantee a new static capture frame.
+do not guarantee a new static capture frame. Fence decisions retain pre-write
+observations until the acknowledged native extent is known, including when
+distinct requested sizes round to the same actual image.
 After acknowledged writes, the native executor establishes an elapsed timestamp
 fence in a private isolated world while the controller restarts the same bounded
 stream. The geometry owner rejects pre-fence images. Timing details and the

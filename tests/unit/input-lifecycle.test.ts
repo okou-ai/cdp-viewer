@@ -486,6 +486,7 @@ describe("owned remote input", () => {
 
   it("drops queued text behind pointer preparation when the target is replaced", async () => {
     const { browser, controller, socket } = await mount();
+    socket.emit("Page.frameResized", {}, controller.input!.sessionId);
     browser.holdMethod = "Page.getLayoutMetrics";
     controller.input!.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
     controller.input!.text("old target text");
@@ -519,6 +520,7 @@ describe("owned remote input", () => {
 
   it("discards a pending text operation when its document navigates", async () => {
     const { browser, controller, socket } = await mount();
+    socket.emit("Page.frameResized", {}, controller.input!.sessionId);
     browser.holdMethod = "Page.getLayoutMetrics";
     const input = controller.input!;
     input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
@@ -982,6 +984,7 @@ describe("owned remote input", () => {
         ),
       ).toBe(true),
     );
+    socket.emit("Page.frameResized", {}, input.sessionId);
     browser.holdMethod = "Page.getLayoutMetrics";
     input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, { buttons: 0 });
     input.text("discard on main context loss");

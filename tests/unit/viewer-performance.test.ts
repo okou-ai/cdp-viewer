@@ -197,6 +197,7 @@ it.each(["moved", "failed"])(
   "cancels unsent input after background scope is %s",
   async (outcome) => {
     const { browser, input, socket, model, controller } = await mount(0);
+    socket.emit("Page.frameResized", {}, input.sessionId);
     browser.holdMethod = "Page.getLayoutMetrics";
     input.pointer("mouseMoved", point, { buttons: 0 });
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
@@ -228,6 +229,7 @@ it.each(["moved", "failed"])(
 
 it("revalidates geometry invalidated while layout preparation is pending", async () => {
   const { browser, input, socket, sessionId } = await mount(0);
+  socket.emit("Page.frameResized", {}, sessionId);
   browser.holdMethod = "Page.getLayoutMetrics";
   input.pointer("mouseMoved", point, { buttons: 0 });
   await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));

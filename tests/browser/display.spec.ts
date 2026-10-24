@@ -280,6 +280,7 @@ for (const nativeDpr of [1, 2]) {
       });
       const commands: string[] = [];
       let captureFences = 0;
+      let nativeFences = 0;
       await page.routeWebSocket(backend.endpoint, (socket) => {
         const upstream = socket.connectToServer();
         socket.onMessage((message) => {
@@ -291,8 +292,11 @@ for (const nativeDpr of [1, 2]) {
           if (
             command.method === "Runtime.evaluate" &&
             String(command.params?.expression).includes("Date.now()")
-          )
-            captureFences++;
+          ) {
+            if (commands.includes("Emulation.setDeviceMetricsOverride"))
+              captureFences++;
+            else nativeFences++;
+          }
           upstream.send(message);
         });
       });
@@ -512,8 +516,9 @@ for (const nativeDpr of [1, 2]) {
       expect(
         commands.filter((method) => method === "Target.attachToTarget"),
       ).toHaveLength(1);
-      // Preserve the initial quality upgrade and require each additional
-      // capture refresh to belong to bounded, fenced native-size recovery.
+      // Initial native acquisition shares the manual quality upgrade. Each
+      // additional refresh belongs to bounded, fenced native-size recovery.
+      expect(nativeFences).toBe(1);
       expect(captureFences).toBeLessThanOrEqual(
         commands.filter((method) => method === "Browser.setContentsSize")
           .length,

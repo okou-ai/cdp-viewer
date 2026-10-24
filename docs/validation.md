@@ -211,6 +211,15 @@ Bind results to the tested source and environment. Separate local checks, source
 CI, deployed-origin checks and native-platform validation. A lower-level or
 synthetic check does not establish compatibility at a different boundary.
 
+For native display adaptation, record requested contents, acknowledged outer
+window bounds, page layout, screencast metadata and decoded JPEG dimensions
+separately. Fractional native density can round window bounds and compositor
+pixels differently. Validate the actual complete JPEG and input mapping; page
+layout or metadata alone cannot prove complete pixels. Use an appropriate
+floating-point comparison for effective DPR without relaxing integer layout,
+pixel, capture ownership or presentation-deadline assertions. Keep observed
+native rounding cases distinct from injected external-wire regressions.
+
 Keep revision-specific results, benchmarks and receipts in PRs, issues or CI
 artifacts. State limitations in the relevant user guide. Do not place historical
 test counts, one-off timings or delivery logs in engineering documentation.

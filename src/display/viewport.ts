@@ -21,7 +21,43 @@ interface FrameGeometry {
   readonly raster: Viewport;
 }
 
+interface NativeObservation {
+  readonly device: Viewport | null;
+}
+
+/** Local capture association; timestamps alone do not identify a window. */
+export interface NativeCapture {
+  readonly timestamp: number;
+}
+
+interface NativeFrame {
+  readonly device: Viewport;
+  readonly capture: NativeCapture;
+}
+
+export interface NativeSnapshot {
+  readonly frame: NativeFrame | null;
+  readonly current: () => boolean;
+}
+
+type NativeState =
+  | { readonly kind: "pending"; readonly observation: NativeObservation }
+  | {
+      readonly kind: "accepted";
+      readonly observation: NativeObservation;
+      readonly frame: NativeFrame;
+    };
+
+export interface PresentationReceipt {
+  readonly transform: DisplayTransform | null;
+  readonly expected: PresentationGeometry;
+}
+
 type Presentation = "presented" | "inconsistent";
+
+type FrameWait =
+  | { readonly kind: "native" }
+  | { readonly kind: "presentation"; readonly recoverInconsistent: boolean };
 
 function same(actual: Viewport, wanted: Viewport): boolean {
   return (
@@ -43,7 +79,7 @@ type Adaptation =
   | {
       readonly kind: "presenting" | "presented";
       readonly scale: number;
-      readonly expected: PresentationGeometry;
+      readonly receipt: PresentationReceipt;
     };
 
 function compatible(
@@ -66,13 +102,18 @@ export class DisplayViewport {
   private version = 0;
   private timestamp = -Infinity;
   private captureAfter = -Infinity;
+  private nativeCapture: NativeCapture = { timestamp: -Infinity };
   private painted: FrameGeometry | null = null;
   private decoded: FrameGeometry | null = null;
+  private native: NativeState = {
+    kind: "pending",
+    observation: { device: null },
+  };
   private adaptation: Adaptation = { kind: "native", scale: 1 };
   private transform: DisplayTransform | null = null;
   private waiting: {
     finish: (result: Presentation | CdpFault) => void;
-    recoverInconsistent: boolean;
+    request: FrameWait;
   } | null = null;
   private capture: Viewport = {
     width: maximumFrameDimension,
@@ -85,6 +126,17 @@ export class DisplayViewport {
 
   get revision(): number {
     return this.version;
+  }
+
+  /** One observation/revision proof, independent of painted input authority. */
+  observeNative(): NativeSnapshot {
+    const { observation } = this.native;
+    const revision = this.version;
+    return {
+      frame: this.native.kind === "accepted" ? this.native.frame : null,
+      current: () =>
+        revision === this.version && observation === this.native.observation,
+    };
   }
 
   get available(): boolean {
@@ -123,30 +175,29 @@ export class DisplayViewport {
     );
   }
 
-  needsCaptureFence(
+  captureFence(
     layout: Protocol.Page.GetLayoutMetricsResponse,
-    expected: PresentationGeometry,
     transform: DisplayTransform,
-  ): boolean {
+  ): (expected: PresentationGeometry) => boolean {
     const state = this.adaptation;
-    if (state.kind !== "native" && state.kind !== "presented") return true;
+    if (state.kind !== "native" && state.kind !== "presented")
+      return () => true;
     const viewport = layout.cssVisualViewport;
     const scale = (viewport.zoom ?? 1) * (viewport.scale ?? 1);
-    const unchanged = (viewportScale: number) =>
-      same(
-        {
-          width: viewport.clientWidth * scale * viewportScale,
-          height: viewport.clientHeight * scale * viewportScale,
-        },
-        expected.device,
-      );
-    return (
-      unchanged(state.scale) ||
-      // A density-only change keeps the logical viewport identical. Chrome may
-      // resize the native surface without producing a new static capture frame.
-      unchanged(transform.viewportScale) ||
-      (!!this.painted?.device && same(this.painted.device, expected.device))
-    );
+    const device = (viewportScale: number) => ({
+      width: viewport.clientWidth * scale * viewportScale,
+      height: viewport.clientHeight * scale * viewportScale,
+    });
+    const previous = device(state.scale);
+    const projected = device(transform.viewportScale);
+    const painted = this.painted?.device;
+    // Preserve pre-write facts until acknowledged native bounds are known.
+    return (expected) =>
+      same(previous, expected.device) ||
+      // An unchanged logical viewport can need a fresh static image even when
+      // its native extent changes under the projected density.
+      same(projected, expected.device) ||
+      (!!painted && same(painted, expected.device));
   }
 
   fence(timestamp: number): void {
@@ -154,12 +205,28 @@ export class DisplayViewport {
     this.version++;
     this.painted = null;
     this.decoded = null;
+    this.retireNative();
+  }
+
+  /** Rebinding needs causal native facts without replacing painted input authority. */
+  fenceNative(timestamp: number): NativeCapture {
+    this.nativeCapture = { timestamp };
+    this.retireNative();
+    return this.nativeCapture;
+  }
+
+  private retireNative(): void {
+    this.native = {
+      kind: "pending",
+      observation: { device: this.native.observation.device },
+    };
   }
 
   invalidate(): void {
     this.version++;
     this.painted = null;
     this.decoded = null;
+    this.retireNative();
     this.transform = null;
     // External resize/navigation recalibrates native units. A transaction still
     // awaiting its image keeps the presentation barrier across invalidation.
@@ -171,18 +238,14 @@ export class DisplayViewport {
     if (method === "Page.frameResized") this.invalidate();
   }
 
-  apply(
-    transform: DisplayTransform | null,
-    expected: PresentationGeometry,
-    freshCapture = false,
-  ): void {
+  apply(receipt: PresentationReceipt, freshCapture = false): void {
     // Frames can paint before the final native acknowledgement. Retain their facts,
     // but only the acknowledged projection can authorize their input mapping.
-    this.transform = transform;
+    this.transform = receipt.transform;
     this.adaptation = {
       kind: "presenting",
-      scale: transform?.viewportScale ?? 1,
-      expected,
+      scale: receipt.transform?.viewportScale ?? 1,
+      receipt,
     };
     if (freshCapture) this.fence(Infinity);
     this.present();
@@ -224,7 +287,7 @@ export class DisplayViewport {
     if (
       state.kind !== "presenting" ||
       !this.painted ||
-      !compatible(this.painted, state.expected, this.capture)
+      !compatible(this.painted, state.receipt.expected, this.capture)
     )
       return;
     this.adaptation = { ...state, kind: "presented" };
@@ -237,8 +300,8 @@ export class DisplayViewport {
       state.kind === "presenting" &&
       !!this.decoded?.viewport &&
       !!this.decoded.device &&
-      same(this.decoded.device, state.expected.device) &&
-      !compatible(this.decoded, state.expected, this.capture)
+      same(this.decoded.device, state.receipt.expected.device) &&
+      !compatible(this.decoded, state.receipt.expected, this.capture)
     );
   }
 
@@ -248,9 +311,37 @@ export class DisplayViewport {
     budget = frameTimeoutMs,
     recoverInconsistent = false,
   ): Promise<Presentation> {
+    return this.waitForFrame(signal, budget, {
+      kind: "presentation",
+      recoverInconsistent,
+    });
+  }
+
+  /** An initial layout can already be emulated; only a selected frame is native. */
+  waitForNativeFrame(
+    signal: AbortSignal,
+    budget = frameTimeoutMs,
+  ): Promise<Presentation> {
+    return this.waitForFrame(signal, budget, { kind: "native" });
+  }
+
+  private waitForFrame(
+    signal: AbortSignal,
+    budget: number,
+    request: FrameWait,
+  ): Promise<Presentation> {
     if (budget <= 0) return Promise.reject(presentationTimeout());
-    if (this.available) return Promise.resolve("presented");
-    if (recoverInconsistent && this.inconsistent())
+    if (
+      request.kind === "native"
+        ? this.native.kind === "accepted"
+        : this.available
+    )
+      return Promise.resolve("presented");
+    if (
+      request.kind === "presentation" &&
+      request.recoverInconsistent &&
+      this.inconsistent()
+    )
       return Promise.resolve("inconsistent");
     return new Promise((resolve, reject) => {
       const deadline = new AbortController();
@@ -265,7 +356,7 @@ export class DisplayViewport {
         if (result instanceof CdpFault) reject(result);
         else resolve(result);
       };
-      this.waiting = { finish, recoverInconsistent };
+      this.waiting = { finish, request };
       if (signal.aborted) {
         aborted();
         return;
@@ -334,15 +425,47 @@ export class DisplayViewport {
       positive(metadata.deviceHeight)
         ? { width: metadata.deviceWidth, height: metadata.deviceHeight }
         : null;
+    const capture = this.nativeCapture;
+    const nativeCurrent =
+      capture.timestamp === -Infinity ||
+      (typeof timestamp === "number" &&
+        Number.isFinite(timestamp) &&
+        timestamp >= capture.timestamp);
+    if (
+      nativeCurrent &&
+      (device?.width !== this.native.observation.device?.width ||
+        device?.height !== this.native.observation.device?.height)
+    ) {
+      this.native = { kind: "pending", observation: { device } };
+    }
+    const observation = nativeCurrent ? this.native.observation : null;
     const version = this.version;
     const accept = (raster: Viewport) => {
       if (version !== this.version) return false;
+      if (
+        device &&
+        observation &&
+        observation === this.native.observation &&
+        this.native.kind === "pending"
+      ) {
+        this.native = {
+          kind: "accepted",
+          observation,
+          frame: { device, capture },
+        };
+        if (this.waiting?.request.kind === "native")
+          this.waiting.finish("presented");
+      }
       const state = this.adaptation;
       this.decoded = { viewport, device, raster };
       const accepted =
         (state.kind !== "presenting" && state.kind !== "presented") ||
-        compatible(this.decoded, state.expected, this.capture);
-      if (this.waiting?.recoverInconsistent && this.inconsistent())
+        compatible(this.decoded, state.receipt.expected, this.capture);
+      if (
+        this.waiting?.request.kind === "presentation" &&
+        this.waiting.request.recoverInconsistent &&
+        this.inconsistent()
+      )
         this.waiting.finish("inconsistent");
       return accepted;
     };
