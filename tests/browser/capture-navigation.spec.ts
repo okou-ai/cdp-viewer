@@ -16,6 +16,20 @@ for (const transport of ["shared", "split"] as const) {
       server.origin,
     );
     let rejectStart: (() => void) | undefined;
+    let replaced = false;
+    page.on("websocket", (socket) =>
+      socket.on("framereceived", ({ payload }) => {
+        const event = JSON.parse(String(payload)) as {
+          method?: string;
+          params?: { frame?: { url?: string } };
+        };
+        if (
+          event.method === "Page.frameNavigated" &&
+          event.params?.frame?.url === server.origin + "/fixture/blue"
+        )
+          replaced = true;
+      }),
+    );
     try {
       const opened = backend.context.waitForEvent("page");
       const target = await backend.session.send("Target.createTarget", {
@@ -70,6 +84,7 @@ for (const transport of ["shared", "split"] as const) {
         });
         upstream.onMessage((message) => socket.send(message));
       });
+      await page.clock.install();
       await page.goto(server.origin);
       await page.addStyleTag({
         content: "#viewer-a .cdpv-root{width:640px;height:430px}",
@@ -102,12 +117,12 @@ for (const transport of ["shared", "split"] as const) {
         .getByLabel("Remote page address")
         .fill(server.origin + "/fixture/blue");
       await view.getByLabel("Remote page address").press("Enter");
-      // The selected title proves the control connection observed replacement.
+      await remote.waitForURL(server.origin + "/fixture/blue");
+      await remote.waitForLoadState();
+      // The native event proves the control connection observed replacement.
       // Inject the definite failure seen in CI at the held frame connection's
       // real request boundary; avoid depending on Chromium's tiny rejection window.
-      await expect(
-        view.getByRole("tab", { selected: true }),
-      ).toHaveAccessibleName(/rgb\(24,80,224\)/);
+      await expect.poll(() => replaced).toBe(true);
       rejectStart!();
       rejectStart = undefined;
       await expect
@@ -144,6 +159,12 @@ for (const transport of ["shared", "split"] as const) {
         ),
       ).toBe(false);
       expect(await proxy?.evaluate((e) => e.isConnected)).toBe(true);
+
+      // Reconcile silent title changes after the held capture request settled.
+      await page.clock.fastForward(10_000);
+      await expect(
+        view.getByRole("tab", { selected: true }),
+      ).toHaveAccessibleName(/rgb\(24,80,224\)/);
 
       await remote.goto(server.origin + "/fixture/editor");
       // Keyboard input uses the same native node/session after capture recovery.

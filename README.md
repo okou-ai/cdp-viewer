@@ -94,9 +94,11 @@ Omit `windowId` to list page targets across windows. Supply an integer, includin
 the experimental `Browser.getWindowForTarget`; unsupported/failed lookup produces
 an unavailable state, never an unscoped fallback. Target events update affected
 pages; the active selection has an independent membership check every two seconds.
-Other silent window moves are reconciled by full discovery every ten seconds,
-including while paused, hidden or offscreen. A full round has a ten-second
-completion deadline; failure clears unverified targets instead of retaining them
+Silent title changes and other window moves are reconciled by full discovery
+every ten seconds, including while paused, hidden or offscreen. Chromium may
+omit a target event when a document title changes, so tab labels can lag until
+that round. A full round has a ten-second completion deadline; failure clears
+unverified targets instead of retaining them
 indefinitely. Cadence plus completion can take up to twenty seconds while the
 JavaScript event loop runs, and background timer suspension can delay discovery.
 Selection/activation and completed attachment verify membership. Interactive input

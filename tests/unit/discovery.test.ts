@@ -218,6 +218,29 @@ it("uses verified creation results without another full scan and removes destruc
   ]);
 });
 
+it("repairs silent selected and background titles on the authoritative round", async () => {
+  const fake = browser(2);
+  const { model } = mount(fake);
+  await advance();
+  const selected = model.getSnapshot().selectedTargetId;
+  fake.targets[0]!.title = "Silent selected title";
+  fake.targets[1]!.title = "Silent background title";
+  await advance(6_000);
+  expect(model.getSnapshot().targets.map((target) => target.title)).toEqual([
+    "Owned 0",
+    "Owned 1",
+  ]);
+  await advance(4_000);
+  expect(model.getSnapshot().targets.map((target) => target.title)).toEqual([
+    "Silent selected title",
+    "Silent background title",
+  ]);
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: selected,
+  });
+});
+
 it("does not republish an unavailable snapshot for unrelated destruction during a scan", async () => {
   const fake = browser();
   const { model } = mount(fake, { windowId: 99 });
@@ -596,4 +619,40 @@ it("coalesces malformed events and releases only its own work on disconnect", as
   expect(fake.sockets[0]!.commands).toHaveLength(firstReads);
   expect(second.model.getSnapshot().status).toBe("streaming");
   expect(count(fake, "Target.closeTarget")).toBe(0);
+});
+
+it("keeps superseded scans from failing a replacement during unrelated target churn", async () => {
+  const fake = browser(2);
+  const { controller, model } = mount(fake);
+  await advance();
+  fake.holdMethod = "Browser.getWindowForTarget";
+  fake.sockets[0]!.emit("Target.targetInfoChanged", {});
+  await advance();
+  expect(fake.heldCommands).toHaveLength(2);
+  fake.holdMethod = null;
+  controller.closeTab("owned-0");
+  await advance();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: "owned-1",
+  });
+  for (let index = 0; index < 513; index++)
+    fake.sockets[0]!.emit("Target.targetDestroyed", {
+      targetId: "retired-worker-" + index,
+    });
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: "owned-1",
+  });
+  for (const held of fake.heldCommands.splice(0)) {
+    if (held.command.params?.targetId === "owned-0")
+      held.socket.reject(held.command, -32000);
+    else held.socket.reply(held.command, { windowId: 0 });
+  }
+  await advance();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: "owned-1",
+    error: null,
+  });
 });

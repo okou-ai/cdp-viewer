@@ -126,6 +126,9 @@ in-flight observations. Selected membership must make progress independently of
 unrelated inventory reads; its original lifetime and request-start freshness
 cannot transfer through delayed replies. Paused connections retain inventory
 reconciliation without owning an active selected observation.
+Target events do not reliably report every document title change. Authoritative
+reconciliation also repairs metadata; selected membership checks alone do not
+refresh tab labels.
 
 Resource bindings belong to their instance and lifetime. Remove only a matching
 binding during cleanup, so an old owner cannot detach a replacement. Callback

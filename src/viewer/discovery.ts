@@ -191,7 +191,7 @@ export class TargetDiscovery {
   }
 
   private changedTarget(id: string): boolean {
-    if (!this.scan) return true;
+    if (!this.scan || this.scan.invalidated) return true;
     this.scan.changed.add(id);
     if (this.scan.changed.size > maximumTargets) {
       this.fail(

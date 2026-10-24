@@ -837,7 +837,7 @@ export class ViewerController {
       this.connected &&
       !this.paused &&
       this.selection === selection &&
-      (this.discovery?.current(selection.targetId) ?? true)
+      this.discovery?.current(selection.targetId) === true
     );
   }
 

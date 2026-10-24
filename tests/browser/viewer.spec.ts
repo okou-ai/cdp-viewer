@@ -112,6 +112,7 @@ test("installed viewers stream separate windows, detect a real moved tab, and is
     server.origin,
   );
   try {
+    await page.clock.install();
     const first = await backend.session.send("Target.createTarget", {
       url: server.origin + "/fixture/red",
       newWindow: true,
@@ -239,6 +240,8 @@ test("installed viewers stream separate windows, detect a real moved tab, and is
       )
       .toBe(windowB.windowId);
     await expect(a).toHaveAttribute("data-status", "unavailable");
+    // The receiving viewer discovers a silent incoming move on its full round.
+    await page.clock.fastForward(10_000);
     await expect(b.getByRole("tab")).toHaveCount(2);
     await expect(b).toHaveAttribute("data-status", "streaming");
     await expectColor(b.locator("canvas"), [24, 224, 80]);
