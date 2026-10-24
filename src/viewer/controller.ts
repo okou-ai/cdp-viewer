@@ -390,7 +390,7 @@ export class ViewerController {
         );
         if (!current()) return;
         const verifiedAt = performance.now();
-        const metadataVersion = this.discovery!.metadataVersion;
+        const metadataVersion = this.discovery!.beginMetadata();
         const targets = await directory.list();
         if (!current()) return;
         if (!targets.some((target) => target.id === targetId))

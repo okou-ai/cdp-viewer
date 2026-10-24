@@ -218,42 +218,55 @@ it("uses verified creation results without another full scan and removes destruc
   ]);
 });
 
-it("keeps newer creation metadata when an older explicit list completes", async () => {
-  const fake = browser(1);
-  const { controller, model } = mount(fake);
-  await advance();
-  const socket = fake.sockets[0]!;
-  socket.holdReplyMethod = "Target.getTargets";
-  controller.createTab();
-  await advance();
-  expect(socket.heldReplies).toHaveLength(1);
-  const identify = socket.heldReplies.shift()!;
-  socket.holdReplyMethod = null;
-  socket.reply(identify.command, identify.result);
-  socket.holdReplyMethod = "Target.getTargets";
-  await advance();
-  expect(socket.heldReplies).toHaveLength(1);
-  const list = socket.heldReplies.shift()!;
-  const created = fake.targets.at(-1)!;
-  created.title = "Newer creation title";
-  socket.emit("Target.targetInfoChanged", { targetInfo: info(created) });
-  await advance();
-  expect(
-    model.getSnapshot().targets.find((target) => target.id === created.id)
-      ?.title,
-  ).toBe("Newer creation title");
-  socket.holdReplyMethod = null;
-  socket.reply(list.command, list.result);
-  await advance();
-  expect(model.getSnapshot()).toMatchObject({
-    status: "streaming",
-    selectedTargetId: created.id,
-  });
-  expect(
-    model.getSnapshot().targets.find((target) => target.id === created.id)
-      ?.title,
-  ).toBe("Newer creation title");
-});
+it.each(["event", "full"])(
+  "keeps newer %s creation metadata when an older explicit list completes",
+  async (source) => {
+    const fake = browser(1);
+    const { controller, model } = mount(fake);
+    await advance();
+    const socket = fake.sockets[0]!;
+    socket.holdReplyMethod = "Target.getTargets";
+    controller.createTab();
+    await advance();
+    expect(socket.heldReplies).toHaveLength(1);
+    const identify = socket.heldReplies.shift()!;
+    socket.holdReplyMethod = null;
+    socket.reply(identify.command, identify.result);
+    socket.holdReplyMethod = "Target.getTargets";
+    await advance();
+    expect(socket.heldReplies).toHaveLength(1);
+    const list = socket.heldReplies.shift()!;
+    const created = fake.targets.at(-1)!;
+    created.title = "Newer creation title";
+    if (source === "event") {
+      socket.emit("Target.targetInfoChanged", { targetInfo: info(created) });
+      await advance();
+    } else {
+      socket.emit("Target.targetInfoChanged", {});
+      await advance();
+      expect(socket.heldReplies).toHaveLength(1);
+      const full = socket.heldReplies.shift()!;
+      socket.holdReplyMethod = null;
+      socket.reply(full.command, full.result);
+      await advance();
+    }
+    expect(
+      model.getSnapshot().targets.find((target) => target.id === created.id)
+        ?.title,
+    ).toBe("Newer creation title");
+    socket.holdReplyMethod = null;
+    socket.reply(list.command, list.result);
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: created.id,
+    });
+    expect(
+      model.getSnapshot().targets.find((target) => target.id === created.id)
+        ?.title,
+    ).toBe("Newer creation title");
+  },
+);
 
 it("repairs silent selected and background titles on the authoritative round", async () => {
   const fake = browser(2);

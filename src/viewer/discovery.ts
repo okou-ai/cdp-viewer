@@ -59,8 +59,8 @@ export class TargetDiscovery {
     private readonly options: DiscoveryOptions,
   ) {}
 
-  get metadataVersion(): number {
-    return this.metadataRevision;
+  beginMetadata(): number {
+    return ++this.metadataRevision;
   }
 
   start(): void {
@@ -133,7 +133,7 @@ export class TargetDiscovery {
         entry && entry.metadataVersion > metadataVersion
           ? entry.target
           : target,
-      metadataVersion: entry?.metadataVersion ?? metadataVersion,
+      metadataVersion: Math.max(entry?.metadataVersion ?? 0, metadataVersion),
       member: true,
       expiresAt: verifiedAt + inventoryFreshnessMs,
     });
@@ -193,7 +193,7 @@ export class TargetDiscovery {
     }
     this.entries.set(id, {
       target,
-      metadataVersion: ++this.metadataRevision,
+      metadataVersion: this.beginMetadata(),
       member: this.entries.get(id)?.member ?? false,
       expiresAt:
         this.entries.get(id)?.expiresAt ??
@@ -262,6 +262,7 @@ export class TargetDiscovery {
 
   private async readFull(): Promise<void> {
     const started = performance.now();
+    const metadataVersion = this.beginMetadata();
     const scan: Scan = {
       changed: new Set(),
       deadline: new AbortController(),
@@ -321,7 +322,7 @@ export class TargetDiscovery {
           if (result.status === "rejected") throw result.reason;
           members.set(target.id, {
             target,
-            metadataVersion: this.entries.get(target.id)?.metadataVersion ?? 0,
+            metadataVersion,
             member: result.value,
             expiresAt: started + inventoryFreshnessMs,
           });
