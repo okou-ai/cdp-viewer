@@ -157,6 +157,11 @@ Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
 `ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
 
+`onStatusChange` reports snapshot changes. Equivalent target lists and navigation
+observations retain the current snapshot and do not trigger another callback;
+the callback is not a discovery heartbeat. Repeated operation warnings still
+refresh their notification even when the public snapshot stays unchanged.
+
 For constrained links, interactive hosts may opt into `transport="split"`.
 Each viewer then opens two native WebSockets to the same `cdpUrl`, with separate
 target sessions: one for control, input, navigation and sizing, and one for the
