@@ -129,6 +129,9 @@ reconciliation without owning an active selected observation.
 Target events do not reliably report every document title change. Authoritative
 reconciliation also repairs metadata; selected membership checks alone do not
 refresh tab labels.
+Metadata updates must not renew membership observations that authoritative rounds
+skip. Expiry must still bound entries whose newer events repeatedly supersede
+their in-flight checks.
 
 Resource bindings belong to their instance and lifetime. Remove only a matching
 binding during cleanup, so an old owner cannot detach a replacement. Callback

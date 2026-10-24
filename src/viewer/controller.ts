@@ -389,6 +389,8 @@ export class ViewerController {
           current,
         );
         if (!current()) return;
+        const verifiedAt = performance.now();
+        const metadataVersion = this.discovery!.metadataVersion;
         const targets = await directory.list();
         if (!current()) return;
         if (!targets.some((target) => target.id === targetId))
@@ -405,7 +407,7 @@ export class ViewerController {
             : Object.freeze([...latest, created]),
           error: null,
         });
-        this.discovery?.created(created);
+        this.discovery?.created(created, verifiedAt, metadataVersion);
         this.model.run(this.model.resetAddress$);
         this.select(targetId);
         this.options.onTabCreated?.();

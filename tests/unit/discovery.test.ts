@@ -218,6 +218,43 @@ it("uses verified creation results without another full scan and removes destruc
   ]);
 });
 
+it("keeps newer creation metadata when an older explicit list completes", async () => {
+  const fake = browser(1);
+  const { controller, model } = mount(fake);
+  await advance();
+  const socket = fake.sockets[0]!;
+  socket.holdReplyMethod = "Target.getTargets";
+  controller.createTab();
+  await advance();
+  expect(socket.heldReplies).toHaveLength(1);
+  const identify = socket.heldReplies.shift()!;
+  socket.holdReplyMethod = null;
+  socket.reply(identify.command, identify.result);
+  socket.holdReplyMethod = "Target.getTargets";
+  await advance();
+  expect(socket.heldReplies).toHaveLength(1);
+  const list = socket.heldReplies.shift()!;
+  const created = fake.targets.at(-1)!;
+  created.title = "Newer creation title";
+  socket.emit("Target.targetInfoChanged", { targetInfo: info(created) });
+  await advance();
+  expect(
+    model.getSnapshot().targets.find((target) => target.id === created.id)
+      ?.title,
+  ).toBe("Newer creation title");
+  socket.holdReplyMethod = null;
+  socket.reply(list.command, list.result);
+  await advance();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: created.id,
+  });
+  expect(
+    model.getSnapshot().targets.find((target) => target.id === created.id)
+      ?.title,
+  ).toBe("Newer creation title");
+});
+
 it("repairs silent selected and background titles on the authoritative round", async () => {
   const fake = browser(2);
   const { model } = mount(fake);
@@ -512,6 +549,184 @@ it("blocks local admission when observation age expires before its timer runs", 
   } finally {
     clock.mockRestore();
   }
+});
+
+it("expires membership that repeated metadata changes prevent full scans from verifying", async () => {
+  const fake = browser(2);
+  const { controller, model } = mount(fake);
+  await advance();
+  const background = fake.targets[1]!;
+  background.windowId = 2;
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === background.id;
+  const changed = () => {
+    background.title += " updated";
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: info(background),
+    });
+  };
+  const settleOlderObservation = async () => {
+    expect(fake.heldCommands).toHaveLength(1);
+    const held = fake.heldCommands.shift()!;
+    held.socket.reply(held.command, { windowId: 2 });
+    await advance();
+  };
+  changed();
+  await advance();
+  for (let tick = 1; tick <= 9; tick++) {
+    await advance(2000);
+    changed();
+    await settleOlderObservation();
+    if (tick === 5) {
+      // A newer event also supersedes this full round's background observation.
+      changed();
+      await settleOlderObservation();
+    }
+  }
+  expect(model.getSnapshot().targets).toHaveLength(2);
+  expect(controller.input).not.toBeNull();
+  await advance(2000);
+  expect(model.getSnapshot()).toMatchObject({
+    status: "unavailable",
+    selectedTargetId: null,
+    targets: [],
+  });
+  expect(controller.input).toBeNull();
+});
+
+it.each([false, true])(
+  "keeps current checks fresh through metadata churn, selected=%s",
+  async (selected) => {
+    const fake = browser(2);
+    const { controller, model } = mount(fake);
+    await advance();
+    const target = fake.targets[selected ? 0 : 1]!;
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === target.id &&
+      fake.heldCommands.length === 0;
+    const changed = () => {
+      target.title += " updated";
+      fake.sockets[0]!.emit("Target.targetInfoChanged", {
+        targetInfo: info(target),
+      });
+    };
+    const settle = async () => {
+      expect(fake.heldCommands).toHaveLength(1);
+      const held = fake.heldCommands.shift()!;
+      held.socket.reply(held.command, { windowId: 0 });
+      await advance();
+    };
+    changed();
+    await advance();
+    for (let tick = 1; tick <= 19; tick++) {
+      await advance(2000);
+      changed();
+      await settle();
+      if (tick % 5 === 0) {
+        changed();
+        await settle();
+      }
+      if (!selected) {
+        // A current dirty check verifies a background entry. Selected checks
+        // make independent progress while their background request stays held.
+        await settle();
+        changed();
+        await advance();
+      }
+      expect(model.getSnapshot()).toMatchObject({
+        status: "streaming",
+        selectedTargetId: "owned-0",
+      });
+      expect(model.getSnapshot().targets).toHaveLength(2);
+      expect(controller.input).not.toBeNull();
+    }
+  },
+);
+
+it("anchors a background entry's renewed expiry to its verification request start", async () => {
+  const fake = browser(2);
+  const { model } = mount(fake, { windowId: 0, paused: true });
+  await advance();
+  const target = fake.targets[1]!;
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === target.id;
+  const changed = () =>
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: info(target),
+    });
+  const settle = async () => {
+    expect(fake.heldCommands).toHaveLength(1);
+    const held = fake.heldCommands.shift()!;
+    held.socket.reply(held.command, { windowId: 0 });
+    await advance();
+  };
+  await advance(9000);
+  changed();
+  await advance(9000);
+  // This current positive reply is from the request at 9000ms, not 18000ms.
+  await settle();
+  changed();
+  await settle();
+  await advance(9000);
+  // Keep newer work settling before its RPC timeout, but superseded by events.
+  changed();
+  await settle();
+  changed();
+  await settle();
+  await advance(1999);
+  expect(model.getSnapshot().status).toBe("paused");
+  expect(model.getSnapshot().targets).toHaveLength(2);
+  await advance(1);
+  expect(model.getSnapshot()).toMatchObject({
+    status: "unavailable",
+    selectedTargetId: null,
+    targets: [],
+  });
+});
+
+it("drops an expired entry's deadline when that target is destroyed", async () => {
+  const fake = browser(2);
+  const { controller, model } = mount(fake);
+  await advance();
+  const target = fake.targets[1]!;
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === target.id;
+  const changed = () =>
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: info(target),
+    });
+  const settle = async () => {
+    expect(fake.heldCommands).toHaveLength(1);
+    const held = fake.heldCommands.shift()!;
+    held.socket.reply(held.command, { windowId: 0 });
+    await advance();
+  };
+  await advance(9000);
+  changed();
+  await advance();
+  await advance(1000);
+  changed();
+  await settle();
+  changed();
+  await settle();
+  await advance(8000);
+  fake.targets.pop();
+  fake.sockets[0]!.emit("Target.targetDestroyed", { targetId: target.id });
+  await settle();
+  fake.holdCommand = (command) => command.method === "Target.getTargets";
+  await advance(2000);
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: "owned-0",
+    targets: [{ id: "owned-0", title: "Owned 0" }],
+  });
+  expect(controller.input).not.toBeNull();
+  expect(fake.heldCommands).toHaveLength(1);
+  expect(fake.heldCommands[0]!.command.method).toBe("Target.getTargets");
 });
 
 it("expires old inventory when dirty work delays the next full round", async () => {

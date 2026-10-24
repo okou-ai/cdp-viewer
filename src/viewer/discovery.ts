@@ -13,7 +13,9 @@ const inventoryFreshnessMs = inventoryIntervalMs + inventoryRoundMs;
 
 interface Entry {
   readonly target: ViewerTarget;
+  readonly metadataVersion: number;
   member: boolean;
+  expiresAt: number;
 }
 
 interface Scan {
@@ -43,17 +45,23 @@ export class TargetDiscovery {
   private readonly dirty = new Set<string>();
   private scan: Scan | null = null;
   private inventoryDeadline: AbortController | null = null;
+  private inventoryStarted: number | null = null;
   private selected: Selected | null = null;
   private fullWanted = false;
   private running = false;
   private ready = false;
   private closed = false;
   private revision = 0;
+  private metadataRevision = 0;
 
   constructor(
     private readonly directory: TargetDirectory,
     private readonly options: DiscoveryOptions,
   ) {}
+
+  get metadataVersion(): number {
+    return this.metadataRevision;
+  }
 
   start(): void {
     if (this.options.scoped) {
@@ -102,7 +110,11 @@ export class TargetDiscovery {
   }
 
   /** The explicit create path has already freshly verified this target. */
-  created(target: ViewerTarget): void {
+  created(
+    target: ViewerTarget,
+    verifiedAt: number,
+    metadataVersion: number,
+  ): void {
     if (!this.active()) return;
     this.revision++;
     if (this.scan) {
@@ -115,9 +127,19 @@ export class TargetDiscovery {
       );
       return;
     }
-    this.entries.set(target.id, { target, member: true });
+    const entry = this.entries.get(target.id);
+    this.entries.set(target.id, {
+      target:
+        entry && entry.metadataVersion > metadataVersion
+          ? entry.target
+          : target,
+      metadataVersion: entry?.metadataVersion ?? metadataVersion,
+      member: true,
+      expiresAt: verifiedAt + inventoryFreshnessMs,
+    });
     this.dirty.delete(target.id);
     if (this.running) this.fullWanted = true;
+    this.expireInventory();
     this.publish();
   }
 
@@ -157,7 +179,10 @@ export class TargetDiscovery {
     if (!target) {
       const present = this.entries.delete(id);
       this.dirty.delete(id);
-      if (present) this.publish();
+      if (present) {
+        this.expireInventory();
+        this.publish();
+      }
       return;
     }
     if (!this.entries.has(id) && this.entries.size >= maximumTargets) {
@@ -168,7 +193,11 @@ export class TargetDiscovery {
     }
     this.entries.set(id, {
       target,
+      metadataVersion: ++this.metadataRevision,
       member: this.entries.get(id)?.member ?? false,
+      expiresAt:
+        this.entries.get(id)?.expiresAt ??
+        performance.now() + inventoryFreshnessMs,
     });
     this.dirty.add(id);
     if (!this.ready) this.fullWanted = true;
@@ -180,6 +209,7 @@ export class TargetDiscovery {
     this.selected?.deadline.abort();
     this.scan?.deadline.abort();
     this.inventoryDeadline?.abort();
+    this.inventoryStarted = null;
     this.entries.clear();
     this.dirty.clear();
     this.selected = null;
@@ -273,6 +303,7 @@ export class TargetDiscovery {
                 this.entries.get(target.id) === entry
               ) {
                 this.entries.delete(target.id);
+                this.expireInventory();
                 this.publish();
               }
               return member;
@@ -288,7 +319,12 @@ export class TargetDiscovery {
           if (scan.changed.has(target.id)) continue;
           const result = results[index]!;
           if (result.status === "rejected") throw result.reason;
-          members.set(target.id, { target, member: result.value });
+          members.set(target.id, {
+            target,
+            metadataVersion: this.entries.get(target.id)?.metadataVersion ?? 0,
+            member: result.value,
+            expiresAt: started + inventoryFreshnessMs,
+          });
         }
       }
       for (const id of this.entries.keys())
@@ -311,25 +347,31 @@ export class TargetDiscovery {
     }
   }
 
-  private expireInventory(started: number): void {
+  private expireInventory(started = this.inventoryStarted): void {
+    if (started === null || !this.active()) return;
+    this.inventoryStarted = started;
     this.inventoryDeadline?.abort();
+    let expiresAt = started + inventoryFreshnessMs;
+    // A completed round cannot renew entries skipped after newer metadata.
+    for (const entry of this.entries.values())
+      expiresAt = Math.min(expiresAt, entry.expiresAt);
     const deadline = new AbortController();
     this.inventoryDeadline = deadline;
-    timeout(
-      () => {
-        if (this.active() && this.inventoryDeadline === deadline)
-          this.fail(
-            new CdpFault(
-              "scope",
-              "Window inventory could not be verified in time.",
-            ),
-          );
-      },
-      Math.max(0, started + inventoryFreshnessMs - performance.now()),
-      {
+    const expire = () => {
+      if (this.active() && this.inventoryDeadline === deadline)
+        this.fail(
+          new CdpFault(
+            "scope",
+            "Window inventory could not be verified in time.",
+          ),
+        );
+    };
+    const remaining = expiresAt - performance.now();
+    if (remaining <= 0) expire();
+    else
+      timeout(expire, remaining, {
         signal: AbortSignal.any([this.options.signal, deadline.signal]),
-      },
-    );
+      });
   }
 
   private async readDirty(): Promise<void> {
@@ -341,6 +383,7 @@ export class TargetDiscovery {
     });
     await Promise.all(
       batch.map(async ({ id, entry }) => {
+        const started = performance.now();
         const current = () =>
           this.active() &&
           revision === this.revision &&
@@ -349,6 +392,8 @@ export class TargetDiscovery {
           const member = await this.directory.contains(id);
           if (!current()) return;
           entry.member = member;
+          entry.expiresAt = started + inventoryFreshnessMs;
+          this.expireInventory();
           this.publish();
         } catch (error) {
           if (current()) this.fail(error);
@@ -383,6 +428,7 @@ export class TargetDiscovery {
         if (!this.changedTarget(selected.targetId)) return;
         this.entries.delete(selected.targetId);
         this.dirty.delete(selected.targetId);
+        this.expireInventory();
         this.publish();
       } else {
         // A delayed reply proves membership no earlier than request start.
@@ -390,6 +436,14 @@ export class TargetDiscovery {
         selected.deadline.abort();
         selected.deadline = new AbortController();
         this.expireSelected(selected);
+        const entry = this.entries.get(selected.targetId);
+        if (entry) {
+          entry.expiresAt = Math.max(
+            entry.expiresAt,
+            started + inventoryFreshnessMs,
+          );
+          this.expireInventory();
+        }
       }
     } finally {
       selected.pending = false;
@@ -443,6 +497,7 @@ export class TargetDiscovery {
     }
     this.fullWanted = false;
     this.inventoryDeadline?.abort();
+    this.inventoryStarted = null;
     this.entries.clear();
     this.dirty.clear();
     this.ready = false;
