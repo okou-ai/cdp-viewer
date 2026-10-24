@@ -70,6 +70,13 @@ settings scroll within that height. Narrow panels put settings below the preview
 where groups expand with the page. All controls belong to that panel; adding
 another viewer starts with independent defaults.
 
+The playground uses the viewer's neutral surfaces and blue accents in Light,
+Dark and System appearance. Before connecting, a static browser preview uses
+the same tab and address-bar styling as the viewer. It follows that panel's
+theme, size, corner radius, control mode and settings-menu visibility. Its
+illustrated controls are decorative; a connection starts only when you choose
+**Connect**.
+
 Drag the preview's lower-right corner to resize it. Height, Width, the dimension
 caption and Usage stay in sync. The preview stays anchored at the top left while
 resizing. Height ranges from 240 to 800px; width ranges from 50% to 100% of the

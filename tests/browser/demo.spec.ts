@@ -337,6 +337,41 @@ test("page appearance controls drive inherited viewer colors without reconnectin
       newWindow: true,
     });
     const a = panel(page, 1);
+    const appearance = page.getByRole("combobox", { name: "Appearance" });
+    const chrome = (root: Locator) =>
+      root.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const toolbar = element.querySelector(".cdpv-toolbar")!;
+        const navigation = element.querySelector(".cdpv-navigation")!;
+        const address = element.querySelector(".cdpv-address")!;
+        const stage = element.querySelector(".cdpv-stage")!;
+        return {
+          background: style.backgroundColor,
+          foreground: style.color,
+          border: style.borderColor,
+          radius: style.borderRadius,
+          tabs: getComputedStyle(toolbar).backgroundColor,
+          toolbarHeight: toolbar.getBoundingClientRect().height,
+          navigationHeight: navigation.getBoundingClientRect().height,
+          address: getComputedStyle(address).backgroundColor,
+          addressHeight: address.getBoundingClientRect().height,
+          stage: getComputedStyle(stage).backgroundColor,
+        };
+      });
+    const placeholder = a.locator(".demo-disconnected");
+    const colors = new Map<string, Awaited<ReturnType<typeof chrome>>>();
+    for (const scheme of ["light", "dark"]) {
+      await appearance.selectOption(scheme);
+      const preview = await chrome(placeholder);
+      colors.set(scheme, preview);
+      await expect(a).toHaveCSS("background-color", preview.background);
+      await expect(a).toHaveCSS("color", preview.foreground);
+      await expect(a).toHaveCSS("border-color", preview.border);
+    }
+    expect(sockets).toBe(0);
+    await expect(
+      placeholder.locator("button,input,textarea,select,[tabindex]"),
+    ).toHaveCount(0);
     await configure(a, backend.endpoint);
     const view = a.getByRole("region", { name: "Remote browser viewer" });
     await expect(view).toHaveAttribute("data-status", "streaming");
@@ -344,15 +379,16 @@ test("page appearance controls drive inherited viewer colors without reconnectin
       .getByLabel("Remote browser input")
       .elementHandle();
     const opened = sockets;
-    const appearance = page.getByRole("combobox", { name: "Appearance" });
     await appearance.selectOption("dark");
     await expect(view).toHaveCSS("background-color", "rgb(53, 54, 58)");
+    expect(await chrome(view)).toEqual(colors.get("dark"));
     await page.screenshot({
       path: info.outputPath("demo-dark.png"),
       fullPage: true,
     });
     await appearance.selectOption("light");
     await expect(view).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    expect(await chrome(view)).toEqual(colors.get("light"));
     await page.screenshot({
       path: info.outputPath("demo-light.png"),
       fullPage: true,
@@ -1118,6 +1154,12 @@ test("playground layout keeps the preview and controls usable across appearances
   await expect(
     a.getByText("Ready when you are.", { exact: true }),
   ).toBeVisible();
+  const placeholder = a.locator(".demo-disconnected");
+  await expect(placeholder.locator(".cdpv-tab-title")).toHaveText("New tab");
+  await expect(placeholder.locator(".cdpv-navigation")).toBeVisible();
+  await expect(
+    placeholder.locator("button,input,textarea,select,[tabindex]"),
+  ).toHaveCount(0);
   const stage = a.locator(".demo-stage");
   const settings = a.getByRole("complementary", {
     name: "Viewer 1 properties",
@@ -1139,16 +1181,17 @@ test("playground layout keeps the preview and controls usable across appearances
     path: info.outputPath("playground-light.png"),
     fullPage: true,
   });
+  await page.getByRole("combobox", { name: "Appearance", exact: true }).hover();
   await page
     .getByRole("combobox", { name: "Appearance", exact: true })
     .selectOption("dark");
   await expect(a.locator(".demo-disconnected")).toHaveCSS(
     "background-color",
-    "rgb(37, 40, 34)",
+    "rgb(53, 54, 58)",
   );
   await expect(page.getByRole("button", { name: "Add viewer" })).toHaveCSS(
     "background-color",
-    "rgb(229, 234, 220)",
+    "rgb(138, 180, 248)",
   );
   await page.screenshot({
     path: info.outputPath("playground-dark.png"),
@@ -1189,12 +1232,51 @@ test("playground layout keeps the preview and controls usable across appearances
     .selectOption("light");
   await expect(page.getByRole("button", { name: "Add viewer" })).toHaveCSS(
     "background-color",
-    "rgb(40, 45, 36)",
+    "rgb(26, 115, 232)",
   );
   await page.screenshot({
     path: info.outputPath("playground-mobile-light.png"),
     fullPage: true,
   });
+  await a.getByRole("checkbox", { name: "Show settings menu" }).uncheck();
+  await expect(placeholder.locator(".cdpv-browser-menu-trigger")).toHaveCount(
+    0,
+  );
+  await a.getByRole("checkbox", { name: "Show settings menu" }).check();
+  await expect(placeholder.locator(".cdpv-browser-menu-trigger")).toHaveCount(
+    1,
+  );
+  await a.getByLabel("Control mode").selectOption("view-only");
+  await expect(placeholder.locator(".cdpv-navigation")).toHaveCount(0);
+  await expect(placeholder.locator(".cdpv-new-tab,.cdpv-close")).toHaveCount(0);
+  await expect(placeholder).toHaveCSS("height", "360px");
+  await a.getByLabel("Control mode").selectOption("interactive");
+  await a.getByLabel(/^Viewer theme/).selectOption("dark");
+  await expect(placeholder).toHaveCSS("background-color", "rgb(53, 54, 58)");
+  await expect(a).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await a.getByLabel(/^Viewer theme/).selectOption("system");
+  await expect(placeholder).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(placeholder).toHaveCSS("background-color", "rgb(53, 54, 58)");
+  await a.getByLabel("Height", { exact: true }).fill("240");
+  await a.getByLabel("Width", { exact: true }).fill("50");
+  await expect(placeholder).toHaveCSS("height", "240px");
+  for (const width of [390, 360, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await placeholder.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.screenshot({
+    path: info.outputPath("playground-mobile-minimum.png"),
+    fullPage: true,
+  });
+  await expect(
+    a.getByRole("region", { name: "Remote browser viewer" }),
+  ).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

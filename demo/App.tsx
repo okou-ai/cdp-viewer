@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   Link2,
   Monitor,
-  MousePointer2,
   Pause,
   Play,
   Plus,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { demoScope } from "./context";
 import { Console } from "./Console";
+import { Placeholder } from "./Placeholder";
 import type { Panel } from "./model";
 import { viewerClassName, viewerStyle } from "./playground";
 import { Settings } from "./Settings";
@@ -262,48 +262,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 }
               />
             ) : (
-              <div
-                className={`demo-disconnected ${viewerClassName(options)}`}
-                style={{
-                  ...viewerStyle(options),
-                  ...(options.theme === "inherit"
-                    ? {}
-                    : {
-                        colorScheme:
-                          options.theme === "system"
-                            ? "light dark"
-                            : options.theme,
-                      }),
-                }}
-              >
-                <div className="demo-placeholder-chrome" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                  <div />
-                  <Plus size={13} />
-                </div>
-                <div className="demo-placeholder-content">
-                  <span className="demo-placeholder-icon">
-                    <MousePointer2
-                      size={28}
-                      strokeWidth={1.5}
-                      aria-hidden="true"
-                    />
-                  </span>
-                  <strong>Ready when you are.</strong>
-                  <p>
-                    Connect your browser above.
-                    <br />
-                    Make the viewer yours with the controls alongside.
-                  </p>
-                  <div className="demo-placeholder-features">
-                    <span>Live tabs</span>
-                    <span>Mouse & keyboard</span>
-                    <span>Your own theme</span>
-                  </div>
-                </div>
-              </div>
+              <Placeholder options={options} />
             )}
             <ResizeHandle panel={panel} identity={identity} />
           </div>
