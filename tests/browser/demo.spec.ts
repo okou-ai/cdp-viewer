@@ -1262,11 +1262,18 @@ test("playground layout keeps the preview and controls usable across appearances
   await a.getByLabel("Height", { exact: true }).fill("240");
   await a.getByLabel("Width", { exact: true }).fill("50");
   await expect(placeholder).toHaveCSS("height", "240px");
-  expect(
-    await placeholder.evaluate(
-      (element) => element.scrollWidth <= element.clientWidth,
-    ),
-  ).toBe(true);
+  for (const width of [390, 360, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await placeholder.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.screenshot({
+    path: info.outputPath("playground-mobile-minimum.png"),
+    fullPage: true,
+  });
   await expect(
     a.getByRole("region", { name: "Remote browser viewer" }),
   ).toHaveCount(0);
