@@ -92,14 +92,28 @@ echoing endpoints or provider error payloads.
 Omit `windowId` to list page targets across windows. Supply an integer, including
 `0`, to list/select only targets with verified membership. Scoped operation uses
 the experimental `Browser.getWindowForTarget`; unsupported/failed lookup produces
-an unavailable state, never an unscoped fallback. Membership is refreshed on
-target events and every two seconds to detect external moves; lookup and refresh
-latency add to detection time, so this interval is not a maximum deadline.
+an unavailable state, never an unscoped fallback. Target events update affected
+pages; the active selection has an independent membership check every two seconds.
+Silent title changes and other window moves are reconciled by full discovery
+every ten seconds, including while paused, hidden or offscreen. Chromium may
+omit a target event when a document title changes, so tab labels can lag until
+that round. A full round has a ten-second completion deadline; failure clears
+unverified targets instead of retaining them
+indefinitely. Cadence plus completion can take up to twenty seconds while the
+JavaScript event loop runs, and background timer suspension can delay discovery.
+Title events neither renew membership age nor discard a valid in-flight window
+check. Current checks can complete during continuous title changes; their age is
+measured from request start. Older results cannot replace newer membership or
+revive a removed target.
 Selection/activation and completed attachment verify membership. Interactive input
 then sends directly to the selected session, without a window query per event.
-An external move can precede detection. Observed mismatch or lookup failure clears
+Selected membership expires twelve seconds after its last verification request
+started; a delayed reply cannot renew it from arrival time. Expiry also blocks
+local admission. Pausing ends this active check; resume freshly verifies attachment.
+An external move can precede detection. Observed mismatch, expiry or lookup failure clears
 the selection/image and cancels unsent input; it never silently replaces the target.
-Discovery is serialized/coalesced; scoped lookup failure clears unverified targets.
+Inventory reconciliation is serialized/coalesced; selected checks run independently.
+Scoped lookup failure clears unverified targets.
 This is presentation scope, **not a server authorization boundary**.
 
 A new connection initially chooses its first confirmed page. Losing an established

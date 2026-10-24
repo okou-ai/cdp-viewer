@@ -443,6 +443,7 @@ test("tab discovery preserves compressed layout while selection and focus stay v
     server.origin,
   );
   try {
+    await page.clock.install();
     const first = await remoteTab(backend, "Workspace", true);
     const background = await remoteTab(backend, "Background");
     await remoteTab(backend, "Notes");
@@ -477,6 +478,8 @@ test("tab discovery preserves compressed layout while selection and focus stay v
     await background.remote.evaluate(() => {
       document.title = "Updated background";
     });
+    // A silent document-title change is repaired by authoritative discovery.
+    await page.clock.fastForward(10_000);
     await expect(
       viewer.getByRole("tab", { name: "Updated background", exact: true }),
     ).toBeVisible();
@@ -1111,6 +1114,15 @@ for (const nativeScrollbars of [false, true]) {
           await page.routeWebSocket(backend.endpoint, (socket) => {
             const upstream = socket.connectToServer();
             notifyTargetChange = async (targetId) => {
+              if (empty) {
+                socket.send(
+                  JSON.stringify({
+                    method: "Target.targetDestroyed",
+                    params: { targetId },
+                  }),
+                );
+                return;
+              }
               const params = await backend.session.send(
                 "Target.getTargetInfo",
                 {
@@ -1931,6 +1943,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       server.origin,
     );
     try {
+      await page.clock.install();
       const first = await remoteTab(backend, "Workspace", true);
       const extras = [];
       for (let index = 1; index <= 9; index++)
@@ -2058,6 +2071,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         .remote.evaluate(() => {
           document.title = "Updated background";
         });
+      await page.clock.fastForward(10_000);
       await overflowOptions(viewer);
       await expect(
         viewer.getByRole("option", { name: "Updated background", exact: true }),

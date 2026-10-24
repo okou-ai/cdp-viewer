@@ -289,14 +289,12 @@ export class FakeBrowser {
               const source = this.targets.find(
                 (target) => target.id === this.sessions.get(command.sessionId!),
               );
-              this.targets.push({
+              this.created({
                 id: `new-${++this.nextTarget}`,
                 windowId: source?.windowId ?? 0,
                 title: "New tab",
                 url: JSON.parse(match![1]!) as string,
               });
-              for (const wire of this.sockets)
-                wire.emit("Target.targetCreated", {});
             }
             socket.reply(command, {
               result: { type: "boolean", value: !this.blockOpen },
@@ -475,14 +473,12 @@ export class FakeBrowser {
         }
         case "Target.createTarget": {
           const targetId = `new-${++this.nextTarget}`;
-          this.targets.push({
+          this.created({
             id: targetId,
             title: "New tab",
             windowId: 0,
             url: "about:blank",
           });
-          for (const wire of this.sockets)
-            wire.emit("Target.targetCreated", {});
           socket.reply(command, { targetId });
           break;
         }
@@ -521,5 +517,20 @@ export class FakeBrowser {
           socket.reply(command);
       }
     });
+  }
+
+  private created(target: FakeTarget): void {
+    this.targets.push(target);
+    for (const socket of this.sockets)
+      socket.emit("Target.targetCreated", {
+        targetInfo: {
+          targetId: target.id,
+          type: "page",
+          title: target.title,
+          url: target.url ?? "about:blank",
+          attached: false,
+          canAccessOpener: false,
+        },
+      });
   }
 }

@@ -1,3 +1,4 @@
+import { updateModel } from "./inventory";
 import { expect, it, vi } from "vitest";
 import { createDemoModel } from "../../demo/model";
 import { browserUse } from "../../src/extensions/browser-use";
@@ -13,7 +14,7 @@ const navigation = (url: string) => ({
 
 function streamingViewer() {
   const model = createViewerModel();
-  model.update({ targets: [{ id: "page-a", title: "A" }] });
+  updateModel(model, { targets: [{ id: "page-a", title: "A" }] });
   model.transition({ type: "select", targetId: "page-a", paused: false });
   model.transition({ type: "streaming" });
   return model;
@@ -26,7 +27,7 @@ it("replaces identical notifications and rejects stale expiry or exit completion
   const first = model.read(model.notification$)!;
   expect(first).toMatchObject({ error, exiting: false });
   model.update({ navigation: navigation("https://one.invalid/") });
-  model.update({ targets: [{ id: "page-a", title: "Updated" }] });
+  updateModel(model, { targets: [{ id: "page-a", title: "Updated" }] });
   expect(model.read(model.notification$)).toBe(first);
   model.run(model.removeNotification$, first.id);
   expect(model.read(model.notification$)).toBe(first);
@@ -210,7 +211,7 @@ it("distinguishes retained selection, external loss and disconnected transport",
   model.run(model.configure$, { interactive: true, scoped: false });
   model.run(model.setConnected$, true);
   const targets = [{ id: "page-a", title: "A" }];
-  model.update({ targets });
+  updateModel(model, { targets });
   model.transition({ type: "select", targetId: "page-a", paused: false });
   model.update({ navigation: navigation("https://one.invalid/") });
   model.transition({ type: "streaming" });

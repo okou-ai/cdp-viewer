@@ -118,6 +118,7 @@ for (const transport of ["shared", "split"] as const) {
     });
     try {
       const selected = await remoteTab(backend, "slow", true);
+      await page.clock.install();
       const viewer = await connect(
         page,
         backend.endpoint,
@@ -211,6 +212,8 @@ for (const transport of ["shared", "split"] as const) {
       await expect(failedTab.locator(".cdpv-favicon svg")).toBeVisible();
       await expect(failed).toHaveAttribute("data-status", "streaming");
       await selected.remote.goto(icons.origin + "/pages/none");
+      // Chromium can omit title events; reconcile at the documented cadence.
+      await page.clock.fastForward(10_000);
       await expect(failedTab).toHaveAttribute("title", "Icon none");
       await expect(failedTab.locator(".cdpv-favicon img")).toHaveCount(0);
       await expect(failedTab.locator(".cdpv-favicon svg")).toBeVisible();

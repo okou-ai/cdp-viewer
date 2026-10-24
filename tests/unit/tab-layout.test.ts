@@ -1,3 +1,4 @@
+import { updateModel } from "./inventory";
 import { expect, it } from "vitest";
 import { createViewerModel } from "../../src/viewer/model";
 import { layoutTabs } from "../../src/viewer/tab-layout";
@@ -102,7 +103,7 @@ it("keeps layout state private to an instance and never changes its snapshot or 
   const second = createViewerModel();
   for (const model of [first, second]) {
     model.run(model.configure$, { interactive: true, scoped: true });
-    model.update({ targets });
+    updateModel(model, { targets });
     model.transition({ type: "select", targetId: "page-29", paused: false });
   }
   const snapshot = first.getSnapshot();
@@ -113,7 +114,7 @@ it("keeps layout state private to an instance and never changes its snapshot or 
   const layout = first.read(first.tabLayout$);
   first.run(first.resizeTabs$, space(210));
   expect(first.read(first.tabLayout$)).toBe(layout);
-  first.update({
+  updateModel(first, {
     targets: targets.map((target) => ({
       ...target,
       title: target.title + " updated",

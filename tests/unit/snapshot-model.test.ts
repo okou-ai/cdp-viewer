@@ -1,3 +1,4 @@
+import { updateModel } from "./inventory";
 import { expect, it, vi } from "vitest";
 import { createViewerModel } from "../../src/viewer/model";
 import type { ViewerTransition } from "../../src/viewer/model";
@@ -19,7 +20,7 @@ const navigation: ViewerNavigation = Object.freeze({
 
 function streamingViewer() {
   const model = createViewerModel();
-  model.update({ targets, navigation });
+  updateModel(model, { targets, navigation });
   model.transition({ type: "select", targetId: "page-a", paused: false });
   model.transition({ type: "streaming" });
   model.update({ navigation });
@@ -38,7 +39,7 @@ it("retains snapshots and projections for equivalent observations", () => {
   const stopTabs = model.watch(model.tabLayout$, tabsChanged);
   const stopControls = model.watch(model.controls$, controlsChanged);
   for (let index = 0; index < 3; index++) {
-    model.update({
+    updateModel(model, {
       targets: Object.freeze(
         targets.map((target) => Object.freeze({ ...target })),
       ),
@@ -59,9 +60,8 @@ it("retains snapshots and projections for equivalent observations", () => {
 });
 
 it.each([
-  { change: "id", next: [{ id: "replacement", title: "A" }, targets[1]!] },
+  { change: "id", next: [targets[1]!, { id: "replacement", title: "A" }] },
   { change: "title", next: [{ id: "page-a", title: "Renamed" }, targets[1]!] },
-  { change: "order", next: [targets[1]!, targets[0]!] },
   { change: "addition", next: [...targets, { id: "page-c", title: "C" }] },
   { change: "removal", next: [targets[0]!] },
   { change: "empty list", next: [] },
@@ -70,16 +70,28 @@ it.each([
   const before = model.getSnapshot();
   const notify = vi.fn();
   const stop = model.subscribe(notify);
-  model.update({ targets: next, navigation: { ...navigation } });
+  updateModel(model, { targets: next, navigation: { ...navigation } });
   const after = model.getSnapshot();
   expect(after).not.toBe(before);
   expect(after.targets).toEqual(next);
   expect(after.navigation).toBe(before.navigation);
   expect(Object.isFrozen(after)).toBe(true);
   expect(notify).toHaveBeenCalledOnce();
-  model.update({ targets: next.map((target) => ({ ...target })) });
+  updateModel(model, { targets: next.map((target) => ({ ...target })) });
   expect(model.getSnapshot()).toBe(after);
   expect(notify).toHaveBeenCalledOnce();
+  stop();
+});
+
+it("retains the stable target projection when full inventory order changes", () => {
+  const model = streamingViewer();
+  const before = model.getSnapshot();
+  const notify = vi.fn();
+  const stop = model.subscribe(notify);
+  updateModel(model, { targets: [targets[1]!, targets[0]!] });
+  expect(model.getSnapshot()).toBe(before);
+  expect(model.getSnapshot().targets).toEqual(targets);
+  expect(notify).not.toHaveBeenCalled();
   stop();
 });
 
@@ -93,7 +105,7 @@ it.each([
   const before = model.getSnapshot();
   const notify = vi.fn();
   const stop = model.subscribe(notify);
-  model.update({
+  updateModel(model, {
     targets: targets.map((target) => ({ ...target })),
     navigation: next,
   });
@@ -185,7 +197,7 @@ it("runs private reset and selection effects even with an unchanged snapshot", (
   expect(model.read(model.tabAction$)).toBeNull();
   expect(model.read(model.controls$).canMutateTabs).toBe(false);
 
-  model.update({ targets });
+  updateModel(model, { targets });
   model.transition({ type: "select", targetId: "page-a", paused: false });
   const selected = model.getSnapshot();
   expect(model.read(model.controls$).loadingPreview).toBe(false);

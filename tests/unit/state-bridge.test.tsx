@@ -1,3 +1,4 @@
+import { updateModel } from "./inventory";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { hydrateRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -21,13 +22,13 @@ it("keeps bindings stable by signal and instance and releases external subscript
   );
   const notified = vi.fn();
   const stop = snapshot.subscribe(notified);
-  first.update({ targets: [{ id: "one", title: "One" }] });
+  updateModel(first, { targets: [{ id: "one", title: "One" }] });
   expect(notified).toHaveBeenCalledTimes(1);
   expect(snapshot.read().targets).toEqual([{ id: "one", title: "One" }]);
-  sibling.update({ targets: [] });
+  updateModel(sibling, { targets: [] });
   expect(notified).toHaveBeenCalledTimes(1);
   stop();
-  first.update({ targets: [] });
+  updateModel(first, { targets: [] });
   expect(notified).toHaveBeenCalledTimes(1);
 });
 

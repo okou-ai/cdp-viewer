@@ -119,6 +119,30 @@ the point of use. Window membership is verified around selection/attachment and
 invalidated by background discovery; stable input does not query it per action.
 A rendered capability is not write authority.
 
+The per-instance model owns one target inventory and its visible projection.
+Target events, explicit create/close acknowledgements and query outcomes enter
+the same pure transition contract; the controller does not separately splice the
+visible list. Connection resources own bounded IO scheduling, cancellation and
+timers, and deliver outcomes with their original observation identity.
+
+Target lifetime, metadata order and window membership are separate facts. A title
+change cannot revoke an otherwise valid membership observation or renew its age.
+Current checks must progress during continuous metadata changes. Newer applicable
+membership and target retirement reject older authority; an older list cannot
+overwrite newer metadata, erase newer existence evidence or resurrect removal.
+Bound inventory, dirty work and active lifecycle journals. Acknowledged closure
+retires the target before another publication, independently of event delivery.
+
+Selected membership progresses independently of unrelated inventory reads. Its
+original lifetime and request-start freshness cannot transfer through delayed
+replies. Paused connections retain inventory reconciliation without an active
+selected observation. Reset and disposal retire original connection authority.
+Target events do not reliably report every document title change. Authoritative
+reconciliation also repairs metadata; selected membership checks alone do not
+refresh tab labels.
+Metadata alone cannot extend proof expiry. Deadlines still bound unavailable
+observations and the time an inventory waits behind background work.
+
 Resource bindings belong to their instance and lifetime. Remove only a matching
 binding during cleanup, so an old owner cannot detach a replacement. Callback
 identity changes must not recreate unrelated resources. Keep required DOM node

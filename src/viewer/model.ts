@@ -1,4 +1,10 @@
 import { command, computed, state } from "ccstate";
+import {
+  initialInventory,
+  inventoryTargets,
+  transitionInventory,
+} from "./target-inventory";
+import type { InventoryEvent } from "./target-inventory";
 import { createInstance } from "../state/instance";
 import { layoutTabs } from "./tab-layout";
 import type { TabSpace } from "./tab-layout";
@@ -48,7 +54,7 @@ export type ViewerTransition =
   | { type: "disconnected"; established: boolean; error: ViewerError };
 
 export type ViewerUpdate = Partial<
-  Pick<ViewerSnapshot, "targets" | "navigation" | "error">
+  Pick<ViewerSnapshot, "navigation" | "error">
 >;
 
 type Favicon = {
@@ -68,6 +74,8 @@ function initialSnapshot(): ViewerSnapshot {
 
 function createViewerSignals() {
   const internalSnapshot$ = state<ViewerSnapshot>(initialSnapshot());
+  const internalInventory$ = state(initialInventory());
+  const inventoryState$ = computed((get) => get(internalInventory$));
   const internalLoadingPreview$ = state(false);
   const internalFavicons$ = state<ReadonlyMap<string, Favicon>>(new Map());
   const favicons$ = computed((get) => get(internalFavicons$));
@@ -356,6 +364,14 @@ function createViewerSignals() {
     )
       set(internalSnapshot$, Object.freeze(next));
   });
+  const inventoryUpdate$ = command(({ get, set }, event: InventoryEvent) => {
+    const previous = get(internalInventory$);
+    const next = transitionInventory(previous, event);
+    set(internalInventory$, next);
+    if (next.entries !== previous.entries || next.ready !== previous.ready)
+      set(update$, { targets: inventoryTargets(next) });
+    return next;
+  });
   const updateData$ = command(({ set }, patch: ViewerUpdate) =>
     set(update$, patch),
   );
@@ -367,6 +383,7 @@ function createViewerSignals() {
     );
     switch (event.type) {
       case "reset":
+        set(inventoryUpdate$, { type: "reset" });
         set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(pendingTab$, null);
@@ -382,10 +399,12 @@ function createViewerSignals() {
         break;
       case "target-lost":
       case "discovery-failed":
+        if (event.type === "discovery-failed") {
+          const inventory = get(internalInventory$);
+          if (inventory.entries.size || inventory.ready || inventory.round)
+            set(inventoryUpdate$, { type: "reset" });
+        }
         set(update$, {
-          ...(event.type === "discovery-failed"
-            ? { targets: Object.freeze([]) }
-            : {}),
           selectedTargetId: null,
           status: "unavailable",
           error: event.error,
@@ -520,6 +539,8 @@ function createViewerSignals() {
     createTab$,
     closeTab$,
     updateData$,
+    inventoryState$,
+    inventoryUpdate$,
     transition$,
     bind$,
     unbind$,
@@ -548,6 +569,8 @@ export function createViewerModel() {
       instance.watch(instance.signals.snapshot$, listener),
     update: (patch: ViewerUpdate) =>
       instance.run(instance.signals.updateData$, patch),
+    inventory: (event: InventoryEvent) =>
+      instance.run(instance.signals.inventoryUpdate$, event),
     transition: (event: ViewerTransition) =>
       instance.run(instance.signals.transition$, event),
   };
