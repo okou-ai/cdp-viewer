@@ -96,6 +96,10 @@ export function CaptureQuality() {
                   max={100}
                   step={1}
                   value={capture.quality ?? defaultCapture.quality}
+                  onKeyDown={(event) => {
+                    // Enter on a range must not submit an enclosing host form.
+                    if (event.key === "Enter") event.preventDefault();
+                  }}
                   onChange={(event) =>
                     choose({ ...capture, quality: Number(event.target.value) })
                   }

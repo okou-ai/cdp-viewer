@@ -115,6 +115,10 @@ for (const [transport, colorScheme] of [
       await expect(quality).toBeFocused();
       await expect.poll(() => captures.at(-1)).toMatchObject({ quality: 71 });
       const automaticCapture = captures.at(-1)!;
+      await quality.press("Enter");
+      await expect(page.locator("#host-submissions")).toHaveText("0");
+      await expect(quality).toBeFocused();
+      await expect(quality).toHaveValue("71");
       await page.keyboard.press("Tab");
       await expect(automatic).toBeFocused();
       await page.keyboard.press("ArrowDown");
