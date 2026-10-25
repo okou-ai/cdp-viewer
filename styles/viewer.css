@@ -719,12 +719,6 @@
   outline: 2px solid var(--cdpv-accent);
   outline-offset: -2px;
 }
-.cdpv-root .cdpv-capture-quality-hint {
-  color: var(--cdpv-muted);
-  margin: 12px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
 .cdpv-root .cdpv-browser-menu-heading {
   color: var(--cdpv-muted);
   padding: 7px 10px;
