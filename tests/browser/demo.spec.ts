@@ -56,6 +56,57 @@ async function configure(panel: Locator, endpoint: string, windowId?: number) {
   await panel.getByRole("button", { name: "Connect", exact: true }).click();
 }
 
+test("capture quality menu stays synchronized with the demo's external controls", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    new URL(demoUrl).origin,
+  );
+  try {
+    const remote = await backend.context.newPage();
+    await remote.goto(server.origin + "/fixture/blue");
+    await openDemo(page);
+    const owner = panel(page, 1);
+    await configure(owner, backend.endpoint);
+    const view = owner.getByRole("region", { name: "Remote browser viewer" });
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    const rail = owner.getByRole("complementary");
+    await rail
+      .locator("summary")
+      .filter({ hasText: "Capture quality" })
+      .click();
+    const externalQuality = rail.getByRole("slider");
+    const externalResolution = rail.getByRole("combobox", {
+      name: "Capture resolution maximum",
+    });
+    const menu = view.getByRole("button", { name: "Browser menu" });
+    await menu.click();
+    await view.getByRole("menuitem", { name: "Capture quality" }).click();
+    const detail = view.getByRole("dialog", { name: "Capture quality" });
+    const quality = detail.getByRole("slider", { name: "JPEG quality" });
+    await expect(quality).toBeEnabled();
+    await quality.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(externalQuality).toHaveValue("71");
+    await detail.getByRole("radio", { name: "1280 × 720" }).click();
+    await expect(externalResolution).toHaveValue("1280x720");
+    await externalQuality.click();
+    await expect(menu).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Home");
+    await expect(externalQuality).toHaveValue("0");
+    await menu.click();
+    await view.getByRole("menuitem", { name: "Capture quality" }).click();
+    await expect(
+      view
+        .getByRole("dialog", { name: "Capture quality" })
+        .getByRole("slider", { name: "JPEG quality" }),
+    ).toHaveValue("0");
+  } finally {
+    await backend.close();
+  }
+});
+
 async function expectColor(viewer: Locator, color: [number, number, number]) {
   await expect(viewer).toHaveAttribute("data-status", "streaming");
   await expect
@@ -311,7 +362,10 @@ test("demo exposes independent live capture quality and resolution controls", as
     const view = first.getByRole("region", { name: "Remote browser viewer" });
     await expect(view).toHaveAttribute("data-status", "streaming");
     const proxy = await view.getByLabel("Remote browser input").elementHandle();
-    await first.locator("summary").filter({ hasText: "Image detail" }).click();
+    await first
+      .locator("summary")
+      .filter({ hasText: "Capture quality" })
+      .click();
     await first.getByLabel(/^Capture resolution/).selectOption("1280x720");
     await expect
       .poll(() =>

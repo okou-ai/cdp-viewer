@@ -8,7 +8,13 @@ import type { InventoryEvent } from "./target-inventory";
 import { createInstance } from "../state/instance";
 import { layoutTabs } from "./tab-layout";
 import type { TabSpace } from "./tab-layout";
-import type { ViewerError, ViewerSnapshot, WindowSizeSync } from "./types";
+import type {
+  ViewerCaptureOptions,
+  ViewerError,
+  ViewerSnapshot,
+  WindowSizeSync,
+} from "./types";
+import { sameCapture } from "./capture";
 import type { DisplayState } from "../display/sync";
 import type { ClipboardRecovery } from "../input/clipboard";
 import { retryingImage, transitionImage } from "./image-recovery";
@@ -26,6 +32,7 @@ export interface ViewerActions {
   syncDisplay?(): void;
   retryImage?(): void;
   onWindowSizeSyncChange?(mode: WindowSizeSync): void;
+  onCaptureChange?(capture: ViewerCaptureOptions): void;
 }
 
 interface AddressDraft {
@@ -193,6 +200,54 @@ function createViewerSignals() {
     get(actions$)?.onWindowSizeSyncChange?.(value);
   });
   const syncDisplay$ = command(({ get }) => get(actions$)?.syncDisplay?.());
+  const internalCapture$ = state<ViewerCaptureOptions>(Object.freeze({}));
+  const controlledCapture$ = state<ViewerCaptureOptions | null>(null);
+  const internalCanChangeCapture$ = state(true);
+  const capture$ = computed(
+    (get) => get(controlledCapture$) ?? get(internalCapture$),
+  );
+  const canChangeCapture$ = computed((get) => get(internalCanChangeCapture$));
+  const configureCapture$ = command(
+    (
+      { set },
+      value: { controlled: ViewerCaptureOptions | null; canChange: boolean },
+    ) => {
+      set(controlledCapture$, value.controlled);
+      set(internalCanChangeCapture$, value.canChange);
+    },
+  );
+  const chooseCapture$ = command(
+    ({ get, set }, value: ViewerCaptureOptions) => {
+      if (!get(canChangeCapture$) || sameCapture(get(capture$), value)) return;
+      const next = Object.freeze({ ...value });
+      if (get(controlledCapture$) === null) set(internalCapture$, next);
+      get(actions$)?.onCaptureChange?.(next);
+    },
+  );
+  const internalCaptureMenu$ = state<"closed" | "open" | "keyboard-closed">(
+    "closed",
+  );
+  const captureMenuOpen$ = computed(
+    (get) => get(internalCaptureMenu$) === "open",
+  );
+  const browserMenuHover$ = computed(
+    (get) => get(internalCaptureMenu$) === "closed",
+  );
+  const setCaptureMenu$ = command(
+    ({ set }, value: { open: boolean; keyboard: boolean }) =>
+      set(
+        internalCaptureMenu$,
+        value.open ? "open" : value.keyboard ? "keyboard-closed" : "closed",
+      ),
+  );
+  const pointBrowserMenu$ = command(({ get, set }) => {
+    // Uncovering a sibling under a stationary pointer must preserve keyboard focus.
+    if (get(internalCaptureMenu$) === "keyboard-closed")
+      set(internalCaptureMenu$, "closed");
+  });
+  const resetBrowserMenu$ = command(({ set }) =>
+    set(internalCaptureMenu$, "closed"),
+  );
   // Clipboard text is private and must never enter ViewerSnapshot/callbacks.
   const internalClipboard$ = state<ClipboardRecovery | null>(null);
   const clipboard$ = computed((get) => get(internalClipboard$));
@@ -661,6 +716,15 @@ function createViewerSignals() {
     setDisplay$,
     chooseWindowSizeSync$,
     syncDisplay$,
+    capture$,
+    canChangeCapture$,
+    configureCapture$,
+    chooseCapture$,
+    captureMenuOpen$,
+    browserMenuHover$,
+    setCaptureMenu$,
+    pointBrowserMenu$,
+    resetBrowserMenu$,
     clipboard$,
     setClipboard$,
     copyClipboard$,

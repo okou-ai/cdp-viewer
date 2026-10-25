@@ -161,6 +161,7 @@ viewing and input continue.
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
 | `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
 | `capture?: ViewerCaptureOptions`              | Live JPEG quality; automatic container/DPR bounds with optional fixed limits     |
+| `onCaptureChange`                             | Requests a controlled capture-quality change, or reports a menu-owned change     |
 | `extensions?: readonly ViewerExtension[]`     | Optional per-connection adapters, reconciled by ID and configuration key         |
 | `colorScheme?: "light" \| "dark" \| "system"` | Optional host-controlled appearance; omitted inherits the host CSS color-scheme  |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                              |
@@ -216,7 +217,7 @@ Snapshots may include `navigation` (current remote address and available back/fo
 actions), or `null` when unavailable. Remote page addresses can contain sensitive
 data; do not log or persist snapshots indiscriminately.
 
-### Image detail
+### Capture quality
 
 Choose JPEG compression quality and maximum capture dimensions independently:
 
@@ -296,7 +297,33 @@ Invalid settings report a `configuration` error. Invalid initial settings open
 no connection; correcting them starts viewing. An invalid runtime update retains
 the last valid capture, and correcting it clears its configuration diagnostic.
 An actual stream failure uses normal viewer recovery. The library does not
-persist capture preferences; hosts can provide their own controls.
+persist capture preferences.
+
+The interactive three-dot menu includes **Capture quality**, with a JPEG quality
+slider and an expanded list of maximum capture resolutions. **Auto** follows the
+container and DPR; fixed presets range from 960 × 540 to 3840 × 2160. The matching
+option has a checkmark. These are image bounds, not remote page dimensions.
+Changes apply live on the current connection.
+
+Omit `capture` for per-viewer, menu-owned preferences, initially quality 70 and
+automatic bounds. `onCaptureChange` reports changes without taking ownership.
+When `capture` is supplied, the host owns the settings: the callback requests a
+new value and the controls update only after the host changes the prop. Without
+the callback, the controls are disabled. Custom or independent per-axis host
+bounds leave all resolution options unchecked; editing quality preserves them,
+while choosing Auto removes both fixed bounds. Hiding the menu preserves its
+settings.
+
+```tsx
+const [capture, setCapture] = useState<ViewerCaptureOptions>({ quality: 70 });
+
+<CdpViewer
+  cdpUrl={cdpUrl}
+  interactive
+  capture={capture}
+  onCaptureChange={setCapture}
+/>;
+```
 
 ### Interaction
 

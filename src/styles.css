@@ -592,6 +592,72 @@
 .cdpv-root .cdpv-browser-submenu {
   width: min(240px, var(--available-width));
 }
+.cdpv-root .cdpv-capture-quality {
+  width: min(300px, var(--available-width));
+  padding: 14px;
+  outline: none;
+}
+.cdpv-root .cdpv-capture-quality-title {
+  margin: 0 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cdpv-root .cdpv-capture-quality-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.cdpv-root .cdpv-capture-quality-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cdpv-root .cdpv-capture-quality-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cdpv-root .cdpv-capture-quality-field output,
+.cdpv-root .cdpv-capture-quality-label span {
+  color: var(--cdpv-muted);
+}
+.cdpv-root .cdpv-capture-quality-field input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--cdpv-accent);
+}
+.cdpv-root .cdpv-capture-resolutions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cdpv-root .cdpv-capture-resolution-option {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.cdpv-root .cdpv-capture-resolution-option:hover:not([data-disabled]),
+.cdpv-root .cdpv-capture-resolution-option:focus-visible {
+  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+}
+.cdpv-root .cdpv-capture-resolution-option:focus-visible {
+  outline: 2px solid var(--cdpv-accent);
+  outline-offset: -2px;
+}
+.cdpv-root .cdpv-capture-quality-hint {
+  margin: 12px 0 0;
+  color: var(--cdpv-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .cdpv-root .cdpv-browser-menu-heading {
   padding: 7px 10px;
   color: var(--cdpv-muted);

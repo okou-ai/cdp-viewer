@@ -52,7 +52,7 @@ it("updates independent capture preferences without replacing a panel connection
   expect(current.generation).toBe(initial!.generation);
   expect(model.read(model.panels$)[1]).toBe(sibling);
   expect(usageCode(current.options, current.connection)).toContain(
-    'capture={{"quality":50,"maxWidth":1280,"maxHeight":720}}',
+    '({"quality":50,"maxWidth":1280,"maxHeight":720})',
   );
 });
 
@@ -375,6 +375,8 @@ it("generates valid JSX from applied options without endpoints or draft metadata
   expect(code).toContain('useState<WindowSizeSync>("live")');
   expect(code).toContain("windowSizeSync={windowSizeSync}");
   expect(code).toContain("onWindowSizeSyncChange={setWindowSizeSync}");
+  expect(code).toContain("capture={capture}");
+  expect(code).toContain("onCaptureChange={setCapture}");
   expect(code).not.toMatch(/private|token=|browser\.invalid|windowId=\{42\}/);
   expect(
     transpileModule(code, {

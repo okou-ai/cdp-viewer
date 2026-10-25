@@ -7,6 +7,7 @@ import { ViewerController } from "../viewer/controller";
 import type { ViewerActions, ViewerModel } from "../viewer/model";
 import type {
   CdpViewerProps,
+  ViewerCaptureOptions,
   ViewerSnapshot,
   WindowSizeSync,
 } from "../viewer/types";
@@ -32,6 +33,7 @@ export type RuntimeState = CdpViewerProps & {
   notification: Value<ViewerModel["notification$"]>;
   revision: number;
   displayMode: WindowSizeSync;
+  captureOptions: ViewerCaptureOptions;
 };
 
 function effectivePaused(explicit: boolean, inViewport: boolean): boolean {
@@ -82,6 +84,15 @@ export class ViewerBinding {
         canChange:
           state.windowSizeSync === undefined || !!state.onWindowSizeSyncChange,
       });
+    if (
+      !old ||
+      old.capture !== state.capture ||
+      old.onCaptureChange !== state.onCaptureChange
+    )
+      model.run(model.configureCapture$, {
+        controlled: state.capture === undefined ? null : state.capture,
+        canChange: state.capture === undefined || !!state.onCaptureChange,
+      });
     const interactive = state.interactive ?? false;
     if (
       !old ||
@@ -98,7 +109,7 @@ export class ViewerBinding {
     }
     if (!old || old.displayMode !== state.displayMode)
       this.controller?.setWindowSizeSync(state.displayMode);
-    this.controller?.setCapture(state.capture);
+    this.controller?.setCapture(state.captureOptions);
     this.controller?.setExtensions(state.extensions ?? []);
     if (
       !old ||
@@ -215,7 +226,7 @@ export class ViewerBinding {
           paused: effectivePaused(state.paused ?? false, this.inViewport),
           interactive,
           transport: state.transport ?? "shared",
-          ...(state.capture === undefined ? {} : { capture: state.capture }),
+          capture: state.captureOptions,
           onInputReset: (reason) => this.native?.reset(reason),
           onClipboardReset: () => this.native?.clearClipboard(),
           onCaret: (point) => this.native?.place(point),
@@ -246,6 +257,7 @@ export class ViewerBinding {
       retryImage: () => controller.retryImage(),
       onWindowSizeSyncChange: (mode) =>
         this.committed?.onWindowSizeSyncChange?.(mode),
+      onCaptureChange: (capture) => this.committed?.onCaptureChange?.(capture),
     };
     model.run(model.bind$, actions);
     let active = true;
