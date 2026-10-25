@@ -19,6 +19,7 @@ export const propGuide = {
   windowSizeSync: "Appearance & layout / browser menu",
   onWindowSizeSyncChange: "Console / controlled Usage",
   capture: "Image detail",
+  onCaptureChange: "Image detail / browser menu",
   extensions: "Connection options",
   colorScheme: "Viewer theme",
   className: "Framed presentation preset",
@@ -64,13 +65,7 @@ export const defaultOptions = Object.freeze<PlaygroundOptions>({
   framed: false,
 });
 
-export const captureResolutions = [
-  { width: 960, height: 540 },
-  { width: 1280, height: 720 },
-  { width: 1920, height: 1080 },
-  { width: 2560, height: 1440 },
-  { width: 3840, height: 2160 },
-] as const;
+export { captureResolutions } from "../src/viewer/capture";
 
 export function viewerStyle(options: PlaygroundOptions): CdpViewerStyle {
   return {
@@ -148,6 +143,7 @@ export function usageCode(
     "  cdpUrl, onStatusChange, onError,",
     "}: BrowserPreviewProps) {",
     `  const [windowSizeSync, setWindowSizeSync] = useState<WindowSizeSync>(${JSON.stringify(options.windowSizeSync)});`,
+    `  const [capture, setCapture] = useState<NonNullable<CdpViewerProps["capture"]>>(${JSON.stringify(options.capture)});`,
     "",
     "  return (",
     "    <CdpViewer",
@@ -161,7 +157,8 @@ export function usageCode(
     `      transport=${JSON.stringify(options.transport)}`,
     "      windowSizeSync={windowSizeSync}",
     "      onWindowSizeSyncChange={setWindowSizeSync}",
-    `      capture={${JSON.stringify(options.capture)}}`,
+    "      capture={capture}",
+    "      onCaptureChange={setCapture}",
     `      extensions={${extension ? "[browserUse()]" : "[]"}}`,
     ...(options.theme === "inherit"
       ? []

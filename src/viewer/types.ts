@@ -76,8 +76,10 @@ export interface CdpViewerProps {
   readonly windowSizeSync?: WindowSizeSync;
   /** Requests a controlled update, or reports a menu-owned mode change. */
   readonly onWindowSizeSyncChange?: (mode: WindowSizeSync) => void;
-  /** Live image-detail settings; independent of the remote page's viewport. */
+  /** Controlled image detail. Omit for menu-owned settings; independent of page size. */
   readonly capture?: ViewerCaptureOptions;
+  /** Requests a controlled image-detail change, or reports a menu-owned change. */
+  readonly onCaptureChange?: (capture: ViewerCaptureOptions) => void;
   /** Optional adapters, reconciled by ID and key independently of transport. */
   readonly extensions?: readonly ViewerExtension[];
   /** Omit to inherit the host's CSS color-scheme. System follows OS preference. */

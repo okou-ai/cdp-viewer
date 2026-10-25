@@ -592,6 +592,60 @@
 .cdpv-root .cdpv-browser-submenu {
   width: min(240px, var(--available-width));
 }
+.cdpv-root .cdpv-image-detail {
+  width: min(300px, var(--available-width));
+  padding: 14px;
+  outline: none;
+}
+.cdpv-root .cdpv-image-detail-title {
+  margin: 0 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cdpv-root .cdpv-image-detail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.cdpv-root .cdpv-image-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cdpv-root .cdpv-image-detail-field label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cdpv-root .cdpv-image-detail-field output,
+.cdpv-root .cdpv-image-detail-field label span {
+  color: var(--cdpv-muted);
+}
+.cdpv-root .cdpv-image-detail-field input {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--cdpv-accent);
+}
+.cdpv-root .cdpv-image-detail-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--cdpv-border);
+  border-radius: 6px;
+  background: var(--cdpv-background);
+  color: var(--cdpv-foreground);
+  font: inherit;
+}
+.cdpv-root .cdpv-image-detail-hint {
+  margin: 12px 0 0;
+  color: var(--cdpv-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .cdpv-root .cdpv-browser-menu-heading {
   padding: 7px 10px;
   color: var(--cdpv-muted);
