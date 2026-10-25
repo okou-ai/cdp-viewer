@@ -330,8 +330,9 @@ the last valid capture, and correcting it clears its configuration diagnostic.
 An actual stream failure uses normal viewer recovery. The library does not
 persist capture preferences.
 
-The interactive three-dot menu includes **Capture quality**, with a JPEG quality
-slider and an expanded list of maximum capture resolutions. **Auto** follows the
+The interactive three-dot menu includes **Capture quality**. Hover to expand it,
+or activate it with a click, tap or Enter. The panel has a JPEG quality slider
+and an expanded list of maximum capture resolutions. **Auto** follows the
 container and DPR; fixed presets range from 960 × 540 to 3840 × 2160. The matching
 option has a checkmark. These are image bounds, not remote page dimensions.
 Changes apply live on the current connection.

@@ -60,6 +60,15 @@ export function BrowserMenu() {
             className="cdpv-browser-menu"
             aria-label="Browser menu"
             onPointerMove={() => point()}
+            onBlurCapture={(event) => {
+              // Moving into an owned portal stays inside the settings focus boundary.
+              if (
+                event.currentTarget.contains(event.target) &&
+                !event.currentTarget.contains(event.relatedTarget) &&
+                container.current?.contains(event.relatedTarget)
+              )
+                event.stopPropagation();
+            }}
           >
             <TransportSettings />
             <CaptureQuality />

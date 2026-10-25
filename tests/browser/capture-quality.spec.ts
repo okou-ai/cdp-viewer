@@ -58,6 +58,7 @@ for (const [transport, colorScheme] of [
           upstream.send(message);
         });
       });
+      await page.clock.install();
       await page.goto(server.origin);
       await page.addStyleTag({
         content:
@@ -90,11 +91,59 @@ for (const [transport, colorScheme] of [
       const detailTrigger = view.getByRole("menuitem", {
         name: "Capture quality",
       });
-      await detailTrigger.focus();
-      await page.keyboard.press("Enter");
       const detail = view.getByRole("dialog", { name: "Capture quality" });
+      await detailTrigger.hover();
       await expect(detail).toBeVisible();
       const quality = detail.getByRole("slider", { name: "JPEG quality" });
+      await expect(quality).not.toBeFocused();
+      await expect(quality).toHaveValue("70");
+      await quality.hover();
+      await expect(detail).toBeVisible();
+      const initialCapture = captures.at(-1);
+      await detail.getByRole("radio", { name: "1280 × 720" }).click();
+      await expect
+        .poll(() => captures.at(-1))
+        .toMatchObject({
+          maxWidth: 1280,
+          maxHeight: 720,
+        });
+      await detail.getByRole("radio", { name: "Auto" }).click();
+      await expect.poll(() => captures.at(-1)).toEqual(initialCapture);
+      await menu.hover();
+      await expect(detail).toHaveCount(0);
+      await detailTrigger.hover();
+      await expect(detail).toBeVisible();
+      await view
+        .getByRole("menuitem", { name: "Transport", exact: true })
+        .hover();
+      await expect(detail).toHaveCount(0);
+      const transportMenu = view.getByRole("menu", {
+        name: "Transport",
+        exact: true,
+      });
+      await expect(transportMenu).toBeVisible();
+      // Move the real pointer out of the submenu's safe polygon before hit testing.
+      const triggerBox = (await detailTrigger.boundingBox())!;
+      await page.mouse.move(
+        triggerBox.x + triggerBox.width / 2,
+        triggerBox.y + triggerBox.height / 2,
+        { steps: 5 },
+      );
+      await expect(detail).toBeVisible();
+      await expect(transportMenu).toHaveCount(0);
+      // Advance the dependency's hover timers after Escape without moving the pointer.
+      await page.keyboard.press("Escape");
+      await expect(detail).toHaveCount(0);
+      await page.clock.runFor(500);
+      await expect(detail).toHaveCount(0);
+      await expect(detailTrigger).toBeFocused();
+      await detailTrigger.click();
+      await expect(detail).toBeVisible();
+      await expect(quality).toBeFocused();
+      await page.keyboard.press("Escape");
+      await detailTrigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(detail).toBeVisible();
       const resolution = detail.getByRole("radiogroup", {
         name: "Capture resolution maximum",
       });
@@ -196,6 +245,17 @@ for (const [transport, colorScheme] of [
         .click();
       await expect(menu).toBeFocused();
       await menu.click();
+      const rootMenu = view.getByRole("menu", {
+        name: "Browser menu",
+        exact: true,
+      });
+      await expect
+        .poll(() =>
+          rootMenu.evaluate((element) =>
+            element.contains(element.ownerDocument.activeElement),
+          ),
+        )
+        .toBe(true);
       await page.keyboard.press("Escape");
       await expect(menu).toBeFocused();
       await page.getByRole("button", { name: "Host submit" }).click();
@@ -205,3 +265,74 @@ for (const [transport, colorScheme] of [
     }
   });
 }
+
+test.describe("touch capture quality", () => {
+  test.use({
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  test("opens and edits without submitting the host form", async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      const created = backend.context.waitForEvent("page");
+      const target = await backend.session.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+      });
+      const remote = await created;
+      await remote.goto(server.origin + "/fixture/editor");
+      const { windowId } = await backend.session.send(
+        "Browser.getWindowForTarget",
+        {
+          targetId: target.targetId,
+        },
+      );
+      await page.goto(server.origin);
+      await page.addStyleTag({
+        content:
+          "#panels { display:block !important } #viewer-a .cdpv-root { width:320px;height:500px }",
+      });
+      await page.waitForFunction(
+        () => typeof window.configureViewers === "function",
+      );
+      await page.evaluate(
+        async (settings) => window.configureViewers!(settings),
+        {
+          cdpUrl: backend.endpoint,
+          windowA: windowId,
+          second: false,
+          interactive: true,
+          hostForm: true,
+        },
+      );
+      const view = page.locator("#viewer-a .cdpv-root");
+      await expect(view).toHaveAttribute("data-status", "streaming");
+      await view.getByRole("button", { name: "Browser menu" }).tap();
+      await view.getByRole("menuitem", { name: "Capture quality" }).tap();
+      const detail = view.getByRole("dialog", { name: "Capture quality" });
+      await expect(detail).toBeVisible();
+      const quality = detail.getByRole("slider", { name: "JPEG quality" });
+      await expect(quality).toHaveValue("70");
+      await quality.tap();
+      await expect(quality).not.toHaveValue("70");
+      await detail.getByRole("radio", { name: "1280 × 720" }).tap();
+      await expect(
+        detail.getByRole("radio", { name: "1280 × 720" }),
+      ).toBeChecked();
+      await detail.getByRole("radio", { name: "Auto" }).tap();
+      await expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
+      await expect(page.locator("#host-submissions")).toHaveText("0");
+      await page.getByRole("button", { name: "Host submit" }).tap();
+      await expect(detail).toHaveCount(0);
+      await expect(page.locator("#host-submissions")).toHaveText("1");
+    } finally {
+      await backend.close();
+    }
+  });
+});
