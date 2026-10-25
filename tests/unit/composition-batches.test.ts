@@ -173,14 +173,28 @@ it("joins the late composition continuation and its final cleanup receipt before
 
 it("coalesces queued preedit but waits for native completion before the final commit", async () => {
   const a = await fixture();
+  const guards = () =>
+    a.probe.trace.filter(
+      (row) =>
+        row.method === "Browser.getWindowForTarget" &&
+        row.response !== undefined,
+    ).length;
+  const before = guards();
   a.browser.holdMethod = "Input.imeSetComposition";
   expect(a.send([preview("n"), preview("ni"), preview("nihao")])).toBe(true);
   await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
+  await vi.waitFor(() => expect(guards()).toBe(before + 3));
   const first = a.browser.heldCommands[0]!;
   first.socket.reply(first.command);
+  await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(2));
   expect(a.browser.heldCommands.map((c) => c.command.params?.text)).toEqual([
+    "n",
     "nihao",
   ]);
+  expect(a.acks()).toHaveLength(0);
+  const last = a.browser.heldCommands[1]!;
+  a.browser.holdMethod = null;
+  last.socket.reply(last.command);
   await vi.waitFor(() => expect(a.acks()).toHaveLength(1));
   a.send([{ kind: "commit", text: "你好" }]);
   await vi.waitFor(() => expect(a.acks()).toHaveLength(2));
@@ -352,6 +366,36 @@ it("keeps a sibling lane independent while composition cleanup is held", async (
   expect(a.ready()).toHaveLength(0);
   expect(a.acks()).toHaveLength(0);
 });
+
+it.each(["resolve", "reject"] as const)(
+  "admits fresh input while an old generation's remote guard is pending (%s)",
+  async (outcome) => {
+    const a = await fixture();
+    const old = a.probe.generation;
+    a.browser.holdMethod = "Browser.getWindowForTarget";
+    expect(a.send([{ kind: "text", text: "discarded" }])).toBe(true);
+    await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
+    const held = a.browser.heldCommands[0]!;
+    a.browser.holdMethod = null;
+    expect(a.blur()).toBe(true);
+    await vi.waitFor(() => expect(a.ready()).toHaveLength(1));
+    expect(a.send([{ kind: "text", text: "fresh" }])).toBe(true);
+    await vi.waitFor(() => expect(a.acks()).toHaveLength(1));
+    if (outcome === "resolve") held.socket.reply(held.command, { windowId: 0 });
+    else held.socket.reject(held.command, -32000);
+    expect(a.send([{ kind: "text", text: "still current" }])).toBe(true);
+    await vi.waitFor(() => expect(a.acks()).toHaveLength(2));
+    expect(
+      a.socket.commands
+        .filter((c) => c.method === "Input.insertText")
+        .map((c) => c.params?.text),
+    ).toEqual(["fresh", "still current"]);
+    expect(a.acks().some((r) => r.type === "ack" && r.generation === old)).toBe(
+      false,
+    );
+    expect(a.replies).not.toContainEqual({ type: "revoked" });
+  },
+);
 
 it("clears old logical credits only into a fresh acknowledged generation", async () => {
   const a = await fixture();

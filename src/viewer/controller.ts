@@ -806,7 +806,7 @@ export class ViewerController {
         client,
         sessionId,
         // Discovery invalidates moved targets; stable input uses the selected session.
-        async () => this.isCurrent(selection),
+        () => this.isCurrent(selection),
         (navigation) => {
           if (this.isCurrent(selection)) this.model.update({ navigation });
         },

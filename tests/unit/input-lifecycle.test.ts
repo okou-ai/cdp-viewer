@@ -40,12 +40,20 @@ async function mount() {
 }
 
 describe("owned remote input", () => {
-  it("omits preedit still awaiting scope validation when its final result is already available", async () => {
-    const { controller, socket } = await mount();
+  it("omits unsent preedit behind native completion when its final result is already available", async () => {
+    const { browser, controller, socket } = await mount();
     const input = controller.input!;
     const owner = input.owner!;
+    browser.holdMethod = "Input.dispatchMouseEvent";
+    input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, {}, owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const preceding = input.completion(owner);
     input.preedit("obsolete", owner);
     input.commitComposition("你", owner);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command);
+    await preceding;
     await vi.waitFor(() =>
       expect(
         socket.commands.filter((c) => c.method === "Input.insertText"),
@@ -56,14 +64,22 @@ describe("owned remote input", () => {
     ).toHaveLength(0);
   });
 
-  it("coalesces a preparing preview without crossing a queued key gesture", async () => {
-    const { controller, socket } = await mount();
+  it("coalesces unsent previews behind native completion without crossing a queued key gesture", async () => {
+    const { browser, controller, socket } = await mount();
     const input = controller.input!;
     const owner = input.owner!;
+    browser.holdMethod = "Input.dispatchMouseEvent";
+    input.pointer("mouseMoved", { x: 0.5, y: 0.5 }, {}, owner);
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const preceding = input.completion(owner);
     input.preedit("n", owner);
     input.preedit("ni", owner, 0, 2);
     input.key({ type: "keyDown", key: "Shift", code: "ShiftLeft" });
     input.preedit("nihao", owner);
+    browser.holdMethod = null;
+    const held = browser.heldCommands[0]!;
+    held.socket.reply(held.command);
+    await preceding;
     await vi.waitFor(() =>
       expect(
         socket.commands.filter((c) => c.method === "Input.imeSetComposition"),
@@ -423,12 +439,18 @@ describe("owned remote input", () => {
     const input = controller.input!;
     input.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
     await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
-    // The held write counts toward the 64 queued/in-flight operation bound.
+    const owner = input.owner!;
+    const fenced = expect(input.completion(owner)).rejects.toThrow();
+    // The actual reply fence keeps this captured owner's following keys unsent.
     for (let index = 0; index < 64; index++)
-      input.key({ type: "rawKeyDown", key: "ArrowRight", code: "ArrowRight" });
+      input.key(
+        { type: "rawKeyDown", key: "ArrowRight", code: "ArrowRight" },
+        owner,
+      );
     expect(model.getSnapshot().error?.kind).toBe("input");
     browser.holdMethod = null;
     for (const held of browser.heldCommands) held.socket.reply(held.command);
+    await fenced;
     input.focus();
     input.text("recovered queue");
     await vi.waitFor(() =>

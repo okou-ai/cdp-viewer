@@ -13,13 +13,13 @@ async function fixture() {
   const client = new CdpClient("wss://fixture.invalid", browser.factory);
   clients.push(client);
   await client.opened;
-  let member = true;
-  const membership = vi.fn(async () => member);
+  let selected = true;
+  const isCurrent = vi.fn(() => selected);
   const reset = vi.fn();
   const input = new InputSession(
     client,
     "original-session",
-    membership,
+    isCurrent,
     () => {},
     reset,
     () => {},
@@ -32,28 +32,28 @@ async function fixture() {
     browser,
     client,
     input,
-    membership,
+    isCurrent,
     reset,
     move: () => {
-      member = false;
+      selected = false;
     },
     socket: browser.sockets[0]!,
   };
 }
 
-it("joins sent effects without performing a new membership check", async () => {
+it("joins sent effects without acquiring current selection authority", async () => {
   const a = await fixture();
   a.browser.holdMethod = "Input.dispatchKeyEvent";
   const owner = a.input.owner!;
   a.input.key(shift);
   await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
-  const checked = a.membership.mock.calls.length;
+  const checked = a.isCurrent.mock.calls.length;
   a.move();
   const complete = a.input.completion(owner);
   const held = a.browser.heldCommands[0]!;
   held.socket.reply(held.command);
   await expect(complete).resolves.toBeUndefined();
-  expect(a.membership).toHaveBeenCalledTimes(checked);
+  expect(a.isCurrent).toHaveBeenCalledTimes(checked);
 });
 
 it("publishes terminal admission before callbacks and joins original replies while a sibling progresses", async () => {
@@ -108,7 +108,7 @@ it("retains a late composition finally cleanup in the original completion fence"
   a.browser.holdMethod = "Input.imeSetComposition";
   a.input.preedit("owned preview", a.input.owner!);
   await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
-  const checked = a.membership.mock.calls.length;
+  const checked = a.isCurrent.mock.calls.length;
   const retiring = a.input.retire();
   await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(2));
   const cleanup = a.browser.heldCommands[1]!;
@@ -131,7 +131,7 @@ it("retains a late composition finally cleanup in the original completion fence"
   expect(late.command.sessionId).toBe(original.command.sessionId);
   late.socket.reply(late.command);
   await retiring;
-  expect(a.membership).toHaveBeenCalledTimes(checked);
+  expect(a.isCurrent).toHaveBeenCalledTimes(checked);
 });
 
 it.each(["denied", "missing", "null", "array", "ambiguous"] as const)(

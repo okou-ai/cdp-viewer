@@ -60,7 +60,7 @@ async function fixture(requestTimeout = 1000) {
   const input = new InputSession(
     client,
     "session",
-    async () => true,
+    () => true,
     () => {},
     () => {},
     () => {},

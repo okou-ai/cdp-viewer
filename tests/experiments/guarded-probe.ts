@@ -88,12 +88,15 @@ export class GuardedProbe {
   private transitioning = false;
   private transitionDeadline: ReturnType<typeof setTimeout> | undefined;
   private currentGeneration = randomUUID();
+  private selectionReceivedThrough = 0;
   private selectionThrough = 0;
   private currentNavigation: ViewerNavigation | null = null;
   private readonly outstanding = new Set<number>();
   private readonly waiting: number[] = [];
   private readonly requests = new Map<number, Trace>();
   private readonly client: CdpClient;
+  private directory: TargetDirectory | null = null;
+  private admission: Promise<void> = Promise.resolve();
   private input: InputSession | null = null;
   private sessionId: string | null = null;
   private removeEvents: (() => void) | undefined;
@@ -204,6 +207,7 @@ export class GuardedProbe {
       if (signal?.aborted) probe.close();
       await probe.client.opened;
       const directory = new TargetDirectory(probe.client, windowId);
+      probe.directory = directory;
       await directory.assertMember(targetId);
       const { sessionId } = await probe.client.request(
         "Target.attachToTarget",
@@ -214,13 +218,11 @@ export class GuardedProbe {
       );
       probe.sessionId = sessionId;
       await probe.client.request("Page.enable", undefined, sessionId);
+      await directory.assertMember(targetId);
       const input = new InputSession(
         probe.client,
         sessionId,
-        async () => {
-          await directory.assertMember(targetId);
-          return !probe.stopped;
-        },
+        () => !probe.stopped,
         (value) => {
           probe.currentNavigation = value;
           if (mode === "composition" && !probe.stopped)
@@ -327,10 +329,38 @@ export class GuardedProbe {
       this.peakOutstanding,
       this.outstanding.size,
     );
-    this.waiting.push(sequence);
-    if (action.kind === "key") this.input!.key(action.key);
-    else this.input!.text(action.text);
+    const owner = this.input!.owner!;
+    this.admit(owner, this.currentGeneration, () => {
+      this.waiting.push(sequence);
+      if (action.kind === "key") this.input!.key(action.key, owner);
+      else this.input!.text(action.text, owner);
+    });
     return true;
+  }
+
+  private current(owner: InputOwner, generation: string): boolean {
+    return (
+      !this.stopped &&
+      generation === this.currentGeneration &&
+      this.input?.owner === owner
+    );
+  }
+
+  /** The adjacent experiment owns real remote admission; production validity is local. */
+  private admit(
+    owner: InputOwner,
+    generation: string,
+    dispatch: () => void,
+  ): void {
+    this.admission = this.admission
+      .then(async () => {
+        if (!this.current(owner, generation)) return;
+        await this.directory!.assertMember(this.targetId);
+        if (this.current(owner, generation)) dispatch();
+      })
+      .catch(() => {
+        if (this.current(owner, generation)) this.revoke();
+      });
   }
 
   private receiveBatch(value: unknown): boolean {
@@ -351,7 +381,7 @@ export class GuardedProbe {
       this.revoke();
       return false;
     }
-    let selection = this.selectionThrough;
+    let selection = this.selectionReceivedThrough;
     for (const action of actions)
       if (action.kind === "selection" && action.request !== ++selection) {
         this.revoke();
@@ -363,7 +393,14 @@ export class GuardedProbe {
     const count =
       [...this.batches.values()].reduce((sum, n) => sum + n, 0) +
       actions.length;
-    if (count > 64) {
+    // Pending admission retains its actions and one native completion fence.
+    // Completed actions still consume wire credit, but no longer queue space.
+    const pending = [...this.batches].reduce(
+      (sum, [sequence, size]) =>
+        sum + (sequence > this.completedThrough ? size + 1 : 0),
+      actions.length + 1,
+    );
+    if (count > 64 || pending > 64) {
       this.revoke();
       return false;
     }
@@ -372,43 +409,52 @@ export class GuardedProbe {
     this.peakOutstanding = Math.max(this.peakOutstanding, count);
     const owner = this.input!.owner!;
     const generation = this.currentGeneration;
+    this.selectionReceivedThrough = selection;
     for (const action of actions) {
       if (this.stopped || generation !== this.currentGeneration) return false;
-      if (action.kind === "key") this.input!.key(action.key);
-      else if (action.kind === "text") this.input!.text(action.text, owner);
-      else if (action.kind === "pointer")
-        this.input!.pointer(action.type, action.point, action.details);
-      else if (action.kind === "preedit")
-        this.input!.preedit(
-          action.text,
-          owner,
-          action.selectionStart,
-          action.selectionEnd,
-        );
-      else if (action.kind === "commit")
-        this.input!.commitComposition(action.text, owner);
-      else if (action.kind === "selection") {
-        this.selectionThrough = action.request;
-        void this.readSelection(action.request, generation, owner);
-      } else this.input!.navigate(action.action);
+      this.admit(owner, generation, () => {
+        if (action.kind === "key") this.input!.key(action.key, owner);
+        else if (action.kind === "text") this.input!.text(action.text, owner);
+        else if (action.kind === "pointer")
+          this.input!.pointer(action.type, action.point, action.details, owner);
+        else if (action.kind === "preedit")
+          this.input!.preedit(
+            action.text,
+            owner,
+            action.selectionStart,
+            action.selectionEnd,
+          );
+        else if (action.kind === "commit")
+          this.input!.commitComposition(action.text, owner);
+        else if (action.kind === "selection") {
+          this.selectionThrough = action.request;
+          void this.readSelection(action.request, generation, owner);
+        } else this.input!.navigate(action.action);
+      });
     }
-    void this.input!.completion(owner).then(
-      () => {
-        if (this.stopped || generation !== this.currentGeneration) return;
-        this.completed.add(sequence);
-        while (this.completed.delete(this.completedThrough + 1))
-          this.completedThrough++;
-        this.emit({
-          type: "ack",
-          sequence,
-          ok: true,
-          ...(this.mode === "composition" ? { generation } : {}),
-        });
-      },
-      () => {
-        if (generation === this.currentGeneration) this.revoke();
-      },
-    );
+    void this.admission
+      .then(() => {
+        if (!this.current(owner, generation))
+          throw new Error("Fixture action was cancelled");
+        return this.input!.completion(owner);
+      })
+      .then(
+        () => {
+          if (this.stopped || generation !== this.currentGeneration) return;
+          this.completed.add(sequence);
+          while (this.completed.delete(this.completedThrough + 1))
+            this.completedThrough++;
+          this.emit({
+            type: "ack",
+            sequence,
+            ok: true,
+            ...(this.mode === "composition" ? { generation } : {}),
+          });
+        },
+        () => {
+          if (generation === this.currentGeneration) this.revoke();
+        },
+      );
     return !this.stopped;
   }
 
@@ -429,7 +475,7 @@ export class GuardedProbe {
       !this.stopped &&
       generation === this.currentGeneration &&
       this.input!.owner === owner &&
-      request === this.selectionThrough;
+      request === this.selectionReceivedThrough;
     try {
       const result = await this.input!.selection(owner);
       if (current())
@@ -460,11 +506,15 @@ export class GuardedProbe {
     }, this.transitionDeadlineMs);
     const previous = this.currentGeneration;
     const generation = (this.currentGeneration = randomUUID());
+    // Read-only guards from the old generation cannot delay fresh admission.
+    // Their captured owner/generation still prevents late dispatch or credit.
+    this.admission = Promise.resolve();
     this.next = 1;
     this.receivedThrough = 0;
     this.completedThrough = 0;
     this.completed.clear();
     this.batches.clear();
+    this.selectionReceivedThrough = 0;
     this.selectionThrough = 0;
     const owner: InputOwner = this.input!.owner!;
     const current = () =>
