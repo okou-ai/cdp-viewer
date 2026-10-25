@@ -95,20 +95,38 @@ for (const [transport, colorScheme] of [
       const detail = view.getByRole("dialog", { name: "Capture quality" });
       await expect(detail).toBeVisible();
       const quality = detail.getByRole("slider", { name: "JPEG quality" });
-      const resolution = detail.getByRole("combobox", {
+      const resolution = detail.getByRole("radiogroup", {
         name: "Capture resolution maximum",
       });
+      const automatic = resolution.getByRole("radio", { name: "Auto" });
+      const firstPreset = resolution.getByRole("radio", { name: "960 × 540" });
+      const selectedPreset = resolution.getByRole("radio", {
+        name: "1280 × 720",
+      });
+      await expect(resolution.getByRole("radio")).toHaveCount(6);
+      await expect(detail.getByRole("combobox")).toHaveCount(0);
+      for (const option of await resolution.getByRole("radio").all())
+        await expect(option).toBeVisible();
+      await expect(automatic).toBeChecked();
       await expect(quality).toBeFocused();
       await expect(quality).toHaveValue("70");
       await page.keyboard.press("ArrowRight");
       await expect(quality).toHaveValue("71");
       await expect(quality).toBeFocused();
+      await expect.poll(() => captures.at(-1)).toMatchObject({ quality: 71 });
+      const automaticCapture = captures.at(-1)!;
       await page.keyboard.press("Tab");
-      await expect(resolution).toBeFocused();
+      await expect(automatic).toBeFocused();
       await page.keyboard.press("ArrowDown");
-      await expect(resolution).toHaveValue("960x540");
-      await expect(resolution).toBeFocused();
-      await resolution.selectOption("1280x720");
+      await expect(firstPreset).toBeChecked();
+      await expect(firstPreset).toBeFocused();
+      await selectedPreset.click();
+      await expect(selectedPreset).toBeChecked();
+      await expect(
+        resolution.getByRole("radio", { checked: true }),
+      ).toHaveCount(1);
+      await expect(selectedPreset.locator("svg")).toBeVisible();
+      await expect(automatic.locator("svg")).toHaveCount(0);
       await expect
         .poll(() => captures.at(-1))
         .toMatchObject({ quality: 71, maxWidth: 1280, maxHeight: 720 });
@@ -133,12 +151,47 @@ for (const [transport, colorScheme] of [
       await view.screenshot({
         path: info.outputPath(`capture-quality-${colorScheme}.png`),
       });
+      await automatic.click();
+      await expect(automatic).toBeChecked();
+      await expect.poll(() => captures.at(-1)).toEqual(automaticCapture);
+      await page.addStyleTag({
+        content: "#viewer-a .cdpv-root { width:320px;height:420px }",
+      });
+      await expect
+        .poll(async () => {
+          const root = (await view.boundingBox())!;
+          const popup = (await detail.boundingBox())!;
+          return (
+            popup.x >= root.x &&
+            popup.y >= root.y &&
+            popup.x + popup.width <= root.x + root.width &&
+            popup.y + popup.height <= root.y + root.height
+          );
+        })
+        .toBe(true);
+      const lastPreset = resolution.getByRole("radio", { name: "3840 × 2160" });
+      await lastPreset.click();
+      await expect(lastPreset).toBeChecked();
+      await automatic.click();
+      await expect(automatic).toBeChecked();
+      expect(remoteWrites).toBe(originalWrites);
+      expect(sockets).toBe(originalSockets);
       await page.keyboard.press("Escape");
       await expect(detail).toHaveCount(0);
       await expect(detailTrigger).toBeFocused();
       await expect(
         view.getByRole("menu", { name: "Browser menu", exact: true }),
       ).toBeVisible();
+      const fit = view.getByRole("menuitem", { name: "Fit to this viewer" });
+      await fit.hover();
+      await expect(
+        view.getByRole("menu", { name: "Fit to this viewer", exact: true }),
+      ).toBeVisible();
+      await view
+        .getByRole("menuitemradio", { name: "Do not sync automatically" })
+        .click();
+      await expect(menu).toBeFocused();
+      await menu.click();
       await page.keyboard.press("Escape");
       await expect(menu).toBeFocused();
       await page.getByRole("button", { name: "Host submit" }).click();

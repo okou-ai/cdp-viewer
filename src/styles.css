@@ -616,29 +616,41 @@
   flex-direction: column;
   gap: 8px;
 }
-.cdpv-root .cdpv-capture-quality-field label {
+.cdpv-root .cdpv-capture-quality-label {
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
 .cdpv-root .cdpv-capture-quality-field output,
-.cdpv-root .cdpv-capture-quality-field label span {
+.cdpv-root .cdpv-capture-quality-label span {
   color: var(--cdpv-muted);
 }
-.cdpv-root .cdpv-capture-quality-field input {
+.cdpv-root .cdpv-capture-quality-field input[type="range"] {
   width: 100%;
   margin: 0;
   accent-color: var(--cdpv-accent);
 }
-.cdpv-root .cdpv-capture-quality-field select {
+.cdpv-root .cdpv-capture-resolutions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cdpv-root .cdpv-capture-resolution-option {
   width: 100%;
   min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--cdpv-border);
-  border-radius: 6px;
-  background: var(--cdpv-background);
-  color: var(--cdpv-foreground);
+  border: 0;
+  background: transparent;
+  color: inherit;
   font: inherit;
+  text-align: start;
+}
+.cdpv-root .cdpv-capture-resolution-option:hover:not([data-disabled]),
+.cdpv-root .cdpv-capture-resolution-option:focus-visible {
+  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+}
+.cdpv-root .cdpv-capture-resolution-option:focus-visible {
+  outline: 2px solid var(--cdpv-accent);
+  outline-offset: -2px;
 }
 .cdpv-root .cdpv-capture-quality-hint {
   margin: 12px 0 0;

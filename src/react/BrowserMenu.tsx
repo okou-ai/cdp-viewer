@@ -17,10 +17,13 @@ export function BrowserMenu() {
   const mode = viewerScope.useValue(model.windowSizeSync$);
   const display = viewerScope.useValue(model.display$);
   const controls = viewerScope.useValue(model.controls$);
+  const canHover = viewerScope.useValue(model.browserMenuHover$);
   const chooseMode = viewerScope.useCommand(model.chooseWindowSizeSync$);
   const sync = viewerScope.useCommand(model.syncDisplay$);
+  const point = viewerScope.useCommand(model.pointBrowserMenu$);
+  const reset = viewerScope.useCommand(model.resetBrowserMenu$);
   return (
-    <Menu.Root modal={false}>
+    <Menu.Root modal={false} onOpenChange={() => reset()}>
       <Menu.Trigger
         type="button"
         className="cdpv-button cdpv-browser-menu-trigger"
@@ -52,10 +55,24 @@ export function BrowserMenu() {
           sideOffset={6}
           collisionPadding={8}
         >
-          <Menu.Popup className="cdpv-browser-menu" aria-label="Browser menu">
+          <Menu.Popup
+            className="cdpv-browser-menu"
+            aria-label="Browser menu"
+            onPointerMove={() => point()}
+          >
             <CaptureQuality />
-            <Menu.SubmenuRoot>
-              <Menu.SubmenuTrigger className="cdpv-browser-menu-item">
+            <Menu.SubmenuRoot
+              onOpenChange={(open, details) => {
+                if (open && details.reason === "trigger-hover" && !canHover)
+                  details.cancel();
+              }}
+            >
+              <Menu.SubmenuTrigger
+                className="cdpv-browser-menu-item"
+                onMouseEnter={(event) => {
+                  if (!canHover) event.preventBaseUIHandler();
+                }}
+              >
                 <Scaling size={16} aria-hidden="true" />
                 Fit to this viewer
                 <ChevronRight

@@ -89,9 +89,7 @@ test("capture quality menu stays synchronized with the demo's external controls"
     await quality.focus();
     await page.keyboard.press("ArrowRight");
     await expect(externalQuality).toHaveValue("71");
-    await detail
-      .getByRole("combobox", { name: "Capture resolution maximum" })
-      .selectOption("1280x720");
+    await detail.getByRole("radio", { name: "1280 × 720" }).click();
     await expect(externalResolution).toHaveValue("1280x720");
     await externalQuality.click();
     await expect(menu).toHaveAttribute("aria-expanded", "false");

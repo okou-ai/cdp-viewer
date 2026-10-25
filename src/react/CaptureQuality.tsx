@@ -1,6 +1,8 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
-import { ChevronRight, SlidersHorizontal } from "lucide-react";
+import { Radio } from "@base-ui/react/radio";
+import { RadioGroup } from "@base-ui/react/radio-group";
+import { Check, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { captureResolutions, defaultCapture } from "../viewer/capture";
 import { viewerScope } from "./context";
 import { useViewerElements } from "./runtime";
@@ -10,7 +12,9 @@ export function CaptureQuality() {
   const model = viewerScope.useModel();
   const capture = viewerScope.useValue(model.capture$);
   const canChange = viewerScope.useValue(model.canChangeCapture$);
+  const open = viewerScope.useValue(model.captureMenuOpen$);
   const choose = viewerScope.useCommand(model.chooseCapture$);
+  const setOpen = viewerScope.useCommand(model.setCaptureMenu$);
   const identity = viewerScope.useIdentity();
   const automatic =
     capture.maxWidth === undefined && capture.maxHeight === undefined;
@@ -24,7 +28,12 @@ export function CaptureQuality() {
       ? `${preset.width}x${preset.height}`
       : "custom";
   return (
-    <Popover.Root>
+    <Popover.Root
+      open={open}
+      onOpenChange={(next, details) =>
+        setOpen({ open: next, keyboard: details.reason === "escape-key" })
+      }
+    >
       <Popover.Trigger
         nativeButton={false}
         role="menuitem"
@@ -71,7 +80,10 @@ export function CaptureQuality() {
               className="cdpv-capture-quality-fields"
             >
               <div className="cdpv-capture-quality-field">
-                <label htmlFor={`${identity}-quality`}>
+                <label
+                  htmlFor={`${identity}-quality`}
+                  className="cdpv-capture-quality-label"
+                >
                   JPEG quality
                   <output htmlFor={`${identity}-quality`}>
                     {capture.quality ?? defaultCapture.quality}
@@ -90,14 +102,19 @@ export function CaptureQuality() {
                 />
               </div>
               <div className="cdpv-capture-quality-field">
-                <label htmlFor={`${identity}-resolution`}>
-                  Capture resolution <span>maximum</span>
-                </label>
-                <select
+                <span
                   id={`${identity}-resolution`}
+                  className="cdpv-capture-quality-label"
+                >
+                  Capture resolution <span>maximum</span>
+                </span>
+                <RadioGroup
+                  aria-labelledby={`${identity}-resolution`}
+                  className="cdpv-capture-resolutions"
                   value={resolution}
-                  onChange={(event) => {
-                    if (event.target.value === "automatic") {
+                  disabled={!canChange}
+                  onValueChange={(value) => {
+                    if (value === "automatic") {
                       choose(
                         capture.quality === undefined
                           ? {}
@@ -106,8 +123,7 @@ export function CaptureQuality() {
                       return;
                     }
                     const selected = captureResolutions.find(
-                      ({ width, height }) =>
-                        `${width}x${height}` === event.target.value,
+                      ({ width, height }) => `${width}x${height}` === value,
                     );
                     if (selected)
                       choose({
@@ -117,21 +133,32 @@ export function CaptureQuality() {
                       });
                   }}
                 >
-                  <option value="automatic">
-                    Automatic (container and DPR)
-                  </option>
-                  {resolution === "custom" && (
-                    <option value="custom" disabled>
-                      Custom ({capture.maxWidth ?? "auto"} ×{" "}
-                      {capture.maxHeight ?? "auto"})
-                    </option>
-                  )}
-                  {captureResolutions.map(({ width, height }) => (
-                    <option key={width} value={`${width}x${height}`}>
-                      {width} × {height}
-                    </option>
+                  {[
+                    { value: "automatic", label: "Auto" },
+                    ...captureResolutions.map(({ width, height }) => ({
+                      value: `${width}x${height}`,
+                      label: `${width} × ${height}`,
+                    })),
+                  ].map(({ value, label }) => (
+                    <Radio.Root
+                      key={value}
+                      value={value}
+                      nativeButton
+                      render={<button type="button" />}
+                      className="cdpv-browser-menu-item cdpv-capture-resolution-option"
+                    >
+                      <span
+                        className="cdpv-browser-menu-check"
+                        aria-hidden="true"
+                      >
+                        <Radio.Indicator>
+                          <Check size={16} />
+                        </Radio.Indicator>
+                      </span>
+                      {label}
+                    </Radio.Root>
                   ))}
-                </select>
+                </RadioGroup>
               </div>
             </fieldset>
             <Popover.Description className="cdpv-capture-quality-hint">

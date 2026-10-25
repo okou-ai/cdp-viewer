@@ -224,6 +224,30 @@ function createViewerSignals() {
       get(actions$)?.onCaptureChange?.(next);
     },
   );
+  const internalCaptureMenu$ = state<"closed" | "open" | "keyboard-closed">(
+    "closed",
+  );
+  const captureMenuOpen$ = computed(
+    (get) => get(internalCaptureMenu$) === "open",
+  );
+  const browserMenuHover$ = computed(
+    (get) => get(internalCaptureMenu$) === "closed",
+  );
+  const setCaptureMenu$ = command(
+    ({ set }, value: { open: boolean; keyboard: boolean }) =>
+      set(
+        internalCaptureMenu$,
+        value.open ? "open" : value.keyboard ? "keyboard-closed" : "closed",
+      ),
+  );
+  const pointBrowserMenu$ = command(({ get, set }) => {
+    // Uncovering a sibling under a stationary pointer must preserve keyboard focus.
+    if (get(internalCaptureMenu$) === "keyboard-closed")
+      set(internalCaptureMenu$, "closed");
+  });
+  const resetBrowserMenu$ = command(({ set }) =>
+    set(internalCaptureMenu$, "closed"),
+  );
   // Clipboard text is private and must never enter ViewerSnapshot/callbacks.
   const internalClipboard$ = state<ClipboardRecovery | null>(null);
   const clipboard$ = computed((get) => get(internalClipboard$));
@@ -696,6 +720,11 @@ function createViewerSignals() {
     canChangeCapture$,
     configureCapture$,
     chooseCapture$,
+    captureMenuOpen$,
+    browserMenuHover$,
+    setCaptureMenu$,
+    pointBrowserMenu$,
+    resetBrowserMenu$,
     clipboard$,
     setClipboard$,
     copyClipboard$,

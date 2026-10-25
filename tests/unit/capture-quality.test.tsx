@@ -81,12 +81,14 @@ it.each(["shared", "split"] as const)(
     const detail = await openDetail(owner);
     const quality = detail.getByRole("slider", { name: "JPEG quality" });
     expect(quality).toHaveValue("70");
+    expect(detail.getAllByRole("radio")).toHaveLength(6);
+    expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
+    expect(detail.queryByRole("combobox")).not.toBeInTheDocument();
     fireEvent.change(quality, { target: { value: "0" } });
     expect(quality).toHaveValue("0");
-    await userEvent.selectOptions(
-      detail.getByRole("combobox", { name: "Capture resolution maximum" }),
-      "1280x720",
-    );
+    await userEvent.click(detail.getByRole("radio", { name: "1280 × 720" }));
+    expect(detail.getByRole("radio", { name: "1280 × 720" })).toBeChecked();
+    expect(detail.getAllByRole("radio", { checked: true })).toHaveLength(1);
     await waitFor(() =>
       expect(
         fake.sockets
@@ -105,11 +107,9 @@ it.each(["shared", "split"] as const)(
       maxWidth: 1280,
       maxHeight: 720,
     });
-    await userEvent.selectOptions(
-      detail.getByRole("combobox", { name: "Capture resolution maximum" }),
-      "automatic",
-    );
+    await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
     expect(changed).toHaveBeenLastCalledWith({ quality: 0 });
+    expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
     expect(owner.getByLabelText("Remote browser input")).toBe(input);
     expect(fake.sockets).toEqual(sockets);
     expect(
@@ -127,11 +127,7 @@ it.each(["shared", "split"] as const)(
     expect(
       siblingDetail.getByRole("slider", { name: "JPEG quality" }),
     ).toHaveValue("70");
-    expect(
-      siblingDetail.getByRole("combobox", {
-        name: "Capture resolution maximum",
-      }),
-    ).toHaveValue("automatic");
+    expect(siblingDetail.getByRole("radio", { name: "Auto" })).toBeChecked();
   },
 );
 
@@ -152,13 +148,12 @@ it("requests controlled capture changes and waits for the host to apply them", a
   const sockets = [...fake.sockets];
   const detail = await openDetail();
   const quality = detail.getByRole("slider", { name: "JPEG quality" });
-  const resolution = detail.getByRole("combobox", {
+  const resolution = detail.getByRole("radiogroup", {
     name: "Capture resolution maximum",
   });
-  expect(resolution).toHaveValue("custom");
   expect(
-    detail.getByRole("option", { name: "Custom (1234 × auto)" }),
-  ).toBeInTheDocument();
+    within(resolution).queryAllByRole("radio", { checked: true }),
+  ).toHaveLength(0);
   const before = fake.sockets
     .flatMap((socket) => socket.commands)
     .filter((command) => command.method === "Page.startScreencast").length;
@@ -182,10 +177,31 @@ it("requests controlled capture changes and waits for the host to apply them", a
         .at(-1)?.params?.quality,
     ).toBe(80),
   );
-  await userEvent.selectOptions(resolution, "automatic");
+  await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
   expect(changed).toHaveBeenLastCalledWith({ quality: 80 });
-  expect(resolution).toHaveValue("custom");
+  expect(
+    within(resolution).queryAllByRole("radio", { checked: true }),
+  ).toHaveLength(0);
   expect(fake.sockets).toEqual(sockets);
+});
+
+it("checks only exact resolution matches and leaves custom bounds unchecked", async () => {
+  browser();
+  const props = { cdpUrl: "wss://fixture.invalid", interactive: true };
+  const view = render(
+    <CdpViewer {...props} capture={{ maxWidth: 1280, maxHeight: 720 }} />,
+  );
+  const detail = await openDetail();
+  expect(detail.getByRole("radio", { name: "1280 × 720" })).toBeChecked();
+  expect(detail.getAllByRole("radio", { checked: true })).toHaveLength(1);
+  view.rerender(
+    <CdpViewer {...props} capture={{ maxWidth: 1280, maxHeight: 721 }} />,
+  );
+  expect(detail.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+  view.rerender(<CdpViewer {...props} capture={{ maxWidth: 1280 }} />);
+  expect(detail.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+  view.rerender(<CdpViewer {...props} capture={{ quality: 0 }} />);
+  expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
 });
 
 it("keeps fixed host settings disabled and makes callback changes live without reconnecting", async () => {
@@ -198,15 +214,11 @@ it("keeps fixed host settings disabled and makes callback changes live without r
   );
   const detail = await openDetail();
   const quality = detail.getByRole("slider", { name: "JPEG quality" });
-  const resolution = detail.getByRole("combobox", {
-    name: "Capture resolution maximum",
-  });
   expect(quality).toHaveValue("0");
   expect(quality).toBeDisabled();
-  expect(resolution).toBeDisabled();
-  expect(
-    detail.getByRole("option", { name: "Custom (auto × 720)" }),
-  ).toBeInTheDocument();
+  for (const option of detail.getAllByRole("radio"))
+    expect(option).toBeDisabled();
+  expect(detail.queryAllByRole("radio", { checked: true })).toHaveLength(0);
   fireEvent.change(quality, { target: { value: "40" } });
   expect(quality).toHaveValue("0");
   const first = vi.fn();
