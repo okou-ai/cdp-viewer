@@ -121,7 +121,7 @@ for (const [transport, bounded] of [
         const sync = async () => {
           await view.getByRole("button", { name: "Browser menu" }).click();
           await view
-            .getByRole("menuitem", { name: "Sync now", exact: true })
+            .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
             .click();
         };
         await sync();
@@ -364,7 +364,7 @@ for (const dpr of [1, 2]) {
         const sync = async () => {
           await view.getByRole("button", { name: "Browser menu" }).click();
           await view
-            .getByRole("menuitem", { name: "Sync now", exact: true })
+            .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
             .click();
         };
         await sync();
@@ -552,7 +552,7 @@ for (const dpr of [1, 2]) {
         await remote.locator("#plain").focus();
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
-          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
           .click();
         const desired = {
           width: Math.floor(box.width),
@@ -622,7 +622,7 @@ for (const dpr of [1, 2]) {
         const synchronizedWrites = writes;
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
-          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
           .click();
         await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
         expect(writes).toBe(synchronizedWrites);

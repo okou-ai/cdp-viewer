@@ -1005,7 +1005,7 @@ test.describe("controlled window-size synchronization", () => {
       expect(await remoteSize()).toEqual(fitted);
       await menu.click();
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       await expectFit();
       await expect(mode).toHaveValue("off");

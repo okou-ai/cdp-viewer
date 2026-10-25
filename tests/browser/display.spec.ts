@@ -101,7 +101,7 @@ for (const boundary of ["override", "restore"] as const) {
       const sync = async () => {
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
-          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
           .click();
       };
       await sync();
@@ -358,7 +358,7 @@ for (const nativeDpr of [1, 2]) {
       await expect(mainMenu).toBeVisible();
       await expect(fit).toBeFocused();
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       const canvas = view.locator("canvas");
       const box = await canvas.boundingBox();
@@ -442,7 +442,7 @@ for (const nativeDpr of [1, 2]) {
       // Menu remains a combined manual action in initial mode.
       await menu.click();
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       await expect(view.getByRole("menu")).toHaveCount(0);
       await expect.poll(() => remote.evaluate(() => innerWidth)).toBe(698);
@@ -511,10 +511,10 @@ for (const nativeDpr of [1, 2]) {
       await page.keyboard.press("F8");
       await menu.click();
       await expect(
-        view.getByRole("menuitem", { name: "Sync now", exact: true }),
+        view.getByRole("menuitem", { name: "Fit page to viewer", exact: true }),
       ).toBeVisible();
       await expect(
-        view.getByRole("menuitem", { name: "Sync now", exact: true }),
+        view.getByRole("menuitem", { name: "Fit page to viewer", exact: true }),
       ).toBeEnabled();
       await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
       const startsBeforeReuse = commands.filter(
@@ -527,7 +527,7 @@ for (const nativeDpr of [1, 2]) {
       // Earlier size/density changes may legitimately need a capture fence or
       // the bounded clipped-image recovery.
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       await expect(view.getByRole("menu")).toHaveCount(0);
       await expect(view.locator(".cdpv-spinning")).toHaveCount(0);
@@ -583,7 +583,7 @@ for (const nativeDpr of [1, 2]) {
         })
         .toBeLessThanOrEqual(1);
       await expect(
-        view.getByRole("menuitem", { name: "Sync now", exact: true }),
+        view.getByRole("menuitem", { name: "Fit page to viewer", exact: true }),
       ).toBeInViewport({ ratio: 1 });
       await fit.click();
       await expect(modes).toBeVisible();
@@ -844,7 +844,7 @@ for (const nativeDpr of [1, 2]) {
       const menu = view.getByRole("button", { name: "Browser menu" });
       await menu.click();
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       await verify("zoom 80%");
       // Force a real geometry change: an already presented size is a no-op and
@@ -855,7 +855,7 @@ for (const nativeDpr of [1, 2]) {
       failContentsSize = true;
       await menu.click();
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       await expect(view.getByRole("alert")).toContainText(
         "could not be synchronized",
@@ -956,7 +956,7 @@ for (const mode of ["off", "live"] as const) {
       if (mode === "off") {
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
-          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
           .click();
       } else await configure("live");
       await expect.poll(() => first.evaluate(() => devicePixelRatio)).toBe(2);

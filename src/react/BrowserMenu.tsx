@@ -149,14 +149,15 @@ export function BrowserMenu() {
             <Menu.Item
               className="cdpv-browser-menu-item"
               disabled={!controls.canSyncDisplay}
+              title="Match the remote page size and pixel density to this viewer."
               onClick={() => sync()}
             >
               <Maximize size={16} aria-hidden="true" />
-              {display.pending ? "Syncing…" : "Sync now"}
+              {display.pending ? "Fitting page…" : "Fit page to viewer"}
             </Menu.Item>
             {display.pointerBlocked && !display.pending && (
               <div className="cdpv-browser-menu-heading" role="status">
-                Use Sync now to resume pointer input
+                Use Fit page to viewer to resume pointer input
               </div>
             )}
           </Menu.Popup>

@@ -419,10 +419,10 @@ is discarded and closed. No connection credentials are persisted by the library.
 
 The three-dot menu to the right of the interactive address bar offers three modes:
 **Do not sync automatically**, **Sync once on opening**, and **Sync continuously**.
-Its single **Sync now** action always remains available when the stream and local
-geometry are ready, and synchronizes both the page size and DPR in every mode.
-It is temporarily disabled while a synchronization is pending. Modes apply per
-viewer; the library does not persist settings.
+The **Fit page to viewer** action matches the remote page size and pixel density
+to the viewer in every mode. It is available when the stream and local geometry
+are ready, and disabled while fitting is pending. Modes apply per viewer; the
+library does not persist settings.
 
 Set `showSettingsMenu={false}` to hide the three-dot menu while keeping the address
 bar and remote input. The default is `true`; view-only viewers still have no
@@ -486,9 +486,9 @@ refreshes capture once on the same session and requires a fresh compatible image
 This conditional refresh uses the remaining presentation budget; persistent
 clipping follows the same bounded recovery path as a missing image.
 If display recovery cannot be confirmed, they remain paused
-until synchronization succeeds; choose **Sync now** to retry. Text input remains
-available. Native minimum sizes, fractional scale rounding and provider
-restrictions may prevent exact matching. This is not browser zoom or a general
+until synchronization succeeds; choose **Fit page to viewer** to retry. Text
+input remains available. Native minimum sizes, fractional scale rounding and
+provider restrictions may prevent exact matching. This is not browser zoom or a general
 capture-quality selector. A controlled mode without `onWindowSizeSyncChange`
 disables menu mode changes, while manual synchronization remains usable.
 
