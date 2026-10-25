@@ -105,6 +105,9 @@ for (const [transport, colorScheme] of [
       await expect(quality).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(resolution).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(resolution).toHaveValue("960x540");
+      await expect(resolution).toBeFocused();
       await resolution.selectOption("1280x720");
       await expect
         .poll(() => captures.at(-1))

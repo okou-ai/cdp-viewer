@@ -56,7 +56,13 @@ export function ImageDetail() {
             fallbackAxisSide: "none",
           }}
         >
-          <Popover.Popup className="cdpv-browser-menu cdpv-image-detail">
+          <Popover.Popup
+            className="cdpv-browser-menu cdpv-image-detail"
+            onKeyDown={(event) => {
+              // Native fields own navigation; Escape still dismisses the popup.
+              if (event.key !== "Escape") event.stopPropagation();
+            }}
+          >
             <Popover.Title className="cdpv-image-detail-title">
               Image detail
             </Popover.Title>
