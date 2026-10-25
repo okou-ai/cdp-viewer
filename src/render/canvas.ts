@@ -1,4 +1,5 @@
 import { CdpFault } from "../cdp/errors";
+import type { BrowserByteArrayConstructor } from "../browser";
 import {
   maximumEncodedFrameLength,
   maximumFrameArea,
@@ -35,23 +36,7 @@ interface QueuedFrame {
 }
 
 async function decodeJpeg(data: string): Promise<DecodedFrame> {
-  if (typeof createImageBitmap !== "function") {
-    throw new CdpFault(
-      "unsupported-capability",
-      "This browser cannot decode live frames.",
-    );
-  }
-  const base64 = Uint8Array as typeof Uint8Array & {
-    fromBase64?: (value: string) => Uint8Array<ArrayBuffer>;
-  };
-  let bytes: Uint8Array<ArrayBuffer>;
-  if (typeof base64.fromBase64 === "function") bytes = base64.fromBase64(data);
-  else {
-    const raw = atob(data);
-    bytes = new Uint8Array(raw.length);
-    for (let index = 0; index < raw.length; index++)
-      bytes[index] = raw.charCodeAt(index);
-  }
+  const bytes = (Uint8Array as BrowserByteArrayConstructor).fromBase64(data);
   const image = await createImageBitmap(
     new Blob([bytes], { type: "image/jpeg" }),
   );

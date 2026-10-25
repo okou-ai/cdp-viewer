@@ -36,7 +36,7 @@ async function expectColor(
     .toBeLessThanOrEqual(4);
 }
 
-test("offscreen panels release only their own stream and resume with portable frame decoding", async ({
+test("offscreen panels release only their own stream and resume with native frame decoding", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -57,10 +57,6 @@ test("offscreen panels release only their own stream and resume with portable fr
     });
     const bWindow = await backend.session.send("Browser.getWindowForTarget", {
       targetId: second.targetId,
-    });
-    // Exercise the documented fallback in a real browser, not only a fake bitmap.
-    await page.addInitScript(() => {
-      Reflect.deleteProperty(Uint8Array, "fromBase64");
     });
     await page.goto(server.origin);
     await page.waitForFunction(
@@ -102,6 +98,32 @@ test("offscreen panels release only their own stream and resume with portable fr
   } finally {
     await backend.close();
   }
+});
+
+test("rejects missing startup capabilities before opening a viewer WebSocket", async ({
+  page,
+}) => {
+  let connections = 0;
+  page.on("websocket", () => connections++);
+  await page.goto(server.origin);
+  await page.waitForFunction(
+    () => typeof window.configureViewers === "function",
+  );
+  const failed = page.waitForEvent("pageerror");
+  await page.evaluate(async () => {
+    Object.defineProperty(AbortSignal, "any", {
+      configurable: true,
+      value: undefined,
+    });
+    await window.configureViewers!({
+      cdpUrl: "wss://fixture.invalid",
+      second: false,
+    });
+  });
+  const error = await failed;
+  expect(error.name).toBe("TypeError");
+  expect(error.message).toContain("cdp-viewer requires AbortSignal.any");
+  expect(connections).toBe(0);
 });
 
 test("installed viewers stream separate windows, detect a real moved tab, and isolate cleanup", async ({

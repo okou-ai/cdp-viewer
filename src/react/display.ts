@@ -6,7 +6,9 @@ export function observeDisplay(
   changed: (size: DisplaySize | null) => void,
 ): () => void {
   let active = true;
-  let density: MediaQueryList | null = null;
+  let density = window.matchMedia(
+    `(resolution: ${window.devicePixelRatio}dppx)`,
+  );
   const measure = () => {
     if (!active) return;
     const box = canvas.getBoundingClientRect();
@@ -18,23 +20,18 @@ export function observeDisplay(
   };
   const densityChanged = () => {
     if (!active) return;
-    density?.removeEventListener("change", densityChanged);
-    density =
-      typeof window.matchMedia === "function"
-        ? window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
-        : null;
-    density?.addEventListener("change", densityChanged);
+    density.removeEventListener("change", densityChanged);
+    density = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    density.addEventListener("change", densityChanged);
     measure();
   };
-  const observer =
-    typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-  observer?.observe(canvas);
-  window.addEventListener("resize", measure);
-  densityChanged();
+  const observer = new ResizeObserver(measure);
+  observer.observe(canvas);
+  density.addEventListener("change", densityChanged);
+  measure();
   return () => {
     active = false;
-    observer?.disconnect();
-    density?.removeEventListener("change", densityChanged);
-    window.removeEventListener("resize", measure);
+    observer.disconnect();
+    density.removeEventListener("change", densityChanged);
   };
 }

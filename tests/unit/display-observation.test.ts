@@ -38,9 +38,9 @@ it("observes density-only changes, rearms resolution queries and releases DOM re
   vi.stubGlobal("matchMedia", match);
   vi.stubGlobal("devicePixelRatio", 1);
   const canvas = document.createElement("canvas");
-  vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
-    new DOMRect(0, 0, 640.5, 480),
-  );
+  const bounds = vi
+    .spyOn(canvas, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(0, 0, 640.5, 480));
   const changed = vi.fn();
   const stop = observeDisplay(canvas, changed);
   expect(observe).toHaveBeenCalledWith(canvas);
@@ -49,12 +49,15 @@ it("observes density-only changes, rearms resolution queries and releases DOM re
     height: 480,
     dpr: 1,
   });
+  bounds.mockReturnValue(new DOMRect(0, 0, 800, 480));
+  resize!([], {} as ResizeObserver);
+  expect(changed).toHaveBeenLastCalledWith({ width: 800, height: 480, dpr: 1 });
   vi.stubGlobal("devicePixelRatio", 2);
   queries[0]!.change!(new Event("change"));
   expect(queries[0]!.remove).toHaveBeenCalledWith("change", queries[0]!.change);
   expect(match).toHaveBeenLastCalledWith("(resolution: 2dppx)");
   expect(changed).toHaveBeenLastCalledWith({
-    width: 640.5,
+    width: 800,
     height: 480,
     dpr: 2,
   });
