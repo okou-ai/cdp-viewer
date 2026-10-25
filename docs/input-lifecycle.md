@@ -36,7 +36,9 @@ owns; disposing one instance must not affect a sibling or its host.
 
 Keep local input ownership separate from remote window discovery. The public
 controller verifies scope around selection/attachment, then checks the selected
-session locally for input. Background discovery invalidates it after an observed
+session locally for input. This admission predicate is synchronous; only native
+preparation and effect receipts introduce waits. Revalidate the captured owner
+after those waits. Background discovery invalidates it after an observed
 window mismatch or lookup failure. A pending discovery query does not block stable
 input while the selected membership observation remains fresh. Its independent
 deadline and local admission check prevent delayed positive replies from renewing

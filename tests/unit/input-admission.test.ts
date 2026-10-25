@@ -20,10 +20,11 @@ async function session() {
   const reset = vi.fn();
   const clipboard = vi.fn();
   const error = vi.fn();
+  const isCurrent = vi.fn(() => true);
   const input = new InputSession(
     client,
     "native",
-    async () => true,
+    isCurrent,
     vi.fn(),
     reset,
     vi.fn(),
@@ -40,8 +41,78 @@ async function session() {
     reset,
     clipboard,
     error,
+    isCurrent,
   };
 }
+
+it("rejects input when the synchronous selection check denies it", async () => {
+  const first = await session();
+  first.isCurrent.mockReturnValue(false);
+  first.input.text("stale");
+  await first.input.completion(first.input.owner!);
+  expect(
+    first.socket.commands.filter(
+      (command) => command.method === "Input.insertText",
+    ),
+  ).toHaveLength(0);
+  first.isCurrent.mockReturnValue(true);
+  first.input.text("fresh");
+  await first.input.completion(first.input.owner!);
+  expect(
+    first.socket.commands
+      .filter((command) => command.method === "Input.insertText")
+      .map((command) => command.params?.text),
+  ).toEqual(["fresh"]);
+});
+
+it("revalidates the captured owner after a synchronous selection check retires it", async () => {
+  const first = await session();
+  const owner = first.input.owner!;
+  first.isCurrent.mockImplementationOnce(() => {
+    first.input.blur(owner);
+    return true;
+  });
+  first.input.key({ type: "rawKeyDown", key: "a", code: "KeyA" }, owner);
+  await first.input.completion(first.input.owner!);
+  expect(first.input.owner).not.toBe(owner);
+  expect(
+    first.socket.commands.filter(
+      (command) => command.method === "Input.dispatchKeyEvent",
+    ),
+  ).toHaveLength(0);
+  first.input.key({ type: "rawKeyDown", key: "b", code: "KeyB" });
+  await first.input.completion(first.input.owner!);
+  expect(
+    first.socket.commands
+      .filter((command) => command.method === "Input.dispatchKeyEvent")
+      .map((command) => command.params?.key),
+  ).toEqual(["b"]);
+});
+
+it("rechecks selection validity after held native geometry preparation", async () => {
+  const first = await session();
+  first.browser.holdMethod = "Page.getLayoutMetrics";
+  first.input.pointer("mousePressed", { x: 0.5, y: 0.5 }, { button: "left" });
+  await vi.waitFor(() => expect(first.browser.heldCommands).toHaveLength(1));
+  first.isCurrent.mockReturnValue(false);
+  const pending = first.browser.heldCommands[0]!;
+  first.browser.holdMethod = null;
+  first.browser.resume(pending.command, pending.socket);
+  await first.input.completion(first.input.owner!);
+  expect(
+    first.socket.commands.filter(
+      (command) => command.method === "Input.dispatchMouseEvent",
+    ),
+  ).toHaveLength(0);
+  first.isCurrent.mockReturnValue(true);
+  first.input.pointer("mousePressed", { x: 0.5, y: 0.5 }, { button: "left" });
+  await first.input.completion(first.input.owner!);
+  expect(
+    first.socket.commands.filter(
+      (command) => command.method === "Input.dispatchMouseEvent",
+    ),
+  ).toHaveLength(1);
+});
 
 it.each(["key", "press", "text", "preedit", "commit"])(
   "retains the original %s owner across a reentrant clipboard invalidation",

@@ -157,7 +157,7 @@ async function session(browserZoom = 1) {
   const input = new InputSession(
     client,
     "native",
-    async () => true,
+    () => true,
     vi.fn(),
     reset,
     vi.fn(),

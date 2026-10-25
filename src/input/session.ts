@@ -72,7 +72,7 @@ export class InputSession {
   constructor(
     private readonly client: CdpClient,
     readonly sessionId: string,
-    private readonly member: () => Promise<boolean>,
+    private readonly isCurrent: () => boolean,
     private readonly changed: (value: ViewerNavigation | null) => void,
     private readonly resetLocal: (reason: InputTransition) => void,
     private readonly caret: (point: Point) => void,
@@ -86,7 +86,7 @@ export class InputSession {
       client,
       this.lifecycle,
       this.effects,
-      member,
+      isCurrent,
       (error) => this.reportFailure(error),
     );
   }
@@ -647,8 +647,10 @@ export class InputSession {
         const version = this.historyVersion;
         this.historyJob = null;
         const current = () =>
-          version === this.historyVersion && this.lifecycle.owns(job.owner);
-        if (!current() || !(await this.member()) || !current()) continue;
+          this.isCurrent() &&
+          version === this.historyVersion &&
+          this.lifecycle.owns(job.owner);
+        if (!current()) continue;
         const history = await job.request(
           "Page.getNavigationHistory",
           undefined,

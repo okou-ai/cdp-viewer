@@ -110,7 +110,15 @@ admitted owner, input session, connection, queue and renderer.
 
 Record each path's scope policy. Public scoped input verifies selection and
 attachment, then uses the selected session until background discovery invalidates
-it. The private adjacent coordinator still checks membership before each action.
+it. The private adjacent coordinator owns a separate bounded admission lane that
+checks membership before each action, then invokes the input session with a
+synchronous local validity predicate. Batch replies join that admitted prefix
+before the original native effect receipts; late guards cannot dispatch a
+retired owner or grant another generation credit.
+These checks occur at fixture action admission. Later input preparation/queueing
+can separate that observation from dispatch; it is not an atomic scope-and-write
+operation. Record the current admission policy and measured lookup counts rather
+than reusing results from an earlier probe source.
 These policies differ during external movement; topology comparisons must not
 claim equivalent fresh-per-action scope. For a public-path optimization, compare
 immutable before/after direct rows under the same workload and transit profile,

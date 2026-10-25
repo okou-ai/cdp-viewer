@@ -77,13 +77,25 @@ async function fixture(
 
 it("acknowledges a logical coalesced batch only after every actual native reply", async () => {
   const a = await fixture();
+  const guards = () =>
+    a.probe.trace.filter(
+      (row) =>
+        row.method === "Browser.getWindowForTarget" &&
+        row.response !== undefined,
+    ).length;
+  const before = guards();
   const held = a.probe.holdNext("Browser.getWindowForTarget");
   expect(a.send([move(0.1), move(0.2), move(0.3), wheel(20), wheel(30)])).toBe(
     true,
   );
   await held.held;
-  a.browser.holdMethod = "Input.dispatchMouseEvent";
+  a.browser.holdMethod = "Page.getLayoutMetrics";
   held.release();
+  await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(1));
+  await vi.waitFor(() => expect(guards()).toBe(before + 5));
+  a.browser.holdMethod = "Input.dispatchMouseEvent";
+  const geometry = a.browser.heldCommands.shift()!;
+  a.browser.resume(geometry.command, geometry.socket);
   await vi.waitFor(() => expect(a.browser.heldCommands).toHaveLength(3));
   // Active move is immutable; two queued moves coalesce and wheels sum.
   expect(a.browser.heldCommands.map((v) => v.command.params?.type)).toEqual([

@@ -76,7 +76,7 @@ export class InputQueue {
     private readonly client: CdpClient,
     private readonly lifecycle: InputLifecycle,
     private readonly effects: InputEffects,
-    private readonly member: () => Promise<boolean>,
+    private readonly isCurrent: () => boolean,
     private readonly failed: (error?: unknown) => void,
   ) {}
 
@@ -340,6 +340,15 @@ export class InputQueue {
     return result;
   }
 
+  private canRun(job: QueuedJob): boolean {
+    return (
+      this.isCurrent() &&
+      job.valid?.() !== false &&
+      this.lifecycle.owns(job.owner) &&
+      !job.cancelled
+    );
+  }
+
   private async drain(): Promise<void> {
     this.running = true;
     try {
@@ -361,29 +370,31 @@ export class InputQueue {
             await job.run(job);
             continue;
           }
-          // Read-only preparation may overlap scope validation. Only this
-          // joined boundary permits the ordered job's state changes/writes.
-          const cancelled = new Promise<null>((resolve) => {
-            this.cancelPreparation = () => resolve(null);
-          });
           // Leave room for ordered discrete input while delayed continuous
           // replies settle. Unsent moves/wheels can then coalesce instead of
           // filling the shared budget and revoking otherwise valid input.
-          if ((job.move || job.wheel) && this.pending.size >= 32) {
-            await Promise.race([cancelled, Promise.race(this.pending)]);
-            if (!this.lifecycle.owns(job.owner) || job.cancelled) continue;
+          const pressured =
+            !!(job.move || job.wheel) && this.pending.size >= 32;
+          if (job.prepare || pressured) {
+            if (!this.canRun(job)) {
+              job.cancel?.();
+              continue;
+            }
+            const cancelled = new Promise<void>((resolve) => {
+              this.cancelPreparation = resolve;
+            });
+            if (pressured) {
+              await Promise.race([cancelled, Promise.race(this.pending)]);
+              if (!this.canRun(job)) {
+                job.cancel?.();
+                continue;
+              }
+            }
+            if (job.prepare) await Promise.race([cancelled, job.prepare(job)]);
+            this.cancelPreparation = undefined;
           }
-          const prepared = await Promise.race([
-            cancelled,
-            Promise.all([this.member(), job.prepare?.(job)]),
-          ]);
-          this.cancelPreparation = undefined;
-          if (
-            prepared?.[0] &&
-            this.lifecycle.owns(job.owner) &&
-            job.valid?.() !== false &&
-            !job.cancelled
-          ) {
+          // Selection validity is local; only real preparation suspends admission.
+          if (this.canRun(job)) {
             job.started = true;
             await job.run(job);
           } else job.cancel?.();
