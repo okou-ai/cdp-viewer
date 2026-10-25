@@ -149,7 +149,7 @@ function CaptureSettings({
     <details className="demo-group">
       <summary>
         <span>
-          <SlidersHorizontal size={15} aria-hidden="true" /> Image detail
+          <SlidersHorizontal size={15} aria-hidden="true" /> Image quality
         </span>
         <ChevronDown size={14} aria-hidden="true" />
       </summary>

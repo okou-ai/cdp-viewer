@@ -37,8 +37,8 @@ function browser() {
 
 async function openDetail(scope: ReturnType<typeof within> = screen) {
   await userEvent.click(scope.getByRole("button", { name: "Browser menu" }));
-  await userEvent.click(scope.getByRole("menuitem", { name: "Image detail" }));
-  return within(await scope.findByRole("dialog", { name: "Image detail" }));
+  await userEvent.click(scope.getByRole("menuitem", { name: "Image quality" }));
+  return within(await scope.findByRole("dialog", { name: "Image quality" }));
 }
 
 it.each(["shared", "split"] as const)(

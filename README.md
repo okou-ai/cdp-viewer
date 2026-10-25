@@ -217,7 +217,7 @@ Snapshots may include `navigation` (current remote address and available back/fo
 actions), or `null` when unavailable. Remote page addresses can contain sensitive
 data; do not log or persist snapshots indiscriminately.
 
-### Image detail
+### Image quality
 
 Choose JPEG compression quality and maximum capture dimensions independently:
 
@@ -295,7 +295,7 @@ the last valid capture, and correcting it clears its configuration diagnostic.
 An actual stream failure uses normal viewer recovery. The library does not
 persist capture preferences.
 
-The interactive three-dot menu includes **Image detail**, with a JPEG quality
+The interactive three-dot menu includes **Image quality**, with a JPEG quality
 slider and maximum capture resolution. Automatic resolution follows the container
 and DPR; fixed presets range from 960 × 540 to 3840 × 2160. These are image bounds,
 not remote page dimensions. Changes apply live on the current connection.

@@ -32,7 +32,7 @@ export function ImageDetail() {
         className="cdpv-browser-menu-item"
       >
         <SlidersHorizontal size={16} aria-hidden="true" />
-        Image detail
+        Image quality
         <ChevronRight
           className="cdpv-browser-menu-chevron"
           size={16}
@@ -64,7 +64,7 @@ export function ImageDetail() {
             }}
           >
             <Popover.Title className="cdpv-image-detail-title">
-              Image detail
+              Image quality
             </Popover.Title>
             <fieldset
               disabled={!canChange}

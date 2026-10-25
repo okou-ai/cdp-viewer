@@ -88,11 +88,11 @@ for (const [transport, colorScheme] of [
       const menu = view.getByRole("button", { name: "Browser menu" });
       await menu.click();
       const detailTrigger = view.getByRole("menuitem", {
-        name: "Image detail",
+        name: "Image quality",
       });
       await detailTrigger.focus();
       await page.keyboard.press("Enter");
-      const detail = view.getByRole("dialog", { name: "Image detail" });
+      const detail = view.getByRole("dialog", { name: "Image quality" });
       await expect(detail).toBeVisible();
       const quality = detail.getByRole("slider", { name: "JPEG quality" });
       const resolution = detail.getByRole("combobox", {

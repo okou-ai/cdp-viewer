@@ -72,15 +72,15 @@ test("image detail menu stays synchronized with the demo's external controls", a
     const view = owner.getByRole("region", { name: "Remote browser viewer" });
     await expect(view).toHaveAttribute("data-status", "streaming");
     const rail = owner.getByRole("complementary");
-    await rail.locator("summary").filter({ hasText: "Image detail" }).click();
+    await rail.locator("summary").filter({ hasText: "Image quality" }).click();
     const externalQuality = rail.getByRole("slider");
     const externalResolution = rail.getByRole("combobox", {
       name: "Capture resolution maximum",
     });
     const menu = view.getByRole("button", { name: "Browser menu" });
     await menu.click();
-    await view.getByRole("menuitem", { name: "Image detail" }).click();
-    const detail = view.getByRole("dialog", { name: "Image detail" });
+    await view.getByRole("menuitem", { name: "Image quality" }).click();
+    const detail = view.getByRole("dialog", { name: "Image quality" });
     const quality = detail.getByRole("slider", { name: "JPEG quality" });
     await expect(quality).toBeEnabled();
     await quality.focus();
@@ -95,10 +95,10 @@ test("image detail menu stays synchronized with the demo's external controls", a
     await page.keyboard.press("Home");
     await expect(externalQuality).toHaveValue("0");
     await menu.click();
-    await view.getByRole("menuitem", { name: "Image detail" }).click();
+    await view.getByRole("menuitem", { name: "Image quality" }).click();
     await expect(
       view
-        .getByRole("dialog", { name: "Image detail" })
+        .getByRole("dialog", { name: "Image quality" })
         .getByRole("slider", { name: "JPEG quality" }),
     ).toHaveValue("0");
   } finally {
@@ -361,7 +361,7 @@ test("demo exposes independent live capture quality and resolution controls", as
     const view = first.getByRole("region", { name: "Remote browser viewer" });
     await expect(view).toHaveAttribute("data-status", "streaming");
     const proxy = await view.getByLabel("Remote browser input").elementHandle();
-    await first.locator("summary").filter({ hasText: "Image detail" }).click();
+    await first.locator("summary").filter({ hasText: "Image quality" }).click();
     await first.getByLabel(/^Capture resolution/).selectOption("1280x720");
     await expect
       .poll(() =>
