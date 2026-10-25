@@ -329,7 +329,8 @@ function AppearanceSettings({
           </select>
           <p className="demo-hint" id={`${identity}-window-sync-hint`}>
             Fit the remote display to the viewer’s size and pixel density. Off
-            keeps the last applied size. Sync now is in the browser menu.
+            keeps the last applied size. Use Fit page to viewer in the browser
+            menu to apply it once.
           </p>
         </div>
         <div className="demo-accent-control">

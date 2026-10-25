@@ -5,9 +5,9 @@ Set `interactive` on a viewer to enable mouse, keyboard and page navigation.
 Open **Fit to this viewer** in the three-dot menu to the right of the address bar
 to choose automatic display adaptation: off, once on opening, or continuously.
 The submenu opens to the left and keeps its choices within the viewer.
-**Sync now** stays in the main menu and synchronizes size
-and DPR together in every mode. Continuous adaptation follows the available page
-surface and local display density without reconnecting. Oversized requests are
+**Fit page to viewer** stays in the main menu and matches the remote page size
+and pixel density to the viewer in every mode. Continuous adaptation follows the
+available page surface and local display density without reconnecting. Oversized requests are
 reduced automatically to stay within the supported display limits.
 Restore maximized, minimized or fullscreen remote windows before syncing. Turning
 automatic adaptation off keeps the latest display; it does not reset native size.

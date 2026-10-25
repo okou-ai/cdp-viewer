@@ -120,7 +120,7 @@ for (const boundary of [
       hold = true;
       await view.getByRole("button", { name: "Browser menu" }).click();
       await view
-        .getByRole("menuitem", { name: "Sync now", exact: true })
+        .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
         .click();
       await expect.poll(() => !!deliver).toBe(true);
       const before = resized;
@@ -295,7 +295,9 @@ test("retains a held manual fit through mode-off and a zero-area surface", async
     if (!proxy) throw new Error("Owned viewer input is unavailable.");
     hold = true;
     await view.getByRole("button", { name: "Browser menu" }).click();
-    await view.getByRole("menuitem", { name: "Sync now", exact: true }).click();
+    await view
+      .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
+      .click();
     await expect.poll(() => !!deliver).toBe(true);
     await canvas.evaluate((element: HTMLCanvasElement) => {
       element.style.width = "0px";

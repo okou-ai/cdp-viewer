@@ -130,8 +130,8 @@ display to the new page surface.
 
 The setting is available before connecting, remains independent in each panel,
 and changes immediately without reconnecting. Menu changes update the right-hand
-control and Usage through `onWindowSizeSyncChange`. The menu's combined size/DPR
-**Sync now** action remains available without changing the automatic mode.
+control and Usage through `onWindowSizeSyncChange`. Use **Fit page to viewer**
+to apply page size and pixel density once without changing the automatic mode.
 See the [library contract](../README.md#display-adaptation) for sizing limits.
 
 The demo initially enables interaction, while the library's default remains

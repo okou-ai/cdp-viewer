@@ -157,7 +157,7 @@ for (const { nativeDpr, zoom, transport, preEmulated } of [
       const sync = async () => {
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view
-          .getByRole("menuitem", { name: "Sync now", exact: true })
+          .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
           .click();
       };
       expect(writes).toBe(0);

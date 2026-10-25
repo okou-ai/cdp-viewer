@@ -336,7 +336,9 @@ it("discloses display modes in a submenu and restores focus through both levels"
   const fit = screen.getByRole("menuitem", { name: "Fit to this viewer" });
   expect(screen.queryByRole("menuitemradio")).toBeNull();
   expect(screen.queryByRole("separator")).toBeNull();
-  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeVisible();
+  expect(
+    screen.getByRole("menuitem", { name: "Fit page to viewer" }),
+  ).toBeVisible();
   await userEvent.click(fit);
   expect(
     await screen.findByRole("menu", { name: "Fit to this viewer" }),
@@ -388,7 +390,9 @@ it("owns the browser menu mode and combined manual sync without replacing native
   const proxy = screen.getByRole("textbox", { name: "Remote browser input" });
   const menu = screen.getByRole("button", { name: "Browser menu" });
   await userEvent.click(menu);
-  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeEnabled();
+  expect(
+    screen.getByRole("menuitem", { name: "Fit page to viewer" }),
+  ).toBeEnabled();
   await userEvent.click(
     screen.getByRole("menuitem", { name: "Fit to this viewer" }),
   );
@@ -406,7 +410,9 @@ it("owns the browser menu mode and combined manual sync without replacing native
     }),
   ).toHaveAttribute("aria-checked", "true");
   await userEvent.keyboard("{Escape}");
-  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit page to viewer" }),
+  );
   await waitFor(() =>
     expect(fake.windowSizes.get(0)).toEqual({ width: 640, height: 480 }),
   );
@@ -490,7 +496,9 @@ it("keeps display recovery guidance and a usable manual action until pointer inp
   fake.unsupportedContentsSize = true;
   fake.holdMethod = "Emulation.clearDeviceMetricsOverride";
   await userEvent.click(menu);
-  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit page to viewer" }),
+  );
   await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
   const held = fake.heldCommands[0]!;
   act(() => held.socket.reject(held.command, -32000));
@@ -502,16 +510,20 @@ it("keeps display recovery guidance and a usable manual action until pointer inp
   );
   await userEvent.click(menu);
   expect(
-    screen.getByText("Use Sync now to resume pointer input"),
+    screen.getByText("Use Fit page to viewer to resume pointer input"),
   ).toBeVisible();
-  expect(screen.getByRole("menuitem", { name: "Sync now" })).toBeEnabled();
+  expect(
+    screen.getByRole("menuitem", { name: "Fit page to viewer" }),
+  ).toBeEnabled();
   fake.unsupportedContentsSize = false;
   fake.holdMethod = null;
-  await userEvent.click(screen.getByRole("menuitem", { name: "Sync now" }));
+  await userEvent.click(
+    screen.getByRole("menuitem", { name: "Fit page to viewer" }),
+  );
   await waitFor(() => expect(menu).toHaveAttribute("title", "Browser menu"));
   await userEvent.click(menu);
   expect(
-    screen.queryByText("Use Sync now to resume pointer input"),
+    screen.queryByText("Use Fit page to viewer to resume pointer input"),
   ).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
     proxy,

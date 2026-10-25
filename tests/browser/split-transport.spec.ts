@@ -128,7 +128,7 @@ test("native split viewers preserve composition, capture and display geometry ac
     await expect(a.remote.locator("#plain")).toHaveValue("split 你");
     await first.getByRole("button", { name: "Browser menu" }).click();
     await first
-      .getByRole("menuitem", { name: "Sync now", exact: true })
+      .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
       .click();
     const canvas = first.locator("canvas");
     const box = await canvas.boundingBox();

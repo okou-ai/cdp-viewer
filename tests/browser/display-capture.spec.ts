@@ -85,7 +85,7 @@ for (const stage of ["initial fence", "subsequent fence"] as const) {
         const sync = async () => {
           await view.getByRole("button", { name: "Browser menu" }).click();
           await view
-            .getByRole("menuitem", { name: "Sync now", exact: true })
+            .getByRole("menuitem", { name: "Fit page to viewer", exact: true })
             .click();
         };
         if (stage === "subsequent fence") {
