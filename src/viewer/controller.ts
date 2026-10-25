@@ -29,6 +29,7 @@ import type {
   WindowSizeSync,
 } from "./types";
 import { captureSettings, capturePreferences, sameCapture } from "./capture";
+import type { CaptureSettings } from "./capture";
 import { Screencast } from "./screencast";
 import { readFavicon } from "./favicon";
 import { TargetDiscovery } from "./discovery";
@@ -48,6 +49,14 @@ interface Selection extends ImageSelection {
 }
 
 const minimumCaptureIntervalMs = 150;
+const captureSettleMs = 200;
+const maximumCaptureWaitMs = 1000;
+
+interface CaptureChange {
+  readonly settings: CaptureSettings;
+  readonly first: number;
+  readonly last: number;
+}
 
 interface Retirement {
   input: InputSession;
@@ -103,6 +112,8 @@ export class ViewerController {
   private captureSize: DisplaySize | null = null;
   private captureUpdate: AbortController | null = null;
   private captureUpdated = -Infinity;
+  private captureStarted: CaptureSettings | null = null;
+  private captureChange: CaptureChange | null = null;
   private captureError: ViewerError | null = null;
   private waitingForCapture = false;
   private faviconPending = false;
@@ -278,6 +289,7 @@ export class ViewerController {
   private cancelCaptureUpdate(): void {
     this.captureUpdate?.abort();
     this.captureUpdate = null;
+    this.captureChange = null;
   }
 
   private configureCapture(): void {
@@ -299,14 +311,39 @@ export class ViewerController {
         this.displaySize.height,
         this.displaySize.dpr,
       ].every(positive) ||
-      this.model.read(this.model.display$).pending ||
-      this.captureUpdate
+      this.model.read(this.model.display$).pending
     )
       return;
+    const settings = captureSettings(this.capture, this.captureSize);
+    if (this.captureStarted && sameCapture(this.captureStarted, settings)) {
+      this.cancelCaptureUpdate();
+      return;
+    }
+    const now = performance.now();
+    let change = this.captureChange;
+    if (change && sameCapture(change.settings, settings)) {
+      if (this.captureUpdate) return;
+    } else {
+      change = {
+        settings,
+        first: change?.first ?? now,
+        last: now,
+      };
+      this.captureChange = change;
+    }
+    this.captureUpdate?.abort();
     const update = new AbortController();
     this.captureUpdate = update;
+    const deadline = Math.max(
+      this.captureUpdated + minimumCaptureIntervalMs,
+      Math.min(
+        change.last + captureSettleMs,
+        change.first + maximumCaptureWaitMs,
+      ),
+    );
     timeout(
       () => {
+        if (this.captureUpdate !== update) return;
         this.captureUpdate = null;
         if (!this.isCurrent(selection)) return;
         // A delayed stop/start may have begun a capture after this timer was
@@ -315,12 +352,7 @@ export class ViewerController {
           this.scheduleCapture();
         else this.configureCapture();
       },
-      Math.max(
-        0,
-        Math.ceil(
-          minimumCaptureIntervalMs - (performance.now() - this.captureUpdated),
-        ),
-      ),
+      Math.max(0, Math.ceil(deadline - now)),
       { signal: update.signal },
     );
   }
@@ -815,10 +847,12 @@ export class ViewerController {
         },
         starting: (settings) => {
           this.captureUpdated = performance.now();
+          this.captureStarted = settings;
           selection.geometry.setCapture({
             width: settings.maxWidth,
             height: settings.maxHeight,
           });
+          this.scheduleCapture();
         },
       },
       captureSettings(this.capture, this.captureSize),
@@ -1003,6 +1037,7 @@ export class ViewerController {
     { drainControl = false }: { drainControl?: boolean },
   ): SelectionRetirement {
     this.cancelCaptureUpdate();
+    this.captureStarted = null;
     const selection = this.selection;
     const image = selection ? this.imageRecovery.retire(selection) : null;
     this.selection = null;
