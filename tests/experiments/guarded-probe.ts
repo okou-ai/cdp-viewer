@@ -88,6 +88,7 @@ export class GuardedProbe {
   private transitioning = false;
   private transitionDeadline: ReturnType<typeof setTimeout> | undefined;
   private currentGeneration = randomUUID();
+  private selectionReceivedThrough = 0;
   private selectionThrough = 0;
   private currentNavigation: ViewerNavigation | null = null;
   private readonly outstanding = new Set<number>();
@@ -380,7 +381,7 @@ export class GuardedProbe {
       this.revoke();
       return false;
     }
-    let selection = this.selectionThrough;
+    let selection = this.selectionReceivedThrough;
     for (const action of actions)
       if (action.kind === "selection" && action.request !== ++selection) {
         this.revoke();
@@ -408,9 +409,9 @@ export class GuardedProbe {
     this.peakOutstanding = Math.max(this.peakOutstanding, count);
     const owner = this.input!.owner!;
     const generation = this.currentGeneration;
+    this.selectionReceivedThrough = selection;
     for (const action of actions) {
       if (this.stopped || generation !== this.currentGeneration) return false;
-      if (action.kind === "selection") this.selectionThrough = action.request;
       this.admit(owner, generation, () => {
         if (action.kind === "key") this.input!.key(action.key, owner);
         else if (action.kind === "text") this.input!.text(action.text, owner);
@@ -425,9 +426,10 @@ export class GuardedProbe {
           );
         else if (action.kind === "commit")
           this.input!.commitComposition(action.text, owner);
-        else if (action.kind === "selection")
+        else if (action.kind === "selection") {
+          this.selectionThrough = action.request;
           void this.readSelection(action.request, generation, owner);
-        else this.input!.navigate(action.action);
+        } else this.input!.navigate(action.action);
       });
     }
     void this.admission
@@ -473,7 +475,7 @@ export class GuardedProbe {
       !this.stopped &&
       generation === this.currentGeneration &&
       this.input!.owner === owner &&
-      request === this.selectionThrough;
+      request === this.selectionReceivedThrough;
     try {
       const result = await this.input!.selection(owner);
       if (current())
@@ -512,6 +514,7 @@ export class GuardedProbe {
     this.completedThrough = 0;
     this.completed.clear();
     this.batches.clear();
+    this.selectionReceivedThrough = 0;
     this.selectionThrough = 0;
     const owner: InputOwner = this.input!.owner!;
     const current = () =>

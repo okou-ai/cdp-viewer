@@ -135,6 +135,36 @@ it("orders selection after prior native replies and tags earlier edit invalidati
   await vi.waitFor(() => expect(a.acks()).toHaveLength(1));
 });
 
+it("reserves queued selection requests without advancing earlier edit invalidation", async () => {
+  const a = await fixture();
+  const held = a.probe.holdNext("Browser.getWindowForTarget");
+  expect(
+    a.send([
+      { kind: "text", text: "before" },
+      { kind: "selection", request: 1 },
+    ]),
+  ).toBe(true);
+  await held.held;
+  expect(a.send([{ kind: "selection", request: 2 }])).toBe(true);
+  expect(a.acks()).toHaveLength(0);
+  held.release();
+  await vi.waitFor(() => expect(a.acks()).toHaveLength(2));
+  expect(a.selection()).toEqual([
+    {
+      type: "selection",
+      generation: a.probe.generation,
+      request: 2,
+      result: { status: "ok", text: "owned selection" },
+    },
+  ]);
+  expect(a.replies).toContainEqual({
+    type: "clipboard-reset",
+    generation: a.probe.generation,
+    through: 0,
+  });
+  expect(a.replies).not.toContainEqual({ type: "revoked" });
+});
+
 it("supersedes a held selection without returning its text and releases its original object", async () => {
   const a = await fixture();
   a.hold();
