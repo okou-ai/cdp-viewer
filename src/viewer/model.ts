@@ -425,7 +425,7 @@ function createViewerSignals() {
       (event.type === "pause" && get(intent$).paused === event.paused) ||
       (event.type === "streaming" && get(intent$).paused)
     )
-      return;
+      return undefined;
     const image = get(imageRecovery$);
     if ("owner" in event) {
       if (
@@ -475,7 +475,7 @@ function createViewerSignals() {
       if (!event.retainFrame) set(internalLoadingPreview$, false);
       set(internalNotification$, null);
       if (get(snapshot$).navigation) set(update$, { navigation: null });
-      return;
+      return undefined;
     }
     if (event.type !== "streaming") set(internalClipboard$, null);
     set(
@@ -574,6 +574,7 @@ function createViewerSignals() {
         });
         break;
     }
+    return undefined;
   });
   const commitIntent$ = command(
     ({ get, set }, event: ViewerIntentTransition) => {
