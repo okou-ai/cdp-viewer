@@ -10,7 +10,6 @@ export function TransportSettings() {
   const canChange = viewerScope.useValue(model.canChangeTransport$);
   const canHover = viewerScope.useValue(model.browserMenuHover$);
   const choose = viewerScope.useCommand(model.chooseTransport$);
-  const identity = viewerScope.useIdentity();
   return (
     <Menu.SubmenuRoot
       onOpenChange={(open, details) => {
@@ -52,7 +51,6 @@ export function TransportSettings() {
           <Menu.Popup
             className="cdpv-browser-menu cdpv-browser-submenu"
             aria-label="Transport"
-            aria-describedby={`${identity}-transport-hint`}
           >
             <Menu.RadioGroup
               value={transport}
@@ -82,14 +80,6 @@ export function TransportSettings() {
                 </Menu.RadioItem>
               ))}
             </Menu.RadioGroup>
-            <div
-              id={`${identity}-transport-hint`}
-              className="cdpv-browser-menu-heading"
-            >
-              {canChange
-                ? "Changes reconnect this viewer."
-                : "Managed by this application."}
-            </div>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

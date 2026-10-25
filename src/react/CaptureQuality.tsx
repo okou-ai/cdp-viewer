@@ -175,10 +175,6 @@ export function CaptureQuality() {
                 </RadioGroup>
               </div>
             </fieldset>
-            <Popover.Description className="cdpv-capture-quality-hint">
-              Changes apply live without resizing the remote page.
-              {!canChange && " These settings are managed by this application."}
-            </Popover.Description>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
