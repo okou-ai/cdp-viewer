@@ -115,7 +115,7 @@ it("exits cleared warnings and keeps sibling notification lifetimes independent"
 const notificationResets: readonly ViewerTransition[] = [
   { type: "reset" },
   { type: "select", targetId: "page-b", paused: false },
-  { type: "paused" },
+  { type: "pause", paused: true },
   { type: "stopped" },
   { type: "target-lost", error: null },
   {
@@ -137,6 +137,7 @@ it.each(notificationResets)(
     const previous = model.read(model.notification$)!;
     model.transition(transition);
     expect(model.read(model.notification$)).toBeNull();
+    model.transition({ type: "pause", paused: false });
     model.transition({ type: "streaming" });
     model.update({ error: { kind: "input", message: "Replacement warning" } });
     const next = model.read(model.notification$)!;
@@ -215,7 +216,7 @@ it("distinguishes retained selection, external loss and disconnected transport",
   model.transition({ type: "select", targetId: "page-a", paused: false });
   model.update({ navigation: navigation("https://one.invalid/") });
   model.transition({ type: "streaming" });
-  model.transition({ type: "paused" });
+  model.transition({ type: "pause", paused: true });
   expect(model.getSnapshot()).toMatchObject({
     status: "paused",
     selectedTargetId: "page-a",

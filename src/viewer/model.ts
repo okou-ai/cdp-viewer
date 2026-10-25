@@ -11,6 +11,9 @@ import type { TabSpace } from "./tab-layout";
 import type { ViewerError, ViewerSnapshot, WindowSizeSync } from "./types";
 import type { DisplayState } from "../display/sync";
 import type { ClipboardRecovery } from "../input/clipboard";
+import { retryingImage, transitionImage } from "./image-recovery";
+import type { ImageEvent, ImageRecovery } from "./image-recovery";
+import { initialIntent, transitionIntent } from "./lifecycle";
 
 export interface ViewerActions {
   select(targetId: string): void;
@@ -21,6 +24,7 @@ export interface ViewerActions {
   dismissClipboard?(): void;
   selectClipboard?(): void;
   syncDisplay?(): void;
+  retryImage?(): void;
   onWindowSizeSyncChange?(mode: WindowSizeSync): void;
 }
 
@@ -49,12 +53,30 @@ export type ViewerTransition =
   | { type: "select"; targetId: string; paused: boolean; preview?: boolean }
   | { type: "target-lost"; error: ViewerError | null }
   | { type: "discovery-failed"; error: ViewerError }
-  | { type: "paused" | "streaming" | "stopped" }
+  | { type: "streaming" }
+  | { type: "stopped"; retainFrame?: boolean }
+  | { type: "pause"; paused: boolean }
+  | { type: "closed" }
   | { type: "failed"; error: ViewerError }
+  | ImageEvent
   | { type: "disconnected"; established: boolean; error: ViewerError };
 
 export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "navigation" | "error">
+>;
+
+export type ViewerIntentTransition = Extract<
+  ViewerTransition,
+  {
+    type:
+      | "pause"
+      | "select"
+      | "target-lost"
+      | "failed"
+      | "discovery-failed"
+      | "closed"
+      | "disconnected";
+  }
 >;
 
 type Favicon = {
@@ -73,10 +95,15 @@ function initialSnapshot(): ViewerSnapshot {
 }
 
 function createViewerSignals() {
+  const internalIntent$ = state(initialIntent());
+  const intent$ = computed((get) => get(internalIntent$));
   const internalSnapshot$ = state<ViewerSnapshot>(initialSnapshot());
   const internalInventory$ = state(initialInventory());
   const inventoryState$ = computed((get) => get(internalInventory$));
   const internalLoadingPreview$ = state(false);
+  const internalImageRecovery$ = state<ImageRecovery | null>(null);
+  const imageRecovery$ = computed((get) => get(internalImageRecovery$));
+  const retryImage$ = command(({ get }) => get(actions$)?.retryImage?.());
   const internalFavicons$ = state<ReadonlyMap<string, Favicon>>(new Map());
   const favicons$ = computed((get) => get(internalFavicons$));
   const setFavicon$ = command(
@@ -244,6 +271,8 @@ function createViewerSignals() {
   const revision$ = computed((get) => get(internalRevision$));
   const controls$ = computed((get) => {
     const snapshot = get(snapshot$);
+    const image = get(imageRecovery$);
+    const unavailableImage = image && image.phase !== "presented";
     const { interactive, scoped } = get(configuration$);
     const streaming = snapshot.status === "streaming";
     const empty =
@@ -266,7 +295,19 @@ function createViewerSignals() {
       emptyUnscoped,
       emptyScoped: empty && scoped,
       recovery,
-      showRecovery: recovery || empty,
+      showRecovery:
+        recovery ||
+        empty ||
+        (!!unavailableImage && snapshot.status !== "paused"),
+      showImageRetry:
+        !!unavailableImage &&
+        image.phase !== "blocked" &&
+        snapshot.status !== "paused",
+      canRetryImage:
+        image?.phase === "ready" &&
+        snapshot.status !== "paused" &&
+        get(internalConnected$),
+      retryingImage: retryingImage(image),
       showEmptyCreate: emptyUnscoped && interactive,
       canMutateTabs,
       canCreate: canMutateTabs && (streaming || emptyUnscoped),
@@ -275,21 +316,25 @@ function createViewerSignals() {
         streaming && get(display$).ready && !get(display$).pending,
       canChangeSyncMode: get(canChangeSyncMode$),
       placeholderTitle:
-        snapshot.status === "disconnected"
-          ? "Browser disconnected"
-          : snapshot.status === "error"
-            ? snapshot.error?.kind === "connection"
-              ? "Unable to connect"
-              : "Unable to show browser"
-            : empty
-              ? "No tabs open"
-              : snapshot.status === "paused"
-                ? "Viewing paused"
-                : snapshot.status === "connecting"
-                  ? "Connecting to browser…"
-                  : recovery
-                    ? "Browser view unavailable"
-                    : "Choose a tab to continue",
+        image && snapshot.status !== "paused"
+          ? retryingImage(image)
+            ? "Retrying live image…"
+            : "Live image unavailable"
+          : snapshot.status === "disconnected"
+            ? "Browser disconnected"
+            : snapshot.status === "error"
+              ? snapshot.error?.kind === "connection"
+                ? "Unable to connect"
+                : "Unable to show browser"
+              : empty
+                ? "No tabs open"
+                : snapshot.status === "paused"
+                  ? "Viewing paused"
+                  : snapshot.status === "connecting"
+                    ? "Connecting to browser…"
+                    : recovery
+                      ? "Browser view unavailable"
+                      : "Choose a tab to continue",
     });
   });
   const address$ = computed((get) => {
@@ -376,6 +421,62 @@ function createViewerSignals() {
     set(update$, patch),
   );
   const transition$ = command(({ get, set }, event: ViewerTransition) => {
+    if (
+      (event.type === "pause" && get(intent$).paused === event.paused) ||
+      (event.type === "streaming" && get(intent$).paused)
+    )
+      return;
+    const image = get(imageRecovery$);
+    if ("owner" in event) {
+      if (
+        get(intent$).paused &&
+        [
+          "image-retrying",
+          "image-starting",
+          "image-painted",
+          "image-released",
+        ].includes(event.type)
+      )
+        return {
+          state: image,
+          accepted: false,
+          imageReady: false,
+          resumeDisplay: false,
+        };
+      const decision = transitionImage(image, event);
+      // Acceptance precedes every semantic effect, including private presentation.
+      if (!decision.accepted) return decision;
+      set(internalImageRecovery$, decision.state);
+      if (event.type === "image-failed" || event.type === "image-retrying") {
+        set(internalClipboard$, null);
+        set(internalLoadingPreview$, false);
+      }
+      if (event.type === "image-failed")
+        set(update$, { status: "error", error: event.error });
+      else if (event.type === "image-retrying")
+        set(update$, { status: "connecting", error: null });
+      else if (
+        (event.type === "image-blocked" ||
+          (event.type === "image-settled" && !event.ready)) &&
+        get(snapshot$).status !== "paused"
+      )
+        set(update$, {
+          status: "error",
+          error: decision.state?.error ?? null,
+        });
+      if (decision.imageReady && !get(intent$).paused) {
+        set(internalLoadingPreview$, false);
+        set(update$, { status: "streaming", error: null });
+      }
+      return decision;
+    }
+    if (event.type === "stopped") {
+      set(internalClipboard$, null);
+      if (!event.retainFrame) set(internalLoadingPreview$, false);
+      set(internalNotification$, null);
+      if (get(snapshot$).navigation) set(update$, { navigation: null });
+      return;
+    }
     if (event.type !== "streaming") set(internalClipboard$, null);
     set(
       internalLoadingPreview$,
@@ -383,6 +484,8 @@ function createViewerSignals() {
     );
     switch (event.type) {
       case "reset":
+        set(internalIntent$, transitionIntent(get(intent$), event));
+        set(internalImageRecovery$, null);
         set(inventoryUpdate$, { type: "reset" });
         set(internalFavicons$, new Map());
         set(internalConnected$, false);
@@ -390,6 +493,8 @@ function createViewerSignals() {
         set(update$, initialSnapshot());
         break;
       case "select":
+        set(internalIntent$, transitionIntent(get(intent$), event));
+        set(internalImageRecovery$, null);
         set(update$, {
           selectedTargetId: event.targetId,
           status: event.paused ? "paused" : "connecting",
@@ -399,6 +504,8 @@ function createViewerSignals() {
         break;
       case "target-lost":
       case "discovery-failed":
+        set(internalIntent$, transitionIntent(get(intent$), event));
+        set(internalImageRecovery$, null);
         if (event.type === "discovery-failed") {
           const inventory = get(internalInventory$);
           if (inventory.entries.size || inventory.ready || inventory.round)
@@ -411,25 +518,53 @@ function createViewerSignals() {
           navigation: null,
         });
         break;
-      case "paused":
-        if (get(snapshot$).selectedTargetId)
-          set(update$, { status: "paused", error: null, navigation: null });
+      case "pause": {
+        const paused = event.paused;
+        const intent = transitionIntent(get(intent$), {
+          type: "pause",
+          paused,
+        });
+        set(internalIntent$, intent);
+        if (
+          get(snapshot$).selectedTargetId &&
+          get(snapshot$).status !== "disconnected"
+        )
+          set(update$, {
+            status: paused ? "paused" : image ? "error" : "connecting",
+            error: image?.error ?? null,
+            navigation: null,
+          });
         break;
+      }
       case "streaming":
+        set(internalImageRecovery$, null);
         set(update$, { status: "streaming", error: null });
         break;
-      case "stopped":
-        set(internalNotification$, null);
-        if (get(snapshot$).navigation) set(update$, { navigation: null });
-        break;
       case "failed":
+        set(
+          internalIntent$,
+          transitionIntent(get(intent$), { type: "invalidate" }),
+        );
+        set(internalImageRecovery$, null);
         set(update$, {
           status: "error",
           error: event.error,
           navigation: null,
         });
         break;
+      case "closed":
+        set(
+          internalIntent$,
+          transitionIntent(get(intent$), { type: "invalidate" }),
+        );
+        set(internalImageRecovery$, null);
+        break;
       case "disconnected":
+        set(
+          internalIntent$,
+          transitionIntent(get(intent$), { type: "invalidate" }),
+        );
+        set(internalImageRecovery$, null);
         set(internalFavicons$, new Map());
         set(internalConnected$, false);
         set(update$, {
@@ -440,6 +575,13 @@ function createViewerSignals() {
         break;
     }
   });
+  const commitIntent$ = command(
+    ({ get, set }, event: ViewerIntentTransition) => {
+      set(transition$, event);
+      // Capture this command's intent before publication can synchronously replace it.
+      return get(intent$);
+    },
+  );
   const bind$ = command(({ set }, actions: ViewerActions) => {
     set(pendingTab$, null);
     set(actions$, actions);
@@ -451,6 +593,7 @@ function createViewerSignals() {
   });
   const unbind$ = command(({ get, set }, actions: ViewerActions) => {
     if (get(actions$) === actions) {
+      set(internalImageRecovery$, null);
       set(actions$, null);
       set(pendingTab$, null);
       set(internalConnected$, false);
@@ -533,6 +676,10 @@ function createViewerSignals() {
     address$,
     tabAction$,
     controls$,
+    intent$,
+    commitIntent$,
+    imageRecovery$,
+    retryImage$,
     configure$,
     setConnected$,
     setTabAction$,

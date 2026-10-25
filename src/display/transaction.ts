@@ -1,11 +1,9 @@
 import type { Protocol } from "devtools-protocol";
 import type { CdpClient } from "../cdp/client";
-import { CdpFault, isRecord, requestDetails } from "../cdp/errors";
-import { releaseRuntimeObjects } from "../cdp/runtime-objects";
+import { CdpFault, requestDetails } from "../cdp/errors";
 import {
   constrainDisplay,
   nativePresentation,
-  positive,
   projectDisplay,
   windowPresentation,
 } from "./geometry";
@@ -15,6 +13,7 @@ import type { NativeCapture, PresentationReceipt } from "./viewport";
 import { DisplayPreparation } from "./preparation";
 import type { DisplaySnapshot, DisplayTarget } from "./preparation";
 import { frameTimeoutMs } from "./limits";
+import { captureBoundary } from "./capture-boundary";
 
 export type { DisplayTarget } from "./preparation";
 
@@ -298,27 +297,6 @@ export class DisplayTransaction {
     }
   }
 
-  private async evaluate(
-    expression: string,
-    options: { contextId?: number; awaitPromise?: boolean } = {},
-  ) {
-    const { client, target } = this;
-    const release = (result: unknown) =>
-      releaseRuntimeObjects(client, target.sessionId, result);
-    const result = await client.request(
-      "Runtime.evaluate",
-      {
-        expression,
-        returnByValue: true,
-        ...options,
-      },
-      target.sessionId,
-      release,
-    );
-    release(result);
-    return result;
-  }
-
   private async fenceCapture(
     kind: "native" | "presentation" = "presentation",
   ): Promise<NativeCapture | null> {
@@ -327,45 +305,12 @@ export class DisplayTransaction {
     let capture: NativeCapture | null = null;
     if (kind === "native") target.geometry.fenceNative(Infinity);
     await this.host.refresh(async () => {
-      const tree = await client.request(
-        "Page.getFrameTree",
-        undefined,
-        target.sessionId,
+      const boundary = await captureBoundary(client, target.sessionId, () =>
+        this.current(),
       );
-      if (!this.current()) return;
-      const world = await client.request(
-        "Page.createIsolatedWorld",
-        { frameId: tree.frameTree.frame.id, worldName: "cdp-viewer-display" },
-        target.sessionId,
-      );
-      if (!this.current()) return;
-      // An integer clock read cannot make a future millisecond a capture fence.
-      // Confirm that exact boundary elapsed before restarting the static stream.
-      const clock = await this.evaluate(
-        `new Promise((resolve) => {
-          const fence = Date.now() + 1;
-          setTimeout(() => resolve({ fence, now: Date.now() }), 1);
-        })`,
-        { contextId: world.executionContextId, awaitPromise: true },
-      );
-      if (!this.current()) return;
-      const value: unknown = clock.result.value;
-      if (
-        clock.exceptionDetails ||
-        !isRecord(value) ||
-        !Number.isSafeInteger(value.fence) ||
-        !positive(value.fence) ||
-        !Number.isSafeInteger(value.now) ||
-        !positive(value.now) ||
-        value.now < value.fence
-      )
-        throw new CdpFault(
-          "display",
-          "A fresh browser image could not be confirmed. Try synchronizing again.",
-        );
-      if (kind === "native")
-        capture = target.geometry.fenceNative(value.fence / 1000);
-      else target.geometry.fence(value.fence / 1000);
+      if (boundary === null) return;
+      if (kind === "native") capture = target.geometry.fenceNative(boundary);
+      else target.geometry.fence(boundary);
     });
     return this.current() ? capture : null;
   }

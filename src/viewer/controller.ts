@@ -21,7 +21,7 @@ import { DisplaySync } from "../display/sync";
 import { DisplayViewport } from "../display/viewport";
 import type { DisplaySize } from "../display/geometry";
 import { positive } from "../display/geometry";
-import type { TabAction, ViewerModel } from "./model";
+import type { TabAction, ViewerIntentTransition, ViewerModel } from "./model";
 import type {
   ViewerCaptureOptions,
   CdpViewerProps,
@@ -32,6 +32,9 @@ import { captureSettings, capturePreferences, sameCapture } from "./capture";
 import { Screencast } from "./screencast";
 import { readFavicon } from "./favicon";
 import { TargetDiscovery } from "./discovery";
+import { ImageRecoveryRuntime } from "./image-recovery-runtime";
+import type { ImageRetirement, ImageSelection } from "./image-recovery-runtime";
+import type { ViewerIntent } from "./lifecycle";
 
 interface FaviconDocument {
   wanted: boolean;
@@ -39,15 +42,8 @@ interface FaviconDocument {
   ready: boolean;
 }
 
-interface Selection {
-  targetId: string;
-  sessionId: string | null;
+interface Selection extends ImageSelection {
   frameSessionId: string | null;
-  painted: boolean;
-  stream: Screencast | null;
-  input: InputSession | null;
-  inputReady: boolean;
-  geometry: DisplayViewport;
   favicon: FaviconDocument;
 }
 
@@ -56,6 +52,13 @@ const minimumCaptureIntervalMs = 150;
 interface Retirement {
   input: InputSession;
   complete: Promise<void>;
+  start: () => void;
+}
+
+interface SelectionRetirement {
+  readonly selection: Selection | null;
+  readonly image: ImageRetirement | null;
+  readonly control: Retirement | null;
 }
 
 interface ControllerOptions {
@@ -80,6 +83,7 @@ export class ViewerController {
   private readonly ownedSessions = new Set<string>();
   private readonly ownedFrameSessions = new Set<string>();
   private readonly retirements = new Map<string, Retirement>();
+  private readonly imageRecovery: ImageRecoveryRuntime;
   private client: CdpClient | null = null;
   private frames: CdpClient | null = null;
   private directory: TargetDirectory | null = null;
@@ -89,11 +93,9 @@ export class ViewerController {
   private connected = false;
   private chosenOnce = false;
   private targetRevision = 0;
-  private selectionRevision = 0;
   private extensionRequest = 0;
   private extensionDescriptors: readonly ViewerExtension[] = [];
   private extensions: ExtensionRuntime | null = null;
-  private paused: boolean;
   private display: DisplaySync | null = null;
   private displayMode: WindowSizeSync = "off";
   private displaySize: DisplaySize | null = null;
@@ -111,16 +113,37 @@ export class ViewerController {
     private readonly sink: FrameSink,
     private readonly options: ControllerOptions,
   ) {
-    this.paused = options.paused ?? false;
+    this.imageRecovery = new ImageRecoveryRuntime(model, sink, {
+      client: () => this.client!,
+      display: () => this.display,
+      current: (selection) => this.isCurrent(selection),
+      available: () => !this.disposed && this.connected && !this.paused,
+      disposed: () => this.disposed,
+      assertMember: (targetId) => this.directory!.assertMember(targetId),
+      select: (targetId) => this.select(targetId),
+      lost: (error) => this.loseSelection(error),
+    });
   }
 
   start(): void {
+    this.model.run(this.model.commitIntent$, {
+      type: "pause",
+      paused: this.options.paused ?? false,
+    });
     this.model.run(this.model.configure$, {
       interactive: this.options.interactive ?? false,
       scoped: this.options.windowId !== undefined,
     });
     this.waitingForCapture = true;
     this.setCapture(this.options.capture);
+  }
+
+  private get paused(): boolean {
+    return this.model.read(this.model.intent$).paused;
+  }
+
+  private get selectionRevision(): object {
+    return this.model.read(this.model.intent$).selection;
   }
 
   get input(): InputSession | null {
@@ -142,27 +165,23 @@ export class ViewerController {
       return;
     this.chosenOnce = true;
     this.extensionRequest++;
-    const revision = ++this.selectionRevision;
     const controls = this.model.read(this.model.controls$);
     const preview =
       !this.paused && (controls.streaming || controls.loadingPreview);
-    this.stopSelection("target-replaced", { retainFrame: preview });
-    if (this.disposed || !this.connected || revision !== this.selectionRevision)
-      return;
-    this.model.transition({
-      type: "select",
-      targetId,
-      paused: this.paused,
-      preview,
-    });
+    const revision = this.changeSelection(
+      { type: "select", targetId, paused: this.paused, preview },
+      "target-replaced",
+      { retainFrame: preview },
+    );
     if (
       this.paused ||
       this.disposed ||
       !this.connected ||
-      revision !== this.selectionRevision
+      revision !== this.model.read(this.model.intent$)
     )
       return;
     const selection: Selection = {
+      intent: revision,
       targetId,
       sessionId: null,
       frameSessionId: null,
@@ -182,17 +201,22 @@ export class ViewerController {
 
   setPaused(paused: boolean): void {
     if (this.disposed || this.paused === paused) return;
-    this.paused = paused;
-    if (!this.connected) return;
-    if (paused) {
-      this.stopSelection("paused");
-      if (!this.connected) return;
-      this.model.transition({ type: "paused" });
-    } else {
-      const id = this.model.getSnapshot().selectedTargetId;
+    const intent = this.changeSelection({ type: "pause", paused }, "paused");
+    if (
+      !paused &&
+      !this.disposed &&
+      this.connected &&
+      intent === this.model.read(this.model.intent$) &&
+      !this.model.read(this.model.imageRecovery$)
+    ) {
+      const id = intent.targetId;
       if (id) this.select(id);
       else this.refresh();
     }
+  }
+
+  retryImage(): void {
+    this.imageRecovery.retry(this.selection);
   }
 
   setExtensions(extensions: readonly ViewerExtension[]): void {
@@ -516,17 +540,20 @@ export class ViewerController {
   close(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.discovery?.close();
-    this.model.run(this.model.setConnected$, false);
-    this.lifetime.abort();
-    this.stopSelection("disposed");
-    this.display?.close();
-    this.sink.dispose();
-    this.frames?.close();
-    this.client?.close();
-    this.ownedSessions.clear();
-    this.ownedFrameSessions.clear();
-    this.retirements.clear();
+    try {
+      this.changeSelection({ type: "closed" }, "disposed");
+    } finally {
+      // A publication may close us before its outer retirement has started.
+      for (const retirement of this.retirements.values()) retirement.start();
+      this.display?.close();
+      this.sink.dispose();
+      this.frames?.close();
+      this.client?.close();
+      this.ownedSessions.clear();
+      this.ownedFrameSessions.clear();
+      this.retirements.clear();
+      this.imageRecovery.close();
+    }
   }
 
   private async connect(): Promise<void> {
@@ -625,9 +652,7 @@ export class ViewerController {
       changed: () => this.discovered(),
       failed: (error) => {
         if (this.disposed || !this.connected) return;
-        this.stopSelection();
-        if (this.disposed || !this.connected) return;
-        this.model.transition({
+        this.changeSelection({
           type: "discovery-failed",
           error: diagnostic(error),
         });
@@ -641,9 +666,11 @@ export class ViewerController {
     const established = this.connected;
     const drainControl = source !== this.client;
     this.connected = false;
-    this.discovery?.close();
-    this.lifetime.abort();
-    this.stopSelection("disconnected", { drainControl });
+    this.changeSelection(
+      { type: "disconnected", established, error: diagnostic(error) },
+      "disconnected",
+      { drainControl },
+    );
     this.display?.close();
     this.frames?.close();
     this.ownedFrameSessions.clear();
@@ -651,6 +678,7 @@ export class ViewerController {
       this.client?.close();
       this.ownedSessions.clear();
       this.retirements.clear();
+      this.imageRecovery.close();
     };
     // Video loss revokes admission immediately, but a live control socket can
     // still acknowledge its original pressed/composing cleanup. Never replay it.
@@ -659,11 +687,6 @@ export class ViewerController {
         [...this.retirements.values()].map((value) => value.complete),
       ).then(closeControl, closeControl);
     else closeControl();
-    this.model.transition({
-      type: "disconnected",
-      established,
-      error: diagnostic(error),
-    });
   }
 
   private refresh(): void {
@@ -703,6 +726,9 @@ export class ViewerController {
 
   private async attach(selection: Selection): Promise<void> {
     const client = this.client!;
+    const imageRetirement = this.imageRecovery.settle(selection.targetId);
+    if (imageRetirement) await imageRetirement;
+    if (!this.isCurrent(selection)) return;
     await this.retirements.get(selection.targetId)?.complete;
     if (!this.isCurrent(selection)) return;
     await this.directory!.assertMember(selection.targetId);
@@ -785,7 +811,7 @@ export class ViewerController {
         sink: this.sink,
         current: () => this.isCurrent(selection),
         failed: (error) => {
-          if (this.isCurrent(selection)) this.fail(error);
+          if (this.isCurrent(selection)) this.imageFailed(selection, error);
         },
         starting: (settings) => {
           this.captureUpdated = performance.now();
@@ -833,11 +859,13 @@ export class ViewerController {
     return attached.sessionId;
   }
 
-  private isCurrent(selection: Selection): boolean {
+  private isCurrent(selection: ImageSelection): boolean {
+    const intent = this.model.read(this.model.intent$);
     return (
       !this.disposed &&
       this.connected &&
-      !this.paused &&
+      !intent.paused &&
+      selection.intent === intent &&
       this.selection === selection &&
       this.discovery?.current(selection.targetId) === true
     );
@@ -879,7 +907,8 @@ export class ViewerController {
                 !selection.painted,
               );
             } catch (restoreError) {
-              if (this.isCurrent(selection)) this.fail(restoreError);
+              if (this.isCurrent(selection))
+                this.imageFailed(selection, restoreError);
             }
         }
         throw error;
@@ -895,7 +924,12 @@ export class ViewerController {
       selection.painted &&
       selection.inputReady
     ) {
-      this.model.transition({ type: "streaming" });
+      if (!this.imageRecovery.ready(selection)) {
+        this.display?.setSuspended(false);
+        if (!this.isCurrent(selection)) return;
+        this.model.transition({ type: "streaming" });
+      }
+      if (!this.isCurrent(selection)) return;
       if (this.captureError) this.model.update({ error: this.captureError });
       this.refreshFavicon(selection);
     }
@@ -960,60 +994,113 @@ export class ViewerController {
   }
 
   private loseSelection(error: ViewerError | null): void {
-    const revision = this.selectionRevision;
-    this.stopSelection();
-    if (this.lifetime.signal.aborted || revision !== this.selectionRevision)
-      return;
-    this.model.transition({ type: "target-lost", error });
+    this.changeSelection({ type: "target-lost", error });
   }
 
-  private stopSelection(
-    reason: InputStop = "target-replaced",
-    {
-      drainControl = false,
-      retainFrame = false,
-    }: { drainControl?: boolean; retainFrame?: boolean } = {},
-  ): void {
+  /** Register original obligations before publication can acquire a successor. */
+  private takeSelection(
+    reason: InputStop,
+    { drainControl = false }: { drainControl?: boolean },
+  ): SelectionRetirement {
     this.cancelCaptureUpdate();
-    const old = this.selection;
+    const selection = this.selection;
+    const image = selection ? this.imageRecovery.retire(selection) : null;
     this.selection = null;
-    this.discovery?.watch(null);
-    this.display?.setTarget(null);
-    if (retainFrame) this.sink.invalidate();
-    else this.sink.reset();
-    this.model.transition({ type: "stopped" });
-    if (old) {
-      const input = old.input;
-      const retire =
-        input && (reason !== "disconnected" || drainControl) && !this.disposed;
-      if (retire) {
-        // Cancel old admission synchronously, then publish the fence before local reset.
-        const complete = input.retire(
-          reason === "disconnected" ? "disposed" : reason,
-        );
-        const retirement = { input, complete };
-        this.retirements.set(old.targetId, retirement);
-        complete.then(
-          () => {
-            if (this.retirements.get(old.targetId) === retirement)
-              this.retirements.delete(old.targetId);
-            this.release(old);
-          },
-          () => {
-            // Unknown cleanup cannot grant this connection a new owner of the target.
-            this.release(old);
-          },
-        );
-      } else {
-        input?.dispose(reason);
+    const input = selection?.input;
+    let control: Retirement | null = null;
+    if (
+      selection &&
+      input &&
+      (reason !== "disconnected" || drainControl) &&
+      !this.disposed
+    ) {
+      let start!: () => void;
+      const complete = new Promise<void>((resolve, reject) => {
+        start = () => {
+          try {
+            resolve(
+              input.retire(reason === "disconnected" ? "disposed" : reason),
+            );
+          } catch (error) {
+            reject(error);
+          }
+        };
+      });
+      const retirement = { input, complete, start };
+      control = retirement;
+      this.retirements.set(selection.targetId, retirement);
+      complete.then(
+        () => {
+          if (this.retirements.get(selection.targetId) === retirement)
+            this.retirements.delete(selection.targetId);
+          this.release(selection);
+        },
+        () => {
+          // Unknown cleanup remains a same-target fence for this connection.
+          this.release(selection);
+        },
+      );
+    }
+    return { selection, image, control };
+  }
+
+  /** One entry binds original retirement, originating intent and unconditional cleanup. */
+  private changeSelection(
+    event: ViewerIntentTransition,
+    reason: InputStop = "target-replaced",
+    options: { drainControl?: boolean; retainFrame?: boolean } = {},
+  ): ViewerIntent {
+    const retiring =
+      event.type === "pause" && !event.paused
+        ? null
+        : this.takeSelection(reason, options);
+    let intent: ViewerIntent | undefined;
+    try {
+      if (event.type === "closed" || event.type === "disconnected") {
+        this.discovery?.close();
+        if (event.type === "closed")
+          this.model.run(this.model.setConnected$, false);
+        this.lifetime.abort();
       }
-      // Publish original control retirement before frame cleanup can synchronously fail.
-      this.stopStream(old);
-      this.releaseFrames(old);
-      if (!retire) this.release(old);
-      if (input) {
-        this.options.onClipboardReset?.();
-        this.options.onInputReset?.(reason);
+      intent = this.model.run(this.model.commitIntent$, event);
+      if (event.type === "pause" && event.paused)
+        this.imageRecovery.cancel(retiring!.image);
+      return intent;
+    } finally {
+      if (retiring) this.finishSelection(retiring, intent, reason, options);
+    }
+  }
+
+  private finishSelection(
+    retiring: SelectionRetirement,
+    intent: ViewerIntent | undefined,
+    reason: InputStop = "target-replaced",
+    { retainFrame = false }: { retainFrame?: boolean } = {},
+  ): void {
+    const current = () =>
+      intent === this.model.read(this.model.intent$) && this.selection === null;
+    const old = retiring.selection;
+    try {
+      if (current()) this.discovery?.watch(null);
+      if (current()) this.display?.setTarget(null);
+      if (current()) this.display?.setSuspended(false);
+      if (current()) {
+        if (retainFrame) this.sink.invalidate();
+        else this.sink.reset();
+      }
+      if (current()) this.model.transition({ type: "stopped", retainFrame });
+    } finally {
+      if (old) {
+        const input = old.input;
+        if (retiring.control) retiring.control.start();
+        else input?.dispose(reason);
+        this.stopStream(old);
+        this.releaseFrames(old);
+        if (!retiring.control) this.release(old);
+        if (input && current()) {
+          this.options.onClipboardReset?.();
+          if (current()) this.options.onInputReset?.(reason);
+        }
       }
     }
   }
@@ -1041,9 +1128,28 @@ export class ViewerController {
   }
 
   private fail(error: unknown): void {
-    this.stopSelection();
     if (this.lifetime.signal.aborted) return;
-    this.model.transition({ type: "failed", error: diagnostic(error) });
+    this.changeSelection({
+      type: "failed",
+      error: diagnostic(error),
+    });
+  }
+
+  private imageFailed(selection: Selection, error: unknown): void {
+    const fault = diagnostic(error);
+    const captureRequest = fault.request?.method;
+    if (
+      fault.kind !== "frame" &&
+      !(
+        fault.kind === "protocol" &&
+        (captureRequest === "Page.startScreencast" ||
+          captureRequest === "Page.stopScreencast")
+      )
+    ) {
+      this.fail(error);
+      return;
+    }
+    this.imageRecovery.fail(selection, fault);
   }
 
   private onEvent(event: CdpEvent, client: CdpClient): void {
@@ -1185,6 +1291,11 @@ export class ViewerController {
         typeof params.targetId === "string"
       )
         this.retirements.delete(params.targetId);
+      if (
+        event.method === "Target.targetDestroyed" &&
+        typeof params.targetId === "string"
+      )
+        this.imageRecovery.forget(params.targetId);
       this.discovery?.event(event);
     }
   }

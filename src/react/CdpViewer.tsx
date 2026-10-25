@@ -42,6 +42,7 @@ function ViewerSurface({
   const tabLayout = viewerScope.useValue(model.tabLayout$);
   const select = viewerScope.useCommand(model.select$);
   const reconnect = viewerScope.useCommand(model.reconnect$);
+  const retryImage = viewerScope.useCommand(model.retryImage$);
   const createTab = viewerScope.useCommand(model.createTab$);
   const closeTab = viewerScope.useCommand(model.closeTab$);
   const pending = viewerScope.useValue(model.tabAction$);
@@ -233,6 +234,19 @@ function ViewerSurface({
             )}
             {controls.showRecovery && (
               <div className="cdpv-recovery-actions">
+                {controls.showImageRetry && (
+                  <Button
+                    type="button"
+                    className="cdpv-button cdpv-primary"
+                    disabled={!controls.canRetryImage}
+                    onClick={() => retryImage()}
+                  >
+                    <RotateCw size={16} aria-hidden="true" />
+                    {controls.retryingImage
+                      ? "Retrying live image…"
+                      : "Retry live image"}
+                  </Button>
+                )}
                 {controls.showEmptyCreate && (
                   <Button
                     type="button"
