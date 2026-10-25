@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { viewerScope } from "./context";
 import { useViewerElements } from "./runtime";
-import { ImageDetail } from "./ImageDetail";
+import { CaptureQuality } from "./CaptureQuality";
 
 export function BrowserMenu() {
   const { browserMenu: container } = useViewerElements();
@@ -53,7 +53,7 @@ export function BrowserMenu() {
           collisionPadding={8}
         >
           <Menu.Popup className="cdpv-browser-menu" aria-label="Browser menu">
-            <ImageDetail />
+            <CaptureQuality />
             <Menu.SubmenuRoot>
               <Menu.SubmenuTrigger className="cdpv-browser-menu-item">
                 <Scaling size={16} aria-hidden="true" />

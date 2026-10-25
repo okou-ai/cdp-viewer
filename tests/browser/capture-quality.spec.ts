@@ -11,7 +11,7 @@ for (const [transport, colorScheme] of [
   ["shared", "light"],
   ["split", "dark"],
 ] as const) {
-  test(`image detail keeps native controls, host forms and remote geometry independent (${transport})`, async ({
+  test(`capture quality keeps native controls, host forms and remote geometry independent (${transport})`, async ({
     page,
   }, info) => {
     const backend = await launchBackend(
@@ -88,11 +88,11 @@ for (const [transport, colorScheme] of [
       const menu = view.getByRole("button", { name: "Browser menu" });
       await menu.click();
       const detailTrigger = view.getByRole("menuitem", {
-        name: "Image quality",
+        name: "Capture quality",
       });
       await detailTrigger.focus();
       await page.keyboard.press("Enter");
-      const detail = view.getByRole("dialog", { name: "Image quality" });
+      const detail = view.getByRole("dialog", { name: "Capture quality" });
       await expect(detail).toBeVisible();
       const quality = detail.getByRole("slider", { name: "JPEG quality" });
       const resolution = detail.getByRole("combobox", {
@@ -131,7 +131,7 @@ for (const [transport, colorScheme] of [
       ).toBe(true);
       await expect(page.locator("#host-submissions")).toHaveText("0");
       await view.screenshot({
-        path: info.outputPath(`image-detail-${colorScheme}.png`),
+        path: info.outputPath(`capture-quality-${colorScheme}.png`),
       });
       await page.keyboard.press("Escape");
       await expect(detail).toHaveCount(0);

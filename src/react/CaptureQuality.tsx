@@ -5,7 +5,7 @@ import { captureResolutions, defaultCapture } from "../viewer/capture";
 import { viewerScope } from "./context";
 import { useViewerElements } from "./runtime";
 
-export function ImageDetail() {
+export function CaptureQuality() {
   const { browserMenu: container } = useViewerElements();
   const model = viewerScope.useModel();
   const capture = viewerScope.useValue(model.capture$);
@@ -32,7 +32,7 @@ export function ImageDetail() {
         className="cdpv-browser-menu-item"
       >
         <SlidersHorizontal size={16} aria-hidden="true" />
-        Image quality
+        Capture quality
         <ChevronRight
           className="cdpv-browser-menu-chevron"
           size={16}
@@ -57,20 +57,20 @@ export function ImageDetail() {
           }}
         >
           <Popover.Popup
-            className="cdpv-browser-menu cdpv-image-detail"
+            className="cdpv-browser-menu cdpv-capture-quality"
             onKeyDown={(event) => {
               // Native fields own navigation; Escape still dismisses the popup.
               if (event.key !== "Escape") event.stopPropagation();
             }}
           >
-            <Popover.Title className="cdpv-image-detail-title">
-              Image quality
+            <Popover.Title className="cdpv-capture-quality-title">
+              Capture quality
             </Popover.Title>
             <fieldset
               disabled={!canChange}
-              className="cdpv-image-detail-fields"
+              className="cdpv-capture-quality-fields"
             >
-              <div className="cdpv-image-detail-field">
+              <div className="cdpv-capture-quality-field">
                 <label htmlFor={`${identity}-quality`}>
                   JPEG quality
                   <output htmlFor={`${identity}-quality`}>
@@ -89,7 +89,7 @@ export function ImageDetail() {
                   }
                 />
               </div>
-              <div className="cdpv-image-detail-field">
+              <div className="cdpv-capture-quality-field">
                 <label htmlFor={`${identity}-resolution`}>
                   Capture resolution <span>maximum</span>
                 </label>
@@ -134,7 +134,7 @@ export function ImageDetail() {
                 </select>
               </div>
             </fieldset>
-            <Popover.Description className="cdpv-image-detail-hint">
+            <Popover.Description className="cdpv-capture-quality-hint">
               Changes apply live without resizing the remote page.
               {!canChange && " These settings are managed by this application."}
             </Popover.Description>

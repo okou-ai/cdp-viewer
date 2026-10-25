@@ -94,22 +94,22 @@ available for precise changes. Resizing a preview keeps its live viewer and inpu
 nodes. It changes local presentation; **Sync continuously** also adapts the remote
 display to the new page surface.
 
-| Public prop              | Playground surface                                  | When it changes                                                         |
-| ------------------------ | --------------------------------------------------- | ----------------------------------------------------------------------- |
-| `cdpUrl`                 | Masked connection bar                               | Connect or Apply & connect                                              |
-| `windowId`               | Connection options                                  | Connect or Apply & connect; blank means omitted                         |
-| `extensions`             | Optional adapter checkboxes                         | Connect or Apply & connect                                              |
-| `paused`                 | Pause stream / Resume stream                        | Immediately, without replacing the connection                           |
-| `interactive`            | Control mode                                        | Immediately; restarts this viewer using its applied connection settings |
-| `showSettingsMenu`       | Appearance & layout → Show settings menu            | Immediately; preserves the connection and sync mode                     |
-| `capture`                | Image quality → JPEG quality and capture resolution | Immediately; restarts only the selected screenshot stream               |
-| `colorScheme`            | Appearance & layout → Viewer theme                  | Immediately; Inherit page omits the prop, while System follows the OS   |
-| `style`                  | Height, width, corner radius and custom accent      | Immediately; remote adaptation follows Window size sync                 |
-| `className`              | Framed presentation preset                          | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
-| `onStatusChange`         | Console                                             | Always observed while connected                                         |
-| `onError`                | Console                                             | Always observed while connected                                         |
-| `windowSizeSync`         | Appearance & layout → Window size sync              | Immediately, without replacing the connection; off by default           |
-| `onWindowSizeSyncChange` | Console / controlled Usage                          | Accepts browser-menu requests and updates the owning panel's mode       |
+| Public prop              | Playground surface                                    | When it changes                                                         |
+| ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| `cdpUrl`                 | Masked connection bar                                 | Connect or Apply & connect                                              |
+| `windowId`               | Connection options                                    | Connect or Apply & connect; blank means omitted                         |
+| `extensions`             | Optional adapter checkboxes                           | Connect or Apply & connect                                              |
+| `paused`                 | Pause stream / Resume stream                          | Immediately, without replacing the connection                           |
+| `interactive`            | Control mode                                          | Immediately; restarts this viewer using its applied connection settings |
+| `showSettingsMenu`       | Appearance & layout → Show settings menu              | Immediately; preserves the connection and sync mode                     |
+| `capture`                | Capture quality → JPEG quality and capture resolution | Immediately; restarts only the selected screenshot stream               |
+| `colorScheme`            | Appearance & layout → Viewer theme                    | Immediately; Inherit page omits the prop, while System follows the OS   |
+| `style`                  | Height, width, corner radius and custom accent        | Immediately; remote adaptation follows Window size sync                 |
+| `className`              | Framed presentation preset                            | Immediately; demonstrates the demo's own `demo-viewer-framed` CSS class |
+| `onStatusChange`         | Console                                               | Always observed while connected                                         |
+| `onError`                | Console                                               | Always observed while connected                                         |
+| `windowSizeSync`         | Appearance & layout → Window size sync                | Immediately, without replacing the connection; off by default           |
+| `onWindowSizeSyncChange` | Console / controlled Usage                            | Accepts browser-menu requests and updates the owning panel's mode       |
 
 **Window size sync** and the address-bar menu share the same controlled mode:
 
@@ -133,7 +133,7 @@ applied endpoint/window/extensions even when connection fields contain unapplied
 drafts. Pause, theme and styling retain the viewer and its input nodes. Ordinary
 offscreen/document visibility behavior still applies.
 
-**Image quality** separates JPEG quality (0–100) from maximum capture resolution.
+**Capture quality** separates JPEG quality (0–100) from maximum capture resolution.
 The initial values match the library defaults: quality 70 and **Automatic
 (container and DPR)** resolution. Automatic bounds follow the preview's physical
 pixel demand. All resolutions share limits of 4096 pixels per edge and 3840×2160

@@ -592,17 +592,17 @@
 .cdpv-root .cdpv-browser-submenu {
   width: min(240px, var(--available-width));
 }
-.cdpv-root .cdpv-image-detail {
+.cdpv-root .cdpv-capture-quality {
   width: min(300px, var(--available-width));
   padding: 14px;
   outline: none;
 }
-.cdpv-root .cdpv-image-detail-title {
+.cdpv-root .cdpv-capture-quality-title {
   margin: 0 0 16px;
   font-size: 13px;
   font-weight: 600;
 }
-.cdpv-root .cdpv-image-detail-fields {
+.cdpv-root .cdpv-capture-quality-fields {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -611,26 +611,26 @@
   padding: 0;
   border: 0;
 }
-.cdpv-root .cdpv-image-detail-field {
+.cdpv-root .cdpv-capture-quality-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.cdpv-root .cdpv-image-detail-field label {
+.cdpv-root .cdpv-capture-quality-field label {
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
-.cdpv-root .cdpv-image-detail-field output,
-.cdpv-root .cdpv-image-detail-field label span {
+.cdpv-root .cdpv-capture-quality-field output,
+.cdpv-root .cdpv-capture-quality-field label span {
   color: var(--cdpv-muted);
 }
-.cdpv-root .cdpv-image-detail-field input {
+.cdpv-root .cdpv-capture-quality-field input {
   width: 100%;
   margin: 0;
   accent-color: var(--cdpv-accent);
 }
-.cdpv-root .cdpv-image-detail-field select {
+.cdpv-root .cdpv-capture-quality-field select {
   width: 100%;
   min-width: 0;
   padding: 8px;
@@ -640,7 +640,7 @@
   color: var(--cdpv-foreground);
   font: inherit;
 }
-.cdpv-root .cdpv-image-detail-hint {
+.cdpv-root .cdpv-capture-quality-hint {
   margin: 12px 0 0;
   color: var(--cdpv-muted);
   font-size: 12px;

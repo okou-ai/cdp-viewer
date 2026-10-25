@@ -37,12 +37,14 @@ function browser() {
 
 async function openDetail(scope: ReturnType<typeof within> = screen) {
   await userEvent.click(scope.getByRole("button", { name: "Browser menu" }));
-  await userEvent.click(scope.getByRole("menuitem", { name: "Image quality" }));
-  return within(await scope.findByRole("dialog", { name: "Image quality" }));
+  await userEvent.click(
+    scope.getByRole("menuitem", { name: "Capture quality" }),
+  );
+  return within(await scope.findByRole("dialog", { name: "Capture quality" }));
 }
 
 it.each(["shared", "split"] as const)(
-  "applies menu-owned image detail only to its viewer without reconnecting (%s)",
+  "applies menu-owned capture quality only to its viewer without reconnecting (%s)",
   async (transport) => {
     const fake = browser();
     const changed = vi.fn();
