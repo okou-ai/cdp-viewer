@@ -60,6 +60,16 @@ Plain Node cannot import an uncompiled TSX entry; use a supported source-capable
 bundler/runtime for SSR. Importing/rendering the viewer on the server opens no
 browser connection.
 
+Client mounting requires `AbortSignal.any`, `Uint8Array.fromBase64`,
+`createImageBitmap`, `ResizeObserver`, `IntersectionObserver` and `window.matchMedia`.
+The viewer checks these APIs before acquiring its listeners, observers or
+connections. A missing API throws a `TypeError` naming the requirement; hosts
+can handle it with a React error boundary. This also applies to paused and
+view-only viewers. Internal code uses these native APIs directly, with no
+polyfills or reduced-functionality paths. Imports and server rendering do not
+perform this check. Remote CDP support, clipboard permissions and native
+operation failures retain their runtime error handling.
+
 ```tsx
 import { CdpViewer } from "cdp-viewer";
 import "cdp-viewer/style.css";
@@ -377,7 +387,7 @@ The local image uses contain fitting. By default, the remote viewport is untouch
 Frames use one active decode and one newest queued frame;
 Old-generation images and older timestamped readbacks are discarded.
 `document.hidden`, `paused`, and an
-offscreen viewer (when IntersectionObserver is available) release stream work;
+offscreen viewer release stream work;
 resuming revalidates and attaches the selected target. Re-entering the viewport
 does not override explicit pause or whole-document invisibility.
 Cleanup cannot cancel a native image decode already in progress, but its result

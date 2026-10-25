@@ -192,32 +192,29 @@ it("invalidates decode work while retaining the displayed image during capture u
   renderer.dispose();
 });
 
-it.each([true, false])(
-  "decodes JPEG bytes with native base64 available: %s",
-  async (native) => {
-    context();
-    const bytes = new Uint8Array([0, 127, 128, 255]);
-    const fromBase64 = vi.fn(() => bytes);
-    const from = vi.spyOn(Uint8Array, "from");
-    Object.defineProperty(Uint8Array, "fromBase64", {
-      configurable: true,
-      value: native ? fromBase64 : undefined,
-    });
-    const image = { width: 2, height: 2, close: vi.fn() };
-    const decode = vi.fn(async (blob: Blob) => {
-      expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
-      return image;
-    });
-    vi.stubGlobal("createImageBitmap", decode);
-    const renderer = new CanvasRenderer(document.createElement("canvas"));
-    const painted = vi.fn();
-    const failed = vi.fn();
-    renderer.push("AH+A/w==", painted, failed);
-    await vi.waitFor(() => expect(painted).toHaveBeenCalledOnce());
-    expect(failed).not.toHaveBeenCalled();
-    expect(from).not.toHaveBeenCalled();
-    expect(fromBase64).toHaveBeenCalledTimes(native ? 1 : 0);
-    expect(image.close).toHaveBeenCalledOnce();
-    renderer.dispose();
-  },
-);
+it("decodes JPEG bytes with the required native base64 API", async () => {
+  context();
+  const bytes = new Uint8Array([0, 127, 128, 255]);
+  const fromBase64 = vi.fn(() => bytes);
+  const from = vi.spyOn(Uint8Array, "from");
+  Object.defineProperty(Uint8Array, "fromBase64", {
+    configurable: true,
+    value: fromBase64,
+  });
+  const image = { width: 2, height: 2, close: vi.fn() };
+  const decode = vi.fn(async (blob: Blob) => {
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+    return image;
+  });
+  vi.stubGlobal("createImageBitmap", decode);
+  const renderer = new CanvasRenderer(document.createElement("canvas"));
+  const painted = vi.fn();
+  const failed = vi.fn();
+  renderer.push("AH+A/w==", painted, failed);
+  await vi.waitFor(() => expect(painted).toHaveBeenCalledOnce());
+  expect(failed).not.toHaveBeenCalled();
+  expect(from).not.toHaveBeenCalled();
+  expect(fromBase64).toHaveBeenCalledOnce();
+  expect(image.close).toHaveBeenCalledOnce();
+  renderer.dispose();
+});

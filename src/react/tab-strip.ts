@@ -28,14 +28,11 @@ export function observeTabStrip(
       overflow: action + gap - (create ? 0 : corner),
     });
   };
-  const observer =
-    typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-  observer?.observe(row);
-  if (!observer) window.addEventListener("resize", measure);
+  const observer = new ResizeObserver(measure);
+  observer.observe(row);
   measure();
   return () => {
     active = false;
-    observer?.disconnect();
-    if (!observer) window.removeEventListener("resize", measure);
+    observer.disconnect();
   };
 }

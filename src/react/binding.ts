@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import type { Computed } from "ccstate";
+import { assertBrowserCapabilities } from "../browser";
 import { diagnostic } from "../cdp/errors";
 import { NativeInput } from "../input/native";
 import { CanvasRenderer } from "../render/canvas";
@@ -66,6 +67,7 @@ export class ViewerBinding {
   private stopAnimation: (() => void) | undefined;
 
   mount(state: RuntimeState): void {
+    assertBrowserCapabilities();
     this.stopFocus = this.focus.listen();
     this.update(state);
   }
@@ -265,17 +267,14 @@ export class ViewerBinding {
       controller.setPaused(
         effectivePaused(this.committed?.paused ?? false, this.inViewport),
       );
-    const observer =
-      typeof IntersectionObserver === "function"
-        ? new IntersectionObserver((entries) => {
-            if (!active) return;
-            const entry = entries.at(-1);
-            if (!entry) return;
-            this.inViewport = entry.isIntersecting;
-            visibility();
-          })
-        : null;
-    observer?.observe(canvas.current);
+    const observer = new IntersectionObserver((entries) => {
+      if (!active) return;
+      const entry = entries.at(-1);
+      if (!entry) return;
+      this.inViewport = entry.isIntersecting;
+      visibility();
+    });
+    observer.observe(canvas.current);
     const stopDisplay = observeDisplay(canvas.current, (size) =>
       controller.measureDisplay(size),
     );
@@ -285,7 +284,7 @@ export class ViewerBinding {
     this.stopConnection = () => {
       active = false;
       document.removeEventListener("visibilitychange", visibility);
-      observer?.disconnect();
+      observer.disconnect();
       stopDisplay();
       model.run(model.unbind$, actions);
       controller.close();
