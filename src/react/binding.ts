@@ -10,6 +10,7 @@ import type {
   CdpViewerProps,
   ViewerCaptureOptions,
   ViewerSnapshot,
+  ViewerTransport,
   WindowSizeSync,
 } from "../viewer/types";
 import { ToolbarFocus } from "./focus";
@@ -34,6 +35,7 @@ export type RuntimeState = CdpViewerProps & {
   notification: Value<ViewerModel["notification$"]>;
   revision: number;
   displayMode: WindowSizeSync;
+  transportMode: ViewerTransport;
   captureOptions: ViewerCaptureOptions;
 };
 
@@ -78,6 +80,15 @@ export class ViewerBinding {
     const { model, snapshot, tabLayout, notification } = state;
     if (
       !old ||
+      old.transport !== state.transport ||
+      old.onTransportChange !== state.onTransportChange
+    )
+      model.run(model.configureTransport$, {
+        controlled: state.transport ?? null,
+        canChange: state.transport === undefined || !!state.onTransportChange,
+      });
+    if (
+      !old ||
       old.windowSizeSync !== state.windowSizeSync ||
       old.onWindowSizeSyncChange !== state.onWindowSizeSyncChange
     )
@@ -103,7 +114,7 @@ export class ViewerBinding {
       old.revision !== state.revision ||
       old.model !== model ||
       (old.interactive ?? false) !== interactive ||
-      (old.transport ?? "shared") !== (state.transport ?? "shared")
+      old.transportMode !== state.transportMode
     ) {
       this.stopConnection?.();
       this.stopConnection = undefined;
@@ -227,7 +238,7 @@ export class ViewerBinding {
           ...(state.windowId === undefined ? {} : { windowId: state.windowId }),
           paused: effectivePaused(state.paused ?? false, this.inViewport),
           interactive,
-          transport: state.transport ?? "shared",
+          transport: state.transportMode,
           capture: state.captureOptions,
           onInputReset: (reason) => this.native?.reset(reason),
           onClipboardReset: () => this.native?.clearClipboard(),
@@ -260,6 +271,8 @@ export class ViewerBinding {
       onWindowSizeSyncChange: (mode) =>
         this.committed?.onWindowSizeSyncChange?.(mode),
       onCaptureChange: (capture) => this.committed?.onCaptureChange?.(capture),
+      onTransportChange: (transport) =>
+        this.committed?.onTransportChange?.(transport),
     };
     model.run(model.bind$, actions);
     let active = true;

@@ -64,6 +64,11 @@ constrained links; it preserves image detail and does not add bandwidth. Check
 provider connection limits, Origin policy and billing before enabling it. Either
 connection failing stops the panel; use **Reconnect** or choose **Shared** explicitly.
 
+**Transport** also appears first in the viewer's three-dot settings menu, above
+Capture quality. The menu and external selector share the panel's controlled
+mode, with a checkmark on its current value. Usage includes transport state and
+the change callback so the same menu works in the copied component.
+
 The preview leads each panel, with its connection bar above and grouped settings
 alongside. Expanding groups leaves the preview height unchanged; overflowing
 settings scroll within that height. Narrow panels put settings below the preview,
@@ -101,6 +106,8 @@ display to the new page surface.
 | `extensions`             | Optional adapter checkboxes                           | Connect or Apply & connect                                              |
 | `paused`                 | Pause stream / Resume stream                          | Immediately, without replacing the connection                           |
 | `interactive`            | Control mode                                          | Immediately; restarts this viewer using its applied connection settings |
+| `transport`              | Transport mode / browser menu                         | Immediately; reconnects only this panel                                 |
+| `onTransportChange`      | Transport mode / controlled Usage                     | Accepts browser-menu requests and updates the owning panel's mode       |
 | `showSettingsMenu`       | Appearance & layout → Show settings menu              | Immediately; preserves the connection and sync mode                     |
 | `capture`                | Capture quality → JPEG quality and capture resolution | Immediately; restarts only the selected screenshot stream               |
 | `colorScheme`            | Appearance & layout → Viewer theme                    | Immediately; Inherit page omits the prop, while System follows the OS   |

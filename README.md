@@ -168,6 +168,7 @@ viewing and input continue.
 | `interactive?: boolean`                       | Enable mouse, keyboard, native text input and page navigation; defaults to false |
 | `showSettingsMenu?: boolean`                  | Show the settings menu beside the interactive address bar; defaults to true      |
 | `transport?: "shared" \| "split"`             | Optional frame/control separation for interactive viewers; defaults to shared    |
+| `onTransportChange`                           | Requests a controlled transport change, or reports a menu-owned change           |
 | `windowSizeSync?: WindowSizeSync`             | Controlled display adaptation: `"off"`, `"initial"` or `"live"`                  |
 | `onWindowSizeSyncChange`                      | Requests a controlled change, or reports a menu-owned change                     |
 | `capture?: ViewerCaptureOptions`              | Live JPEG quality; automatic container/DPR bounds with optional fixed limits     |
@@ -180,7 +181,7 @@ viewing and input continue.
 
 Statuses are `connecting`, `streaming`, `paused`, `unavailable`, `disconnected`,
 and `error`. Imported types include `CdpViewerProps`, `CdpViewerStyle`,
-`ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `WindowSizeSync` and `ViewerError`.
+`ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`, `ViewerNavigation`, `ViewerTransport`, `WindowSizeSync` and `ViewerError`.
 
 `onStatusChange` reports snapshot changes. Equivalent target lists and navigation
 observations retain the current snapshot and do not trigger another callback;
@@ -204,6 +205,26 @@ If control is still available after frame loss, its original input cleanup is
 allowed to settle before that socket closes; input admission stops immediately.
 Changing `transport` reconnects the viewer; callbacks and live capture changes do
 not. Keep `shared` for the lowest connection cost or unsupported endpoints.
+
+**Transport** is the first item in the interactive three-dot settings menu, above
+Capture quality. Its submenu checks the current **Shared (default)** or **Split
+frame / control** mode. Omit `transport` for per-viewer menu ownership, initially
+Shared; `onTransportChange` reports menu-owned changes. With a supplied `transport`,
+the callback requests a host update and the mode changes only when that prop
+changes. Without the callback, host-controlled options are disabled. Selecting
+the current mode does not reconnect. Changing modes retains that viewer's capture
+and display preferences; hiding the menu preserves its transport preference.
+
+```tsx
+const [transport, setTransport] = useState<ViewerTransport>("shared");
+
+<CdpViewer
+  cdpUrl={cdpUrl}
+  interactive
+  transport={transport}
+  onTransportChange={setTransport}
+/>;
+```
 
 Errors in `onError` and `ViewerSnapshot.error` include `kind` and a fixed `message`.
 When a failed CDP request is known, optional `request` context identifies its

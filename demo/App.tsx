@@ -240,6 +240,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 interactive={options.interactive}
                 showSettingsMenu={options.showSettingsMenu}
                 transport={options.transport}
+                onTransportChange={(transport) => configure(id, { transport })}
                 paused={options.paused}
                 windowSizeSync={options.windowSizeSync}
                 onWindowSizeSyncChange={(mode) =>

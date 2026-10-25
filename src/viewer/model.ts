@@ -12,6 +12,7 @@ import type {
   ViewerCaptureOptions,
   ViewerError,
   ViewerSnapshot,
+  ViewerTransport,
   WindowSizeSync,
 } from "./types";
 import { sameCapture } from "./capture";
@@ -33,6 +34,7 @@ export interface ViewerActions {
   retryImage?(): void;
   onWindowSizeSyncChange?(mode: WindowSizeSync): void;
   onCaptureChange?(capture: ViewerCaptureOptions): void;
+  onTransportChange?(transport: ViewerTransport): void;
 }
 
 interface AddressDraft {
@@ -161,6 +163,34 @@ function createViewerSignals() {
     ready: false,
     pending: false,
     pointerBlocked: false,
+  });
+  const internalTransport$ = state<ViewerTransport>("shared");
+  const controlledTransport$ = state<ViewerTransport | null>(null);
+  const internalCanChangeTransport$ = state(true);
+  const transport$ = computed(
+    (get) => get(controlledTransport$) ?? get(internalTransport$),
+  );
+  const canChangeTransport$ = computed((get) =>
+    get(internalCanChangeTransport$),
+  );
+  const configureTransport$ = command(
+    (
+      { set },
+      value: { controlled: ViewerTransport | null; canChange: boolean },
+    ) => {
+      set(controlledTransport$, value.controlled);
+      set(internalCanChangeTransport$, value.canChange);
+    },
+  );
+  const chooseTransport$ = command(({ get, set }, value: string) => {
+    if (
+      !get(canChangeTransport$) ||
+      (value !== "shared" && value !== "split") ||
+      value === get(transport$)
+    )
+      return;
+    if (get(controlledTransport$) === null) set(internalTransport$, value);
+    get(actions$)?.onTransportChange?.(value);
   });
   const internalSyncMode$ = state<WindowSizeSync>("off");
   const controlledSyncMode$ = state<WindowSizeSync | null>(null);
@@ -716,6 +746,10 @@ function createViewerSignals() {
     setDisplay$,
     chooseWindowSizeSync$,
     syncDisplay$,
+    transport$,
+    canChangeTransport$,
+    configureTransport$,
+    chooseTransport$,
     capture$,
     canChangeCapture$,
     configureCapture$,
