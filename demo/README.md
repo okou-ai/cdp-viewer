@@ -141,6 +141,7 @@ drafts. Pause, theme and styling retain the viewer and its input nodes. Ordinary
 offscreen/document visibility behavior still applies.
 
 **Capture quality** separates JPEG quality (0–100) from maximum capture resolution.
+Hover over its settings row to expand the panel, or use a click, tap or Enter.
 The initial values match the library defaults: quality 70 and **Automatic
 (container and DPR)** resolution. Automatic bounds follow the preview's physical
 pixel demand. All resolutions share limits of 4096 pixels per edge and 3840×2160

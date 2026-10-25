@@ -13,6 +13,7 @@ export function CaptureQuality() {
   const capture = viewerScope.useValue(model.capture$);
   const canChange = viewerScope.useValue(model.canChangeCapture$);
   const open = viewerScope.useValue(model.captureMenuOpen$);
+  const canHover = viewerScope.useValue(model.browserMenuHover$);
   const choose = viewerScope.useCommand(model.chooseCapture$);
   const setOpen = viewerScope.useCommand(model.setCaptureMenu$);
   const identity = viewerScope.useIdentity();
@@ -30,15 +31,24 @@ export function CaptureQuality() {
   return (
     <Popover.Root
       open={open}
-      onOpenChange={(next, details) =>
-        setOpen({ open: next, keyboard: details.reason === "escape-key" })
-      }
+      onOpenChange={(next, details) => {
+        if (next && details.reason === "trigger-hover" && !open && !canHover) {
+          details.cancel();
+          return;
+        }
+        setOpen({ open: next, keyboard: details.reason === "escape-key" });
+      }}
     >
       <Popover.Trigger
+        openOnHover
+        delay={100}
         nativeButton={false}
         role="menuitem"
         render={<Menu.Item closeOnClick={false} />}
         className="cdpv-browser-menu-item"
+        onMouseEnter={(event) => {
+          if (!canHover && !open) event.preventBaseUIHandler();
+        }}
       >
         <SlidersHorizontal size={16} aria-hidden="true" />
         Capture quality
