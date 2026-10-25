@@ -65,6 +65,20 @@ export type ViewerUpdate = Partial<
   Pick<ViewerSnapshot, "navigation" | "error">
 >;
 
+export type ViewerIntentTransition = Extract<
+  ViewerTransition,
+  {
+    type:
+      | "pause"
+      | "select"
+      | "target-lost"
+      | "failed"
+      | "discovery-failed"
+      | "closed"
+      | "disconnected";
+  }
+>;
+
 type Favicon = {
   readonly url: string;
   readonly failed: boolean;
@@ -562,21 +576,7 @@ function createViewerSignals() {
     }
   });
   const commitIntent$ = command(
-    (
-      { get, set },
-      event: Extract<
-        ViewerTransition,
-        {
-          type:
-            | "pause"
-            | "select"
-            | "target-lost"
-            | "failed"
-            | "discovery-failed"
-            | "closed";
-        }
-      >,
-    ) => {
+    ({ get, set }, event: ViewerIntentTransition) => {
       set(transition$, event);
       // Capture this command's intent before publication can synchronously replace it.
       return get(intent$);

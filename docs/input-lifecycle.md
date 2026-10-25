@@ -133,7 +133,11 @@ unavailable. Its current capture must paint before admission resumes; an unknown
 cleanup receipt remains unavailable even when capture restart would succeed.
 
 Selection retirement captures original resources before parent intent is
-published. A synchronous callback may select or resume a successor; original
+published and registers their pending cleanup barriers before callbacks can
+acquire a successor. A registered barrier is a wait obligation, not a confirmed
+native receipt. Cleanup starts after the intent commits and settles through the
+original input owner even if a callback replaces intent or closes the viewer.
+A synchronous callback may select or resume a successor; original
 input effects still complete, while local reset callbacks and shared display
 cleanup require the originating intent to remain current. Do not reread the
 selected resource after publication and treat it as the resource being retired.

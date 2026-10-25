@@ -124,6 +124,15 @@ decision or authorize current input. Compose parent intent and image outcomes
 before snapshot/capability effects, and test that composition as well as the
 child image policy.
 
+Register original retirement obligations before callback-visible publication.
+A callback-created acquisition must see every applicable original barrier without
+depending on a yield in an unrelated subsystem. Reservation grants no native
+success; resource-owned acknowledgements still settle the obligation or retain
+its uncertainty fence. One runtime entry binds captured resources, the originating
+intent and unconditional cleanup. Teardown starts any reserved original cleanup
+before closing its transports, including when a publication closes the owner
+before its outer call returns.
+
 Retain the latest produced screencast frame at the native credit boundary so a
 static final state does not require another page change after acknowledgement.
 Keep native frame-credit defaults independent from local decode backpressure:

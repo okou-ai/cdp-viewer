@@ -185,6 +185,91 @@ for (const transport of ["shared", "split"] as const) {
     },
   );
 
+  it.each(["rejected", "timed-out"] as const)(
+    `${transport}: publication-created reuse cannot bypass %s original input cleanup`,
+    async (outcome) => {
+      vi.useFakeTimers();
+      const browser = new FakeBrowser();
+      const f = mount(browser, transport);
+      await until(() => f.model.getSnapshot().status === "streaming");
+      const original = f.controller.input!;
+      original.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+      await original.completion(original.owner!);
+      const attachments = () =>
+        browser.sockets
+          .flatMap((socket) => socket.commands)
+          .filter((command) => command.method === "Target.attachToTarget")
+          .length;
+      const before = attachments();
+      browser.holdMethod = "Input.dispatchKeyEvent";
+      let replaced = false;
+      const stop = f.model.watch(f.model.intent$, () => {
+        if (!replaced && f.model.read(f.model.intent$).paused) {
+          replaced = true;
+          f.controller.setPaused(false);
+          f.controller.select("page-a");
+        }
+      });
+      f.controller.setPaused(true);
+      stop();
+      await until(() => browser.heldCommands.length === 1);
+      expect(starts(browser)).toHaveLength(1);
+      expect(attachments()).toBe(before);
+      const held = browser.heldCommands.shift()!;
+      expect(held.command).toMatchObject({
+        sessionId: original.sessionId,
+        params: { type: "keyUp" },
+      });
+      if (outcome === "rejected") held.socket.reject(held.command, -32000);
+      else await vi.advanceTimersByTimeAsync(10_001);
+      await until(() => f.model.getSnapshot().status === "error");
+      expect(f.controller.input).toBeNull();
+      expect(attachments()).toBe(before);
+      browser.holdMethod = null;
+      held.socket.reply(held.command);
+      f.controller.select("page-a");
+      await until(() => f.model.getSnapshot().status === "error");
+      expect(attachments()).toBe(before);
+      expect(starts(browser)).toHaveLength(1);
+    },
+  );
+
+  it(`${transport}: publication-time close sends original cleanup before closing its sockets`, async () => {
+    vi.useFakeTimers();
+    const browser = new FakeBrowser();
+    browser.targets[1]!.windowId = 0;
+    const f = mount(browser, transport);
+    await until(() => f.model.getSnapshot().status === "streaming");
+    const original = f.controller.input!;
+    original.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+    await original.completion(original.owner!);
+    let closed = false;
+    const stop = f.model.watch(f.model.intent$, () => {
+      if (!closed && f.model.read(f.model.intent$).targetId === "page-b") {
+        closed = true;
+        f.controller.close();
+      }
+    });
+    f.controller.select("page-b");
+    stop();
+    expect(closed).toBe(true);
+    expect(f.controller.input).toBeNull();
+    expect(browser.sockets.every((socket) => socket.readyState === 3)).toBe(
+      true,
+    );
+    expect(
+      browser.sockets[0]!.commands.filter(
+        (command) =>
+          command.method === "Input.dispatchKeyEvent" &&
+          command.sessionId === original.sessionId &&
+          command.params?.type === "keyUp",
+      ),
+    ).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(starts(browser)).toHaveLength(1);
+    expect(browser.sockets).toHaveLength(transport === "split" ? 2 : 1);
+  });
+
   it.each(["select", "pause"])(
     `${transport}: retains a positive original stop receipt after %s retires its active owner`,
     async (boundary) => {
@@ -528,6 +613,40 @@ for (const transport of ["shared", "split"] as const) {
     expect(starts(browser)).toHaveLength(2);
   });
 }
+
+it("publication-time video loss drains the pre-published original control obligation", async () => {
+  vi.useFakeTimers();
+  const browser = new FakeBrowser();
+  const f = mount(browser, "split");
+  await until(() => f.model.getSnapshot().status === "streaming");
+  const original = f.controller.input!;
+  original.key({ type: "rawKeyDown", key: "Shift", code: "ShiftLeft" });
+  await original.completion(original.owner!);
+  browser.holdMethod = "Input.dispatchKeyEvent";
+  let disconnected = false;
+  const stop = f.model.watch(f.model.intent$, () => {
+    if (!disconnected && f.model.read(f.model.intent$).paused) {
+      disconnected = true;
+      browser.sockets[1]!.close();
+    }
+  });
+  f.controller.setPaused(true);
+  stop();
+  await until(() => browser.heldCommands.length === 1);
+  expect(f.model.getSnapshot().status).toBe("disconnected");
+  expect(f.controller.input).toBeNull();
+  expect(browser.sockets[0]!.readyState).toBe(1);
+  const held = browser.heldCommands.shift()!;
+  expect(held.command).toMatchObject({
+    sessionId: original.sessionId,
+    params: { type: "keyUp" },
+  });
+  browser.holdMethod = null;
+  browser.resume(held.command, held.socket);
+  await until(() => browser.sockets[0]!.readyState === 3);
+  expect(starts(browser)).toHaveLength(1);
+  expect(browser.sockets).toHaveLength(2);
+});
 
 it.each(["close", "move", "unmount", "socket"])(
   "does not restore a held retry after %s",
