@@ -269,9 +269,16 @@ for (const [deviceScaleFactor, transport] of [
           await local.detach();
         }
 
-        await first.evaluate((element: HTMLElement) => {
-          element.style.width = "400px";
-          element.style.height = "320px";
+        await first.evaluate(async (element: HTMLElement) => {
+          // Exercise a real sequence of surface observations before checking the
+          // settled native pixels and input mapping, rather than a single resize.
+          for (let step = 1; step <= 36; step++) {
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            );
+            element.style.width = `${640 - (240 * step) / 36}px`;
+            element.style.height = `${430 - (110 * step) / 36}px`;
+          }
         });
         const smaller = await expectAutomaticPaint(first);
         expect(smaller.width).toBeLessThan(initial.width);

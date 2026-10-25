@@ -193,10 +193,10 @@ it.each([
     expect(starts()).toHaveLength(1);
     expect(starts()[0]!.params).toMatchObject(capped);
     controller.measureDisplay({ ...larger, dpr: 1 });
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(200);
     expect(starts()).toHaveLength(1);
     controller.measureDisplay({ ...smaller, dpr: 1 });
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(200);
     expect(starts()).toHaveLength(2);
     expect(starts()[1]!.params).toMatchObject(final);
     expect(starts()[1]!.sessionId).toBe(starts()[0]!.sessionId);
@@ -266,7 +266,7 @@ it.each(["shared", "split"] as const)(
   },
 );
 
-it("makes bounded progress through continuous measurements and ignores equivalent rerenders", async () => {
+it("settles a resize burst once and ignores equivalent rerenders", async () => {
   vi.useFakeTimers();
   const { browser, controller, model } = mount(undefined, undefined, 0, {
     width: 640,
@@ -284,9 +284,11 @@ it("makes bounded progress through continuous measurements and ignores equivalen
     controller.setCapture({});
     await vi.advanceTimersByTimeAsync(10);
   }
-  expect(starts()).toHaveLength(4);
-  await vi.advanceTimersByTimeAsync(100);
-  expect(starts()).toHaveLength(5);
+  expect(starts()).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(189);
+  expect(starts()).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(starts()).toHaveLength(2);
   expect(starts().at(-1)!.params).toMatchObject({
     maxWidth: 749,
     maxHeight: 480,
@@ -296,6 +298,104 @@ it("makes bounded progress through continuous measurements and ignores equivalen
     controller.measureDisplay({ width: 749, height: 480, dpr: 1 });
   await vi.advanceTimersByTimeAsync(300);
   expect(starts()).toHaveLength(count);
+});
+
+it.each(["shared", "split"] as const)(
+  "bounds continuous resize demand without a quiet interval on %s transport",
+  async (transport) => {
+    vi.useFakeTimers();
+    const { browser, controller, model } = mount(
+      undefined,
+      undefined,
+      0,
+      { width: 640, height: 480, dpr: 1 },
+      transport,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const input = controller.input;
+    const starts = () =>
+      browser.sockets.flatMap((socket) =>
+        socket.commands.filter(
+          (command) => command.method === "Page.startScreencast",
+        ),
+      );
+    for (let index = 0; index < 125; index++) {
+      controller.measureDisplay({ width: 700 + index, height: 480, dpr: 1 });
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    expect(starts()).toHaveLength(2);
+    expect(starts()[1]!.params).toMatchObject({
+      maxWidth: 799,
+      maxHeight: 480,
+    });
+    await vi.advanceTimersByTimeAsync(189);
+    expect(starts()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(starts()).toHaveLength(3);
+    expect(starts()[2]!.params).toMatchObject({
+      maxWidth: 824,
+      maxHeight: 480,
+    });
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().status).toBe("streaming");
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
+it("cancels return-to-current demand without letting equivalent bounds postpone settlement", async () => {
+  vi.useFakeTimers();
+  const { browser, controller } = mount(undefined, undefined, 0, {
+    width: 640,
+    height: 480,
+    dpr: 1,
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  const starts = () =>
+    browser.sockets[0]!.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    );
+  controller.measureDisplay({ width: 800, height: 480, dpr: 1 });
+  await vi.advanceTimersByTimeAsync(100);
+  controller.measureDisplay({ width: 640, height: 480, dpr: 1 });
+  await vi.advanceTimersByTimeAsync(300);
+  expect(starts()).toHaveLength(1);
+  controller.measureDisplay({ width: 800, height: 480, dpr: 1 });
+  for (let index = 1; index <= 9; index++) {
+    await vi.advanceTimersByTimeAsync(20);
+    controller.measureDisplay({ width: 800 + index / 10, height: 480, dpr: 1 });
+  }
+  expect(starts()).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(starts()).toHaveLength(2);
+  expect(starts()[1]!.params).toMatchObject({ maxWidth: 800, maxHeight: 480 });
+});
+
+it("applies explicit preferences immediately and retires pending automatic work", async () => {
+  vi.useFakeTimers();
+  const { browser, controller } = mount(undefined, undefined, 0, {
+    width: 640,
+    height: 480,
+    dpr: 1,
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  const input = controller.input;
+  const starts = () =>
+    browser.sockets[0]!.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    );
+  controller.measureDisplay({ width: 800, height: 600, dpr: 1 });
+  await vi.advanceTimersByTimeAsync(100);
+  controller.setCapture({ quality: 50 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(starts()).toHaveLength(2);
+  expect(starts()[1]!.params).toMatchObject({
+    quality: 50,
+    maxWidth: 800,
+    maxHeight: 600,
+  });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(starts()).toHaveLength(2);
+  expect(controller.input).toBe(input);
 });
 
 it("retains valid bounds across unavailable surfaces and cancels retired measurement work", async () => {
@@ -354,7 +454,7 @@ it("spaces actual capture starts after a delayed stop while retaining the latest
     socket.commands.filter((c) => c.method === "Page.startScreencast");
   browser.holdMethod = "Page.stopScreencast";
   controller.measureDisplay({ width: 800, height: 600, dpr: 1 });
-  await vi.advanceTimersByTimeAsync(150);
+  await vi.advanceTimersByTimeAsync(200);
   expect(browser.heldCommands).toHaveLength(1);
   controller.measureDisplay({ width: 900, height: 600, dpr: 1 });
   await vi.advanceTimersByTimeAsync(150);
@@ -365,12 +465,48 @@ it("spaces actual capture starts after a delayed stop while retaining the latest
   browser.resume(held.command, held.socket);
   await vi.advanceTimersByTimeAsync(0);
   expect(starts()).toHaveLength(2);
-  expect(starts()[1]!.params).toMatchObject({ maxWidth: 900, maxHeight: 600 });
+  expect(starts()[1]!.params).toMatchObject({ maxWidth: 800, maxHeight: 600 });
   await vi.advanceTimersByTimeAsync(149);
   expect(starts()).toHaveLength(2);
   await vi.advanceTimersByTimeAsync(1);
   expect(starts()).toHaveLength(3);
   expect(starts()[2]!.params).toMatchObject({ maxWidth: 910, maxHeight: 600 });
+});
+
+it("reschedules reverted bounds when an earlier native restart was already dispatched", async () => {
+  vi.useFakeTimers();
+  const { browser, controller, model } = mount(undefined, undefined, 0, {
+    width: 640,
+    height: 480,
+    dpr: 1,
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  const input = controller.input;
+  const socket = browser.sockets[0]!;
+  const starts = () =>
+    socket.commands.filter(
+      (command) => command.method === "Page.startScreencast",
+    );
+  browser.holdMethod = "Page.stopScreencast";
+  controller.measureDisplay({ width: 800, height: 600, dpr: 1 });
+  await vi.advanceTimersByTimeAsync(200);
+  expect(browser.heldCommands).toHaveLength(1);
+  controller.measureDisplay({ width: 640, height: 480, dpr: 1 });
+  await vi.advanceTimersByTimeAsync(200);
+  browser.holdMethod = null;
+  const held = browser.heldCommands[0]!;
+  browser.resume(held.command, held.socket);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(starts()).toHaveLength(2);
+  expect(starts()[1]!.params).toMatchObject({ maxWidth: 800, maxHeight: 600 });
+  await vi.advanceTimersByTimeAsync(199);
+  expect(starts()).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(starts()).toHaveLength(3);
+  expect(starts()[2]!.params).toMatchObject({ maxWidth: 640, maxHeight: 480 });
+  expect(controller.input).toBe(input);
+  expect(model.getSnapshot().status).toBe("streaming");
+  expect(model.getSnapshot().error).toBeNull();
 });
 
 it("restores automatic axes after removing fixed bounds using the latest surface", async () => {

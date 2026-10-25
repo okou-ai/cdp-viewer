@@ -248,8 +248,12 @@ The connection, selected page and native input/composition remain owned. The las
 displayed image stays visible during the frame gap. In-flight same-page frames
 may briefly reflect the previous setting; obsolete decode callbacks cannot
 replace the current capture generation. Capture settings never resize/emulate the
-remote page or change another viewer's settings. Automatic changes coalesce to
-the latest measurement, at most once per 150ms, and continue during resizing.
+remote page or change another viewer's settings. Automatic changes settle after
+200ms without different effective bounds. Continuous resizing schedules the
+latest bounds within one second, subject to current native work, while actual
+starts remain at least 150ms apart. Equivalent measurements do not postpone
+settlement; explicit capture preferences apply immediately. Incoming images and
+input continue while ordinary capture detail changes are coalesced.
 An active native display synchronization takes priority; ordinary automatic
 capture changes apply afterward, while required causal capture refreshes retain
 their own bounded recovery.
