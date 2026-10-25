@@ -5,6 +5,7 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "strict": true,
+    "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
     "noUncheckedSideEffectImports": true,
     "skipLibCheck": true,
