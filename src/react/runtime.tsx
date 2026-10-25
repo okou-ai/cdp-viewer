@@ -55,6 +55,7 @@ export function ViewerRuntime(props: CdpViewerProps & { children: ReactNode }) {
   const revision = viewerScope.useValue(model.revision$);
   const notification = viewerScope.useValue(model.notification$);
   const displayMode = viewerScope.useValue(model.windowSizeSync$);
+  const transportMode = viewerScope.useValue(model.transport$);
   const captureOptions = viewerScope.useValue(model.capture$);
   return (
     <CommittedViewer
@@ -65,6 +66,7 @@ export function ViewerRuntime(props: CdpViewerProps & { children: ReactNode }) {
       revision={revision}
       notification={notification}
       displayMode={displayMode}
+      transportMode={props.transport ?? transportMode}
       captureOptions={
         props.capture === undefined ? captureOptions : props.capture
       }

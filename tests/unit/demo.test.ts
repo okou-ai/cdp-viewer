@@ -36,7 +36,7 @@ it("reconnects transport changes independently and reflects the applied mode in 
   expect(current.connection).not.toBe(before!.connection);
   expect(model.read(model.panels$)[1]).toBe(sibling);
   expect(usageCode(current.options, current.connection)).toContain(
-    'transport="split"',
+    'useState<ViewerTransport>("split")',
   );
 });
 
@@ -376,6 +376,8 @@ it("generates valid JSX from applied options without endpoints or draft metadata
   expect(code).toContain("windowSizeSync={windowSizeSync}");
   expect(code).toContain("onWindowSizeSyncChange={setWindowSizeSync}");
   expect(code).toContain("capture={capture}");
+  expect(code).toContain("transport={transport}");
+  expect(code).toContain("onTransportChange={setTransport}");
   expect(code).toContain("onCaptureChange={setCapture}");
   expect(code).not.toMatch(/private|token=|browser\.invalid|windowId=\{42\}/);
   expect(

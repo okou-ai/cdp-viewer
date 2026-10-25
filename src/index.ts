@@ -15,5 +15,6 @@ export type {
   ViewerSnapshot,
   ViewerStatus,
   ViewerTarget,
+  ViewerTransport,
   WindowSizeSync,
 } from "./viewer/types";

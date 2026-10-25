@@ -15,7 +15,8 @@ export const propGuide = {
   paused: "Pause / resume",
   interactive: "Control mode",
   showSettingsMenu: "Appearance & layout / settings menu",
-  transport: "Transport mode",
+  transport: "Transport mode / browser menu",
+  onTransportChange: "Transport mode / controlled Usage",
   windowSizeSync: "Appearance & layout / browser menu",
   onWindowSizeSyncChange: "Console / controlled Usage",
   capture: "Capture quality",
@@ -129,7 +130,7 @@ export function usageCode(
   return [
     'import { useState } from "react";',
     'import { CdpViewer } from "cdp-viewer";',
-    'import type { CdpViewerProps, WindowSizeSync } from "cdp-viewer";',
+    'import type { CdpViewerProps, ViewerTransport, WindowSizeSync } from "cdp-viewer";',
     'import "cdp-viewer/style.css";',
     ...(extension
       ? ['import { browserUse } from "cdp-viewer/extensions/browser-use";']
@@ -142,6 +143,7 @@ export function usageCode(
     "export function BrowserPreview({",
     "  cdpUrl, onStatusChange, onError,",
     "}: BrowserPreviewProps) {",
+    `  const [transport, setTransport] = useState<ViewerTransport>(${JSON.stringify(options.transport)});`,
     `  const [windowSizeSync, setWindowSizeSync] = useState<WindowSizeSync>(${JSON.stringify(options.windowSizeSync)});`,
     `  const [capture, setCapture] = useState<NonNullable<CdpViewerProps["capture"]>>(${JSON.stringify(options.capture)});`,
     "",
@@ -154,7 +156,8 @@ export function usageCode(
     `      paused={${options.paused}}`,
     `      interactive={${options.interactive}}`,
     `      showSettingsMenu={${options.showSettingsMenu}}`,
-    `      transport=${JSON.stringify(options.transport)}`,
+    "      transport={transport}",
+    "      onTransportChange={setTransport}",
     "      windowSizeSync={windowSizeSync}",
     "      onWindowSizeSyncChange={setWindowSizeSync}",
     "      capture={capture}",

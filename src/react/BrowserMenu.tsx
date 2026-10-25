@@ -10,6 +10,7 @@ import {
 import { viewerScope } from "./context";
 import { useViewerElements } from "./runtime";
 import { CaptureQuality } from "./CaptureQuality";
+import { TransportSettings } from "./TransportSettings";
 
 export function BrowserMenu() {
   const { browserMenu: container } = useViewerElements();
@@ -60,6 +61,7 @@ export function BrowserMenu() {
             aria-label="Browser menu"
             onPointerMove={() => point()}
           >
+            <TransportSettings />
             <CaptureQuality />
             <Menu.SubmenuRoot
               onOpenChange={(open, details) => {

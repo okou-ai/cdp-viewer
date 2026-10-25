@@ -321,14 +321,56 @@ test("demo applies transport changes explicitly and keeps narrow controls usable
     await expect(view).toHaveAttribute("data-status", "streaming");
     await first.locator("summary").filter({ hasText: "Usage" }).click();
     await expect(first.getByLabel("Component code")).toContainText(
-      'transport="split"',
+      'useState<ViewerTransport>("split")',
     );
-    await first.getByLabel("Control mode").selectOption("view-only");
+    const menu = view.getByRole("button", { name: "Browser menu" });
+    await menu.click();
+    await expect(
+      view
+        .getByRole("menu", { name: "Browser menu", exact: true })
+        .getByRole("menuitem")
+        .first(),
+    ).toHaveText("Transport");
+    await view
+      .getByRole("menuitem", { name: "Transport", exact: true })
+      .click();
+    const transportMenu = view.getByRole("menu", {
+      name: "Transport",
+      exact: true,
+    });
+    await expect(
+      transportMenu.getByRole("menuitemradio", {
+        name: "Split frame / control",
+      }),
+    ).toBeChecked();
+    await transportMenu
+      .getByRole("menuitemradio", { name: "Shared (default)" })
+      .click();
     await expect.poll(() => sockets).toBe(4);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect(first.getByLabel("Transport mode")).toHaveValue("shared");
+    await expect(first.getByLabel("Component code")).toContainText(
+      'useState<ViewerTransport>("shared")',
+    );
+    await expect(first.getByLabel("Component code")).toContainText(
+      "onTransportChange={setTransport}",
+    );
+    await menu.click();
+    await view
+      .getByRole("menuitem", { name: "Transport", exact: true })
+      .click();
+    await transportMenu
+      .getByRole("menuitemradio", { name: "Split frame / control" })
+      .click();
+    await expect.poll(() => sockets).toBe(6);
+    await expect(view).toHaveAttribute("data-status", "streaming");
+    await expect(first.getByLabel("Transport mode")).toHaveValue("split");
+    await first.getByLabel("Control mode").selectOption("view-only");
+    await expect.poll(() => sockets).toBe(7);
     await expect(view).toHaveAttribute("data-status", "streaming");
     await expect(first.getByLabel("Transport mode")).toBeDisabled();
     await first.getByLabel("Control mode").selectOption("interactive");
-    await expect.poll(() => sockets).toBe(6);
+    await expect.poll(() => sockets).toBe(9);
     await expect(view).toHaveAttribute("data-status", "streaming");
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(first.getByLabel("Transport mode")).toBeVisible();
@@ -337,6 +379,15 @@ test("demo applies transport changes explicitly and keeps narrow controls usable
         page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       )
       .toBe(true);
+    await menu.click();
+    await view
+      .getByRole("menuitem", { name: "Transport", exact: true })
+      .click();
+    await expect(
+      transportMenu.getByRole("menuitemradio", {
+        name: "Split frame / control",
+      }),
+    ).toBeChecked();
     await page.screenshot({
       path: info.outputPath("split-transport-mobile.png"),
     });

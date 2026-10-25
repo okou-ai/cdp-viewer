@@ -70,8 +70,10 @@ export interface CdpViewerProps {
   readonly interactive?: boolean;
   /** Show the interactive toolbar's settings menu. Default: true; sync mode is unchanged. */
   readonly showSettingsMenu?: boolean;
-  /** Opt-in separate frame socket in interactive mode. Default: shared. Changes reconnect. */
-  readonly transport?: "shared" | "split";
+  /** Controlled transport. Omit for menu-owned shared mode. Changes reconnect. */
+  readonly transport?: ViewerTransport;
+  /** Requests a controlled transport change, or reports a menu-owned change. */
+  readonly onTransportChange?: (transport: ViewerTransport) => void;
   /** Controlled size/DPR adaptation. Omit for menu-owned mode, initially off. */
   readonly windowSizeSync?: WindowSizeSync;
   /** Requests a controlled update, or reports a menu-owned mode change. */
@@ -89,6 +91,8 @@ export interface CdpViewerProps {
   readonly onStatusChange?: (snapshot: ViewerSnapshot) => void;
   readonly onError?: (error: ViewerError) => void;
 }
+
+export type ViewerTransport = "shared" | "split";
 
 export type WindowSizeSync = "off" | "initial" | "live";
 
