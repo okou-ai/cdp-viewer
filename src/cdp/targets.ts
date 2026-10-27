@@ -2,8 +2,6 @@ import type { ViewerTarget } from "../viewer/types";
 import { CdpClient } from "./client";
 import { CdpFault, isRecord, requestDetails } from "./errors";
 
-export const maximumTargets = 512;
-
 export function pageTarget(info: unknown): ViewerTarget | null {
   if (!isRecord(info) || info.type !== "page" || info.subtype === "prerender")
     return null;
@@ -52,15 +50,8 @@ export class TargetDirectory {
       "Target.getTargets",
       undefined,
     );
-    if (
-      !isRecord(raw) ||
-      !Array.isArray(raw.targetInfos) ||
-      raw.targetInfos.length > maximumTargets
-    ) {
-      throw new CdpFault(
-        "protocol",
-        "Invalid or oversized browser target list.",
-      );
+    if (!isRecord(raw) || !Array.isArray(raw.targetInfos)) {
+      throw new CdpFault("protocol", "Invalid browser target list.");
     }
     const pages: ViewerTarget[] = [];
     for (const info of raw.targetInfos as unknown[]) {

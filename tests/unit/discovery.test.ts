@@ -1108,22 +1108,152 @@ it("does not let a full result overwrite newer metadata from its earlier batch",
   expect(model.getSnapshot().targets[0]!.title).toBe("Newer title");
 });
 
-it("bounds dirty inventory and fails closed on oversized event input", async () => {
+it("drains large coalesced event inventories without starving selected input or checks", async () => {
+  const fake = browser(1);
+  const { controller, model } = mount(fake);
+  await advance();
+  const queries = count(fake, "Target.getTargets");
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId !== "owned-0";
+  for (let index = 0; index < 700; index++) {
+    const target = { id: "new-" + index, title: "New", windowId: 0 };
+    fake.targets.push(target);
+    fake.sockets[0]!.emit("Target.targetCreated", {
+      targetInfo: info(target),
+    });
+  }
+  await advance(2000);
+  expect(fake.heldCommands).toHaveLength(1);
+  expect(
+    fake.sockets[0]!.commands.filter(
+      (command) => command.method === "Browser.getWindowForTarget",
+    ).at(-1)?.params?.targetId,
+  ).toBe("owned-0");
+  controller.input!.text("Selected input");
+  await advance();
+  expect(count(fake, "Input.insertText")).toBe(1);
+  while (fake.heldCommands.length) {
+    expect(fake.heldCommands.length).toBeLessThanOrEqual(4);
+    for (const held of fake.heldCommands.splice(0))
+      held.socket.reply(held.command, { windowId: 0 });
+    await advance();
+  }
+  expect(model.getSnapshot().targets).toHaveLength(701);
+  expect(model.getSnapshot().status).toBe("streaming");
+  expect(count(fake, "Target.getTargets")).toBe(queries);
+  fake.targets.pop();
+  fake.sockets[0]!.emit("Target.targetDestroyed", { targetId: "new-699" });
+  expect(model.getSnapshot().targets).toHaveLength(700);
+  expect(
+    model.getSnapshot().targets.some((target) => target.id === "new-699"),
+  ).toBe(false);
+});
+
+it("bounds retained event data by memory rather than target count and releases pending work", async () => {
   const fake = browser(1);
   const { model } = mount(fake);
   await advance();
   fake.holdMethod = "Browser.getWindowForTarget";
-  for (let index = 0; index < 512; index++)
+  const longId = "x".repeat(1024 * 1024);
+  for (
+    let index = 0;
+    index < 9 && model.getSnapshot().status === "streaming";
+    index++
+  )
     fake.sockets[0]!.emit("Target.targetCreated", {
-      targetInfo: { targetId: "new-" + index, type: "page", title: "New" },
+      targetInfo: { targetId: longId + index, type: "page", title: "New" },
     });
   await advance();
   expect(model.getSnapshot()).toMatchObject({
     status: "unavailable",
     targets: [],
+    error: {
+      kind: "protocol",
+      message: "Browser target inventory exceeds the discovery memory budget.",
+    },
   });
   expect(fake.heldCommands.length).toBeLessThanOrEqual(4);
+  const queries = count(fake, "Browser.getWindowForTarget");
+  for (const held of fake.heldCommands.splice(0))
+    held.socket.reply(held.command, { windowId: 0 });
+  await advance();
+  expect(count(fake, "Browser.getWindowForTarget")).toBe(queries);
+  expect(model.getSnapshot().targets).toEqual([]);
 });
+
+it("preserves more than 512 retirements against a late bootstrap response", async () => {
+  const fake = browser(701);
+  const listed = fake.targets.map(info);
+  fake.holdMethod = "Target.getTargets";
+  const { model } = mount(fake);
+  await advance();
+  expect(fake.heldCommands).toHaveLength(1);
+  for (const target of fake.targets.slice(1))
+    fake.sockets[0]!.emit("Target.targetDestroyed", { targetId: target.id });
+  fake.targets = fake.targets.slice(0, 1);
+  fake.holdMethod = null;
+  const held = fake.heldCommands.shift()!;
+  held.socket.reply(held.command, { targetInfos: listed });
+  await advance();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    targets: [{ id: "owned-0", title: "Owned 0" }],
+  });
+});
+
+it.each([{ windowId: 0 }, {}])(
+  "creates and selects a new tab from a large inventory %j",
+  async (options) => {
+    const fake = browser(600);
+    const { controller, model } = mount(fake, options);
+    await advance();
+    expect(model.getSnapshot().targets).toHaveLength(600);
+    controller.createTab();
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "new-1",
+    });
+    expect(model.getSnapshot().targets).toHaveLength(601);
+  },
+);
+
+it("rejects retained initial data exceeding its memory budget before window lookups", async () => {
+  const fake = browser(9);
+  const longId = "x".repeat(1024 * 1024);
+  for (const [index, target] of fake.targets.entries())
+    target.id = longId + index;
+  const { model } = mount(fake);
+  await advance();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "unavailable",
+    targets: [],
+    error: {
+      kind: "protocol",
+      message: "Browser target inventory exceeds the discovery memory budget.",
+    },
+  });
+  expect(count(fake, "Browser.getWindowForTarget")).toBe(0);
+});
+
+it.each([{}, { targetInfos: null }, { targetInfos: {} }])(
+  "still rejects malformed inventory shapes %j",
+  async (result) => {
+    const fake = browser(1);
+    fake.holdMethod = "Target.getTargets";
+    const { model } = mount(fake);
+    await advance();
+    const held = fake.heldCommands.shift()!;
+    held.socket.reply(held.command, result);
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "unavailable",
+      targets: [],
+      error: { kind: "protocol", message: "Invalid browser target list." },
+    });
+  },
+);
 
 it("coalesces malformed events and releases only its own work on disconnect", async () => {
   const fake = browser();

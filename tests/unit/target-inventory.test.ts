@@ -207,12 +207,34 @@ it("retires round journals with explicit operations and leaves prior state uncha
   expect(inventoryTargets(h.read())).toEqual([]);
 });
 
-it("bounds active lifecycle journals without requiring metadata quiet", () => {
+it("retains removal evidence beyond 512 changes until the active round completes", () => {
+  const h = inventory();
+  const round = h.send({ type: "begin-round", now: 0 }).round!;
+  for (let index = 0; index < 700; index++)
+    h.send({ type: "retired", id: "worker-" + index });
+  h.send({
+    type: "listed",
+    round,
+    targets: [page, { id: "worker-699", title: "Retired" }],
+  });
+  expect(h.read().entries.has("worker-699")).toBe(false);
+  h.send({ type: "complete-round", round });
+  expect(h.read().round).toBeNull();
+  expect(inventoryTargets(h.read())).toEqual([page]);
+});
+
+it("coalesces repeated journal IDs and bounds retained removal text", () => {
   const h = inventory();
   h.send({ type: "begin-round", now: 0 });
-  for (let index = 0; index < 512; index++)
-    h.send({ type: "retired", id: "worker-" + index });
-  expect(() => h.send({ type: "retired", id: "overflow" })).toThrow(
-    "Too many browser target changes",
-  );
+  const longId = "x".repeat(1024 * 1024);
+  for (let index = 0; index < 9; index++)
+    h.send({ type: "retired", id: longId });
+  expect(h.read().round?.changed.size).toBe(1);
+  expect(() => {
+    for (let index = 0; index < 9; index++)
+      h.send({ type: "retired", id: longId + index });
+  }).toThrow("Browser target changes exceed the discovery memory budget.");
+  h.send({ type: "invalidate-round" });
+  expect(h.read().round).toBeNull();
+  expect(inventoryTargets(h.read())).toEqual([page]);
 });

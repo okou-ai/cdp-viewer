@@ -1,8 +1,10 @@
 import { CdpFault } from "../cdp/errors";
-import { maximumTargets } from "../cdp/targets";
 import type { ViewerTarget } from "./types";
 
 const inventoryFreshnessMs = 20_000;
+// Retained UTF-16 text plus an allowance for each entry's bookkeeping. This is
+// resource accounting, not a heap measurement or a browser target-count limit.
+const inventoryBudgetBytes = 16 * 1024 * 1024;
 
 interface Membership {
   readonly order: number;
@@ -23,6 +25,7 @@ export interface InventoryRound {
   readonly epoch: number;
   readonly startedAt: number;
   readonly changed: ReadonlySet<string>;
+  readonly changedBytes: number;
 }
 
 export interface TargetObservation {
@@ -125,18 +128,25 @@ export function inventoryExpiry(state: TargetInventory): number | null {
 function journal(state: TargetInventory, id: string): InventoryRound | null {
   const round = state.round;
   if (!round || round.changed.has(id)) return round;
-  const changed = new Set(round.changed).add(id);
-  if (changed.size > maximumTargets)
+  const changedBytes = round.changedBytes + 64 + id.length * 2;
+  if (changedBytes > inventoryBudgetBytes)
     throw new CdpFault(
       "protocol",
-      "Too many browser target changes during discovery.",
+      "Browser target changes exceed the discovery memory budget.",
     );
-  return { ...round, changed };
+  return { ...round, changed: new Set(round.changed).add(id), changedBytes };
 }
 
 function bounded(entries: ReadonlyMap<string, InventoryEntry>): void {
-  if (entries.size > maximumTargets)
-    throw new CdpFault("protocol", "Invalid or oversized browser target list.");
+  let bytes = 0;
+  for (const [id, entry] of entries) {
+    bytes += 256 + (id.length + (entry.target?.title.length ?? 0)) * 2;
+    if (bytes > inventoryBudgetBytes)
+      throw new CdpFault(
+        "protocol",
+        "Browser target inventory exceeds the discovery memory budget.",
+      );
+  }
 }
 
 /** Pure transitions: titles, target lifetimes and scope proofs have separate authority. */
@@ -161,6 +171,7 @@ export function transitionInventory(
           epoch: state.epoch,
           startedAt: event.now,
           changed: new Set(),
+          changedBytes: 0,
         },
       };
     case "metadata": {
@@ -290,6 +301,7 @@ export function transitionInventory(
           ? observation.startedAt + inventoryFreshnessMs
           : previous.expiresAt,
       });
+      if (event.type === "created") bounded(entries);
       return {
         ...state,
         sequence: order,

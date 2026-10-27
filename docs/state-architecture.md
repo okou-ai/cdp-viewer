@@ -172,8 +172,12 @@ change cannot revoke an otherwise valid membership observation or renew its age.
 Current checks must progress during continuous metadata changes. Newer applicable
 membership and target retirement reject older authority; an older list cannot
 overwrite newer metadata, erase newer existence evidence or resurrect removal.
-Bound inventory, dirty work and active lifecycle journals. Acknowledged closure
-retires the target before another publication, independently of event delivery.
+Bound retained inventory and active lifecycle journals by accounted memory rather
+than an active-target count. Include target text and per-entry bookkeeping;
+coalesce dirty IDs and extract only the next bounded IO batch. Resource exhaustion
+must fail explicitly without truncating targets or discarding removal evidence.
+Acknowledged closure retires the target before another publication, independently
+of event delivery.
 
 Selected membership progresses independently of unrelated inventory reads. Its
 original lifetime and request-start freshness cannot transfer through delayed

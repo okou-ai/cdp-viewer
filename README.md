@@ -126,6 +126,13 @@ Inventory reconciliation is serialized/coalesced; selected checks run independen
 Scoped lookup failure clears unverified targets.
 This is presentation scope, **not a server authorization boundary**.
 
+Discovery has no fixed target-count limit. It retains the complete page inventory
+within an estimated memory budget for target metadata and active-round removal
+evidence, alongside CDP message-size limits, bounded lookup batches and the
+verification deadlines above. Exhausting these resources makes discovery
+unavailable with a fixed diagnostic; it never silently truncates accessible tabs
+or falls back to an unfiltered list.
+
 A new connection initially chooses its first confirmed page. Losing an established
 selection clears the image and requires explicit selection/recovery; it does not
 guess a page by title, URL or list position. Viewing activates the selected tab in
