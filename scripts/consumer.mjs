@@ -83,8 +83,8 @@ export async function prepareConsumer() {
             "cdp-viewer": specifier,
             react: "19.2.6",
             "react-dom": "19.2.6",
-            ccstate: "6.0.0",
-            "ccstate-react": "6.0.0",
+            ccstate: "6.1.0",
+            "ccstate-react": "6.1.0",
           },
           devDependencies: {
             vite: await version("vite"),
