@@ -1,6 +1,5 @@
 import type { CdpClient } from "../cdp/client";
 import { CdpFault, diagnostic } from "../cdp/errors";
-import { maximumTargets } from "../cdp/targets";
 import { captureBoundary } from "../display/capture-boundary";
 import type { DisplaySync } from "../display/sync";
 import type { DisplayViewport } from "../display/viewport";
@@ -11,6 +10,8 @@ import type { ViewerModel } from "./model";
 import type { ViewerIntent } from "./lifecycle";
 import type { Screencast } from "./screencast";
 import type { ViewerError } from "./types";
+
+const maximumUnconfirmedCaptureOwners = 512;
 
 export interface ImageSelection {
   readonly intent: ViewerIntent;
@@ -73,7 +74,7 @@ export class ImageRecoveryRuntime {
     const stream = selection.stream;
     if (!stream || !this.host.current(selection)) return;
     if (
-      this.retirements.size >= maximumTargets &&
+      this.retirements.size >= maximumUnconfirmedCaptureOwners &&
       !this.retirements.has(selection.targetId)
     ) {
       this.host

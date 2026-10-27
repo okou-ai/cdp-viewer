@@ -233,4 +233,17 @@ describe("CDP transport ownership", () => {
     await expect(next).rejects.toThrow("Invalid CDP JSON");
     expect(socket.readyState).toBe(3);
   });
+
+  it("retains the pre-parse message budget independently of target count", async () => {
+    const { client, socket } = await connected();
+    const request = client.request("Target.getTargets", undefined);
+    const rejected = expect(request).rejects.toThrow(
+      "Invalid or oversized CDP message.",
+    );
+    socket.dispatchEvent(
+      new MessageEvent("message", { data: " ".repeat(16 * 1024 * 1024 + 1) }),
+    );
+    await rejected;
+    expect(socket.readyState).toBe(3);
+  });
 });

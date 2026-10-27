@@ -631,6 +631,12 @@ export class ViewerController {
       signal: this.lifetime.signal,
       presentationTimeout: this.options.requestTimeout,
       windowId: this.options.windowId,
+      capturePending: () =>
+        !this.captureStarted ||
+        !sameCapture(
+          this.captureStarted,
+          captureSettings(this.capture, this.captureSize),
+        ),
       changed: (state) => {
         if (this.disposed) return;
         this.model.run(this.model.setDisplay$, state);

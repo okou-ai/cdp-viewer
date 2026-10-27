@@ -339,8 +339,12 @@ export class TargetDiscovery {
   }
 
   private async readDirty(): Promise<void> {
-    const batch = [...this.dirty].slice(0, 4);
-    for (const id of batch) this.dirty.delete(id);
+    const batch: string[] = [];
+    for (const id of this.dirty) {
+      batch.push(id);
+      this.dirty.delete(id);
+      if (batch.length === 4) break;
+    }
     await Promise.all(
       batch.map(async (id) => {
         const observation = this.observe(id);
