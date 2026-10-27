@@ -102,7 +102,7 @@ export class FakeBrowser {
     string,
     { width: number; height: number; dpr: number }
   >();
-  private readonly streams = new Set<string>();
+  private readonly streams = new Map<string, FakeSocket>();
   private readonly captureBounds = new Map<
     string,
     { width: number; height: number }
@@ -445,13 +445,13 @@ export class FakeBrowser {
             height: Number(command.params?.height),
           });
           socket.reply(command);
-          for (const session of this.streams) {
+          for (const [session, streamSocket] of this.streams) {
             const target = this.targets.find(
               (value) => value.id === this.sessions.get(session),
             );
             if (target?.windowId === command.params?.windowId) {
-              socket.emit("Page.frameResized", {}, session);
-              this.frame(socket, session);
+              streamSocket.emit("Page.frameResized", {}, session);
+              this.frame(streamSocket, session);
             }
           }
           break;
@@ -499,7 +499,7 @@ export class FakeBrowser {
             socket.reject(command);
             break;
           }
-          this.streams.add(command.sessionId!);
+          this.streams.set(command.sessionId!, socket);
           this.captureBounds.set(command.sessionId!, {
             width:
               typeof command.params?.maxWidth === "number"

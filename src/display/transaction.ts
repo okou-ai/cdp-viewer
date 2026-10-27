@@ -21,6 +21,7 @@ export interface DisplayEffects {
   readonly signal: AbortSignal;
   readonly presentationTimeout?: number | undefined;
   readonly windowId: number | undefined;
+  readonly capturePending: () => boolean;
   readonly refresh: (prepare: () => Promise<void>) => Promise<void>;
 }
 
@@ -173,7 +174,10 @@ export class DisplayTransaction {
         acknowledged.bounds,
         projected.presentation.nativeDpr,
       );
-      const freshCapture = needsCaptureFence(presentation);
+      // Automatic capture waits behind display work. Apply its latest bounds
+      // through this transaction so presentation cannot wait on that same work.
+      const freshCapture =
+        needsCaptureFence(presentation) || host.capturePending();
       const receipt: AppliedReceipt = {
         windowId: window.windowId,
         prepared,

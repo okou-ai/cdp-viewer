@@ -574,6 +574,69 @@ it("defers automatic image changes through a native write and applies the latest
   expect(model.getSnapshot().error).toBeNull();
 });
 
+it.each(["shared", "split"] as const)(
+  "applies pending automatic bounds before waiting for static resized pixels on %s transport",
+  async (transport) => {
+    const { browser, controller, model, rasters } = mount(
+      undefined,
+      undefined,
+      0,
+      { width: 1024, height: 270, dpr: 2 },
+      transport,
+    );
+    await vi.waitFor(() => expect(controller.input).not.toBeNull());
+    controller.setWindowSizeSync("live");
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    const input = controller.input!;
+    const sockets = [...browser.sockets];
+    const starts = () =>
+      browser.sockets.flatMap((socket) =>
+        socket.commands.filter(
+          (command) => command.method === "Page.startScreencast",
+        ),
+      );
+    const before = starts().length;
+    expect(starts().at(-1)?.params).toMatchObject({
+      maxWidth: 2048,
+      maxHeight: 540,
+    });
+    // The native write is acknowledged without a new static frame. Capture
+    // preferences must not wait for the very presentation they need to produce.
+    browser.holdFrames = true;
+    browser.holdMethod = "Page.startScreencast";
+    controller.measureDisplay({ width: 818, height: 353, dpr: 2 });
+    await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+    const held = browser.heldCommands.shift()!;
+    expect(held.command).toMatchObject({
+      method: "Page.startScreencast",
+      params: { maxWidth: 1636, maxHeight: 706 },
+    });
+    expect(model.read(model.display$)).toMatchObject({
+      pending: true,
+      pointerBlocked: true,
+    });
+    browser.holdFrames = false;
+    browser.holdMethod = null;
+    browser.resume(held.command, held.socket);
+    await vi.waitFor(() =>
+      expect(model.read(model.display$)).toMatchObject({
+        pending: false,
+        pointerBlocked: false,
+      }),
+    );
+    expect(rasters.at(-1)).toEqual({ width: 1636, height: 706 });
+    expect(starts()).toHaveLength(before + 1);
+    expect(controller.input).toBe(input);
+    expect(browser.sockets).toEqual(sockets);
+    expect(model.getSnapshot().error).toBeNull();
+  },
+);
+
 it("requires fresh pixels when automatic bounds hide a native resize behind an identical raster", async () => {
   const { browser, controller, model, sink } = mount(undefined, undefined, 0, {
     width: 640,

@@ -152,6 +152,10 @@ observations until the acknowledged native extent is known, including when
 distinct requested sizes round to the same actual image.
 Capture bounds can also collapse distinct native sizes to identical decoded
 rasters, so freshness decisions must include the active image bounds.
+When automatic capture bounds have changed behind an active display transaction,
+that transaction applies the pending settings through the same serialized refresh
+before awaiting presentation. Capture must not wait for display completion when
+the current presentation itself needs those settings to produce a fresh image.
 After acknowledged writes, the native executor establishes an elapsed timestamp
 fence in a private isolated world while the controller restarts the same bounded
 stream. The geometry owner rejects pre-fence images. Timing details and the
