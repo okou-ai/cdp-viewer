@@ -118,7 +118,8 @@ for (const colorScheme of ["light", "dark"] as const) {
         exact: true,
       });
       const shared = transport.getByRole("menuitemradio", {
-        name: "Shared (default)",
+        name: "Shared",
+        exact: true,
       });
       const split = transport.getByRole("menuitemradio", {
         name: "Split frame / control",

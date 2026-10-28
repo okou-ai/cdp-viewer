@@ -211,7 +211,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                     })
                   }
                 >
-                  <option value="shared">Shared (default)</option>
+                  <option value="shared">Shared</option>
                   <option value="split">Split frame / control</option>
                 </select>
               </label>
