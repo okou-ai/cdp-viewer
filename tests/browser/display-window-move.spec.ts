@@ -210,6 +210,11 @@ for (const [transport, timing] of [
         },
         { url: server.origin + "/fixture/red", windowId },
       );
+      // Moving a static, emulated page can reuse its compositor surface without
+      // emitting a frame. Damage pixels explicitly, without changing its layout.
+      await remote.evaluate(() => {
+        document.body.style.backgroundColor = "rgb(16,160,80)";
+      });
       await expect
         .poll(() =>
           frames.slice(beforeMove.frames).some((frame) => frame.width > 1100),
@@ -241,6 +246,9 @@ for (const [transport, timing] of [
             windowId,
             width: 1400,
             height: 1000,
+          });
+          await remote.evaluate(() => {
+            document.body.style.backgroundColor = "rgb(160,80,16)";
           });
           await expect
             .poll(() =>
