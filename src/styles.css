@@ -880,6 +880,11 @@
     border-color 120ms,
     box-shadow 120ms;
 }
+/* Page focus stays visible without reading as a status frame. */
+.cdpv-root[data-tab-style="floating"] .cdpv-interactive:focus-within {
+  outline-width: 1px;
+  outline-offset: -1px;
+}
 .cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
   outline: none;
   background: var(--cdpv-background);

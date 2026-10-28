@@ -937,6 +937,10 @@
     border-color 0.12s,
     box-shadow 0.12s;
 }
+.cdpv-root[data-tab-style="floating"] .cdpv-interactive:focus-within {
+  outline-offset: -1px;
+  outline-width: 1px;
+}
 .cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
   background: var(--cdpv-background);
   border-color: var(--cdpv-accent);
