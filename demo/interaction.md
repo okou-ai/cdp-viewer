@@ -2,16 +2,10 @@
 
 Set `interactive` on a viewer to enable mouse, keyboard and page navigation.
 
-Open **Fit to this viewer** in the three-dot menu to the right of the address bar
-to choose automatic display adaptation: off, once on opening, or continuously.
-The submenu opens to the left and keeps its choices within the viewer.
-**Fit page to viewer** stays in the main menu and matches the remote page size
-and pixel density to the viewer in every mode. Continuous adaptation follows the
-available page surface and local display density without reconnecting. Oversized requests are
-reduced automatically to stay within the supported display limits.
-Restore maximized, minimized or fullscreen remote windows before syncing. Turning
-automatic adaptation off keeps the latest display; it does not reset native size.
 The component defaults to read-only; the Pages demo explicitly enables interaction.
+For display and image settings, see the [demo controls](README.md#explore-the-props)
+and [API reference](../API.md#controlled-configuration).
+
 Each instance owns its native textarea, focus, pressed keys/buttons, bounded
 command queue and selected-target CDP session. No endpoint-keyed global input
 owner or document-wide keyboard handler is installed.
@@ -60,7 +54,7 @@ The proxy's temporary composing value is never treated as a remote selection.
 The proxy stays disabled while connecting, paused, unavailable, disconnected or
 errored, so local Tab navigation can pass through the inactive viewer. It keeps
 the same textarea node and becomes focusable again when streaming resumes.
-Offscreen panels pause their owned stream where IntersectionObserver is available;
+Offscreen panels pause their owned stream;
 returning to view revalidates the selected target. Explicit pause and document
 visibility still apply, and pausing discards unsent input as described below.
 
@@ -169,8 +163,9 @@ Already accepted remote input cannot be cancelled or rolled back.
 
 With `windowId`, selection and attachment verify window membership. Stable input
 uses that selected session without querying the window before every event.
-Target events and the two-second discovery poll detect scope changes; lookup and
-refresh latency add to detection time. An external tab move can precede detection.
+Background checks detect scope changes; an external tab move can precede detection.
+See [scope verification and freshness](../API.md#connection-and-scope) for cadence
+and expiry.
 Detected mismatch or lookup failure clears the image and stops old-session input,
 including unsent work. Window filtering is presentation scope, not endpoint access
 control or an atomic cross-client handover mechanism.

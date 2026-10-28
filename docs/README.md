@@ -1,6 +1,8 @@
 # Engineering documentation
 
 This directory holds coding principles, architecture and validation methods.
+Consumer props, configuration, extensions and theming live in the
+[API reference](../API.md).
 
 - [State and React boundaries](state-architecture.md): state ownership, view
   boundaries and practical lint policy.
