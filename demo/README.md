@@ -55,7 +55,7 @@ verification, discovery freshness and concurrent-viewer limits.
 ## Explore the props
 
 The preview's **Transport** selector and the first item in the viewer's three-dot
-menu share the panel's controlled mode: **Shared (default)** or **Split frame /
+menu share the panel's controlled mode: **Shared** or **Split frame /
 control**. The submenu checks its current value; Usage includes the controlled
 prop and callback. Changing modes reconnects that panel. See the
 [transport reference](../API.md#transport) for connection costs, requirements and

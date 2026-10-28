@@ -60,7 +60,7 @@ export function TransportSettings() {
             >
               {(
                 [
-                  ["shared", "Shared (default)"],
+                  ["shared", "Shared"],
                   ["split", "Split frame / control"],
                 ] as const
               ).map(([value, label]) => (

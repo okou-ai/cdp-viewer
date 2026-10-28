@@ -93,7 +93,7 @@ it("switches only its menu-owned viewer and retains capture and display preferen
 
   const transport = await openTransport(owner);
   expect(
-    transport.getByRole("menuitemradio", { name: "Shared (default)" }),
+    transport.getByRole("menuitemradio", { name: "Shared" }),
   ).toBeChecked();
   await userEvent.click(
     transport.getByRole("menuitemradio", { name: "Split frame / control" }),
@@ -127,9 +127,7 @@ it("switches only its menu-owned viewer and retains capture and display preferen
   expect(fake.sockets).toHaveLength(4);
   expect(changed).toHaveBeenCalledOnce();
   const same = await openTransport(owner);
-  await userEvent.click(
-    same.getByRole("menuitemradio", { name: "Shared (default)" }),
-  );
+  await userEvent.click(same.getByRole("menuitemradio", { name: "Shared" }));
   await waitFor(() => expect(fake.sockets).toHaveLength(5));
   await waitFor(() =>
     expect(owner.getByLabelText("Remote browser input")).toBeEnabled(),
@@ -149,9 +147,7 @@ it("switches only its menu-owned viewer and retains capture and display preferen
   ).toBeChecked();
   await userEvent.keyboard("{Escape}{Escape}");
   const other = await openTransport(sibling);
-  expect(
-    other.getByRole("menuitemradio", { name: "Shared (default)" }),
-  ).toBeChecked();
+  expect(other.getByRole("menuitemradio", { name: "Shared" })).toBeChecked();
 });
 
 it("waits for controlled updates and uses replacement callbacks without reconnecting", async () => {
@@ -172,9 +168,7 @@ it("waits for controlled updates and uses replacement callbacks without reconnec
   expect(first).toHaveBeenCalledWith("split");
   expect(fake.sockets).toHaveLength(1);
   const pending = await openTransport();
-  expect(
-    pending.getByRole("menuitemradio", { name: "Shared (default)" }),
-  ).toBeChecked();
+  expect(pending.getByRole("menuitemradio", { name: "Shared" })).toBeChecked();
   view.rerender(
     <CdpViewer {...props} transport="split" onTransportChange={first} />,
   );
@@ -189,9 +183,7 @@ it("waits for controlled updates and uses replacement callbacks without reconnec
     <CdpViewer {...props} transport="split" onTransportChange={second} />,
   );
   expect(fake.sockets).toHaveLength(3);
-  await userEvent.click(
-    pending.getByRole("menuitemradio", { name: "Shared (default)" }),
-  );
+  await userEvent.click(pending.getByRole("menuitemradio", { name: "Shared" }));
   expect(second).toHaveBeenCalledWith("shared");
   expect(first).toHaveBeenCalledOnce();
   expect(fake.sockets).toHaveLength(3);
@@ -214,15 +206,11 @@ it("keeps fixed host values checked and disabled until a callback is supplied", 
   ).toBeChecked();
   for (const option of menu.getAllByRole("menuitemradio"))
     expect(option).toHaveAttribute("aria-disabled", "true");
-  await userEvent.click(
-    menu.getByRole("menuitemradio", { name: "Shared (default)" }),
-  );
+  await userEvent.click(menu.getByRole("menuitemradio", { name: "Shared" }));
   expect(fake.sockets).toHaveLength(2);
   const changed = vi.fn();
   view.rerender(<CdpViewer {...props} onTransportChange={changed} />);
-  await userEvent.click(
-    menu.getByRole("menuitemradio", { name: "Shared (default)" }),
-  );
+  await userEvent.click(menu.getByRole("menuitemradio", { name: "Shared" }));
   expect(changed).toHaveBeenCalledWith("shared");
   expect(fake.sockets).toHaveLength(2);
 });
@@ -255,9 +243,7 @@ it("preserves menu-owned transport through hidden settings, callback changes and
   expect(
     resumed.getByRole("menuitemradio", { name: "Split frame / control" }),
   ).toBeChecked();
-  await userEvent.click(
-    resumed.getByRole("menuitemradio", { name: "Shared (default)" }),
-  );
+  await userEvent.click(resumed.getByRole("menuitemradio", { name: "Shared" }));
   expect(changed).toHaveBeenCalledWith("shared");
 });
 

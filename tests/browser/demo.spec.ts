@@ -344,7 +344,7 @@ test("demo applies transport changes explicitly and keeps narrow controls usable
       }),
     ).toBeChecked();
     await transportMenu
-      .getByRole("menuitemradio", { name: "Shared (default)" })
+      .getByRole("menuitemradio", { name: "Shared", exact: true })
       .click();
     await expect.poll(() => sockets).toBe(4);
     await expect(view).toHaveAttribute("data-status", "streaming");
