@@ -21,13 +21,19 @@ and the [interaction guide](demo/interaction.md) covers input behavior and limit
 | `onCaptureChange`                             | Requests a controlled capture change, or reports a menu-owned change                |
 | `extensions?: readonly ViewerExtension[]`     | Optional adapters, reconciled by ID and configuration key                           |
 | `colorScheme?: "light" \| "dark" \| "system"` | Appearance override; omitted inherits the host CSS color-scheme                     |
+| `tabStyle?: "attached" \| "floating"`         | Attached tabs (default) or pill tabs on one toolbar surface                         |
+| `toolbarEnd?: ReactNode`                      | Host controls at the end of the tab row                                             |
+| `stageOverlay?: ReactNode`                    | Host content layered over the page stage                                            |
+| `blankPage?: ReactNode`                       | Interactive host content over a streaming `about:blank` page                        |
+| `labels?: ViewerLabels`                       | Address placeholder and blank-tab title overrides                                   |
 | `className`, `style`                          | Host layout and instance-scoped theme customization                                 |
 | `onStatusChange`                              | Readonly snapshot: status, targets, selected ID, diagnostic and optional navigation |
 | `onError`                                     | Fixed diagnostic with optional failed-command context                               |
 
 Root type exports include `CdpViewerProps`, `CdpViewerStyle`,
 `ViewerCaptureFormat`, `ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`,
-`ViewerNavigation`, `ViewerTransport`, `WindowSizeSync` and `ViewerError`.
+`ViewerNavigation`, `ViewerTransport`, `ViewerTabStyle`, `ViewerLabels`,
+`WindowSizeSync` and `ViewerError`.
 Extension types are also available from `cdp-viewer/extensions`.
 
 ### Runtime requirements
@@ -39,6 +45,25 @@ observers or connections are acquired. This applies to paused and view-only
 viewers too; there are no bundled polyfills or reduced-functionality paths.
 Hosts can handle it with a React error boundary. Imports and server rendering
 do not perform the check or acquire browser resources.
+
+## Host presentation
+
+`tabStyle="floating"` draws pill tabs on one toolbar surface, without the
+attached tab curves. Omit it or use `"attached"` for the default presentation.
+
+Use `toolbarEnd` for host actions such as closing or popping out a panel. The
+tab layout reserves the slot's natural width. `stageOverlay` places host content
+over the page stage; its wrapper ignores pointer input, and interactive host
+children opt in with `pointer-events: auto`.
+
+In interactive mode, `blankPage` covers the canvas only while the selected page
+is streaming at `about:blank`. It does not replace unavailable or connecting
+states. `labels.addressPlaceholder` replaces the default `"Enter a URL"` text;
+`labels.blankTabTitle` replaces `"New tab"` for an empty or `about:blank` title.
+Other visible text retains the library's defaults.
+
+These are optional generic integration points. The host supplies its controls,
+content and copy; the viewer retains ownership of remote input and its lifecycle.
 
 ## Connection and scope
 
@@ -393,6 +418,7 @@ schemes when it is expressed with host-provided colors.
 | `--cdpv-loading-shadow`             | Elevation of the loading placeholder glyph                                           | `0 3px 12px color-mix(in srgb, var(--cdpv-foreground) 5%, transparent)` |
 | `--cdpv-disabled-opacity`           | Disabled control and disabled menu item opacity                                      | Unset: 0.35 for controls and 0.4 for menu items                         |
 | `--cdpv-busy-opacity`               | Opacity of a disabled control that is still reporting busy work                      | `0.8`                                                                   |
+| `--cdpv-control-radius`             | Toolbar button radius                                                                | Unset: `50%`; floating tabs set `8px`                                   |
 
 Primary actions keep a filled background while hovered: the generic neutral hover
 never applies to them, and the hovered fill defaults to the accent mixed slightly

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { CdpViewerProps, ViewerNavigation } from "../viewer/types";
 import { AllTabs } from "./AllTabs";
+import { tabTitle } from "./labels";
 import { Favicon } from "./Favicon";
 import { BrowserMenu } from "./BrowserMenu";
 import { viewerScope } from "./context";
@@ -34,6 +35,11 @@ function ViewerSurface({
   interactive = false,
   showSettingsMenu = true,
   colorScheme,
+  tabStyle = "attached",
+  toolbarEnd,
+  stageOverlay,
+  blankPage,
+  labels,
   className,
   style,
 }: CdpViewerProps) {
@@ -59,6 +65,7 @@ function ViewerSurface({
       style={style}
       data-status={snapshot.status}
       data-color-scheme={colorScheme}
+      data-tab-style={tabStyle}
       value={snapshot.selectedTargetId}
       onValueChange={(value) => {
         if (typeof value === "string") select(value);
@@ -72,56 +79,60 @@ function ViewerSurface({
           aria-label="Browser tabs"
           activateOnFocus={false}
         >
-          {tabLayout.items.map(({ target, width }) => (
-            <div
-              className="cdpv-tab-item"
-              key={target.id}
-              style={{ width }}
-              data-selected={
-                target.id === snapshot.selectedTargetId ? "" : undefined
-              }
-            >
-              <Tabs.Tab
-                type="button"
-                className="cdpv-tab"
-                value={target.id}
-                title={target.title}
-                aria-label={target.title}
-                disabled={controls.tabsDisabled}
-                data-target-id={target.id}
+          {tabLayout.items.map(({ target, width }) => {
+            const title = tabTitle(target.title, labels);
+            return (
+              <div
+                className="cdpv-tab-item"
+                key={target.id}
+                style={{ width }}
+                data-selected={
+                  target.id === snapshot.selectedTargetId ? "" : undefined
+                }
               >
-                <Favicon targetId={target.id} />
-                <span className="cdpv-tab-title">{target.title}</span>
-              </Tabs.Tab>
-              {interactive && (
-                <Button
+                <Tabs.Tab
                   type="button"
-                  className="cdpv-close"
-                  aria-label={`Close ${target.title}`}
-                  title={`Close ${target.title}`}
-                  data-close-target={target.id}
-                  aria-busy={
-                    pending?.type === "close" && pending.targetId === target.id
-                  }
-                  disabled={!controls.canMutateTabs}
-                  onClick={() => closeTab(target.id)}
+                  className="cdpv-tab"
+                  value={target.id}
+                  title={title}
+                  aria-label={title}
+                  disabled={controls.tabsDisabled}
+                  data-target-id={target.id}
                 >
-                  {pending?.type === "close" &&
-                  pending.targetId === target.id ? (
-                    <LoaderCircle
-                      className="cdpv-spinning"
-                      size={14}
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <X size={14} aria-hidden="true" />
-                  )}
-                </Button>
-              )}
-            </div>
-          ))}
+                  <Favicon targetId={target.id} />
+                  <span className="cdpv-tab-title">{title}</span>
+                </Tabs.Tab>
+                {interactive && (
+                  <Button
+                    type="button"
+                    className="cdpv-close"
+                    aria-label={`Close ${title}`}
+                    title={`Close ${title}`}
+                    data-close-target={target.id}
+                    aria-busy={
+                      pending?.type === "close" &&
+                      pending.targetId === target.id
+                    }
+                    disabled={!controls.canMutateTabs}
+                    onClick={() => closeTab(target.id)}
+                  >
+                    {pending?.type === "close" &&
+                    pending.targetId === target.id ? (
+                      <LoaderCircle
+                        className="cdpv-spinning"
+                        size={14}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <X size={14} aria-hidden="true" />
+                    )}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
         </Tabs.List>
-        {tabLayout.overflow && <AllTabs />}
+        {tabLayout.overflow && <AllTabs labels={labels} />}
         {interactive && (
           <Button
             type="button"
@@ -143,12 +154,16 @@ function ViewerSurface({
             )}
           </Button>
         )}
+        {toolbarEnd !== undefined && (
+          <div className="cdpv-toolbar-end">{toolbarEnd}</div>
+        )}
       </div>
       {interactive && (
         <NavigationToolbar
           navigation={snapshot.navigation ?? null}
           disabled={!controls.streaming}
           showSettingsMenu={showSettingsMenu}
+          placeholder={labels?.addressPlaceholder ?? "Enter a URL"}
         />
       )}
       <Tabs.Panel
@@ -209,6 +224,12 @@ function ViewerSurface({
             wrap="off"
           />
         )}
+        {interactive &&
+          blankPage !== undefined &&
+          controls.streaming &&
+          snapshot.navigation?.url === "about:blank" && (
+            <div className="cdpv-blank-page">{blankPage}</div>
+          )}
         {!controls.streaming && (
           <div
             className="cdpv-placeholder"
@@ -272,6 +293,9 @@ function ViewerSurface({
             )}
           </div>
         )}
+        {stageOverlay !== undefined && (
+          <div className="cdpv-stage-overlay">{stageOverlay}</div>
+        )}
       </Tabs.Panel>
       {interactive && <ClipboardRecovery />}
       <div className="cdpv-sr-only" role="status" aria-live="polite">
@@ -334,10 +358,12 @@ function NavigationToolbar({
   navigation,
   disabled,
   showSettingsMenu,
+  placeholder,
 }: {
   navigation: ViewerNavigation | null;
   disabled: boolean;
   showSettingsMenu: boolean;
+  placeholder: string;
 }) {
   const model = viewerScope.useModel();
   const { address: addressElement } = useViewerElements();
@@ -383,7 +409,7 @@ function NavigationToolbar({
         type="text"
         className="cdpv-address"
         aria-label="Remote page address"
-        placeholder="Enter a URL"
+        placeholder={placeholder}
         autoComplete="off"
         autoCapitalize="none"
         spellCheck={false}

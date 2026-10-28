@@ -429,10 +429,10 @@
   min-width: 32px;
   min-height: 32px;
   color: inherit;
+  border-radius: var(--cdpv-control-radius, 50%);
   cursor: pointer;
   background: 0 0;
   border: 1px solid #0000;
-  border-radius: 50%;
   flex: none;
   justify-content: center;
   align-items: center;
@@ -843,5 +843,110 @@
   user-select: text;
   margin-bottom: 8px;
   display: block;
+}
+.cdpv-root .cdpv-toolbar-end {
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  display: flex;
+}
+.cdpv-root .cdpv-blank-page {
+  background: var(--cdpv-background);
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+.cdpv-root .cdpv-stage-overlay {
+  z-index: 2;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+.cdpv-root[data-tab-style="floating"] {
+  --cdpv-control-radius: 8px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-toolbar {
+  --cdpv-tab-height: 32px;
+  --cdpv-tab-radius: 10px;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 6px 0 8px;
+}
+:is(
+  .cdpv-root[data-tab-style="floating"] .cdpv-tabs,
+  .cdpv-root[data-tab-style="floating"]
+    .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker))
+) {
+  align-self: center;
+  gap: 4px;
+  margin: 0;
+  padding-inline: 0;
+  -webkit-mask: none;
+  mask: none;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item {
+  height: var(--cdpv-tab-height);
+  border-radius: var(--cdpv-tab-radius);
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected] {
+  background: var(--cdpv-tab-selected-background, var(--cdpv-background));
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]:before,
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]:after,
+.cdpv-root[data-tab-style="floating"] .cdpv-new-tab:before {
+  content: none;
+}
+.cdpv-root[data-tab-style="floating"]
+  .cdpv-tab-item:not([data-selected]):before {
+  inset: 0;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab {
+  height: 100%;
+  padding: 0 6px 0 10px;
+  font-size: 13px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-close {
+  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  margin: 0 6px 0 0;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
+  background: var(--cdpv-hover, var(--cdpv-foreground));
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
+    background: var(
+      --cdpv-hover,
+      color-mix(in srgb, var(--cdpv-foreground) 10%, transparent)
+    );
+  }
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-navigation {
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-address {
+  border-radius: 999px;
+  margin-inline: 6px 2px;
+  padding: 0 14px;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
+  background: var(--cdpv-background);
+  border-color: var(--cdpv-accent);
+  box-shadow: 0 0 0 3px var(--cdpv-accent);
+  outline: none;
+}
+@supports (color: color-mix(in lab, red, red)) {
+  .cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--cdpv-accent) 10%, transparent);
+  }
 }
 /*$vite$:1*/

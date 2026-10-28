@@ -23,6 +23,11 @@ export const propGuide = {
   onCaptureChange: "Capture quality / browser menu",
   extensions: "Connection options",
   colorScheme: "Viewer theme",
+  tabStyle: "Appearance & layout / floating tabs",
+  toolbarEnd: "API / host presentation",
+  stageOverlay: "API / host presentation",
+  blankPage: "API / host presentation",
+  labels: "API / host presentation",
   className: "Framed presentation preset",
   style: "Size, radius and accent",
   onStatusChange: "Console",
@@ -43,6 +48,7 @@ export interface PlaygroundOptions {
   readonly customAccent: boolean;
   readonly accent: string;
   readonly framed: boolean;
+  readonly floatingTabs: boolean;
 }
 
 export const sizeLimits = {
@@ -64,6 +70,7 @@ export const defaultOptions = Object.freeze<PlaygroundOptions>({
   customAccent: false,
   accent: "#2563eb",
   framed: false,
+  floatingTabs: false,
 });
 
 export { captureResolutions } from "../src/viewer/capture";
@@ -166,6 +173,7 @@ export function usageCode(
     ...(options.theme === "inherit"
       ? []
       : [`      colorScheme=${JSON.stringify(options.theme)}`]),
+    ...(options.floatingTabs ? ['      tabStyle="floating"'] : []),
     `      className={${JSON.stringify(viewerClassName(options))}}`,
     `      style={${JSON.stringify(viewerStyle(options), null, 2).replaceAll("\n", "\n      ")}}`,
     "      onStatusChange={onStatusChange}",

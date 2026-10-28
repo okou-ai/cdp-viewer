@@ -18,12 +18,15 @@ export function observeTabStrip(
     const gap = parseFloat(style.columnGap);
     const action = parseFloat(style.getPropertyValue("--cdpv-tab-action"));
     const create = row.querySelector(".cdpv-new-tab");
+    // Host controls share the row and keep their natural width.
+    const end = row.querySelector(".cdpv-toolbar-end");
     resized({
       width:
         width -
         parseFloat(style.paddingLeft) -
         parseFloat(style.paddingRight) -
-        (create ? create.getBoundingClientRect().width + gap : corner),
+        (create ? create.getBoundingClientRect().width + gap : corner) -
+        (end ? end.getBoundingClientRect().width + gap : 0),
       gap: parseFloat(tabs.columnGap),
       overflow: action + gap - (create ? 0 : corner),
     });
