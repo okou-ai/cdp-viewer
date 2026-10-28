@@ -341,10 +341,10 @@ The interactive three-dot menu includes **Capture quality**. Hover to expand it,
 or activate it with a click, tap or Enter. Opening the menu with a mouse keeps
 focus on the menu without highlighting a row. Press Enter on the menu button to
 focus the first item, then use the arrow keys to reach Capture quality and Enter
-to open it. The panel has a JPEG quality slider and an expanded list of maximum
-capture resolutions. **Auto** follows the container and DPR; fixed presets range
-from 960 × 540 to 3840 × 2160. The matching
-option has a checkmark. These are image bounds, not remote page dimensions.
+or Space to open it. The panel has a JPEG quality slider and an expanded list of
+maximum capture resolutions. **Auto** follows the container and DPR; fixed
+presets range from 960 × 540 to 3840 × 2160. The matching option has a checkmark.
+These are image bounds, not remote page dimensions.
 Changes apply live on the current connection.
 
 Omit `capture` for per-viewer, menu-owned preferences, initially quality 70 and

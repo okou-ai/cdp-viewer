@@ -51,6 +51,10 @@ export function CaptureQuality() {
             onMouseEnter={(event) => {
               if (!canHover && !open) event.preventBaseUIHandler();
             }}
+            onKeyUp={(event) => {
+              // Menu.Item activates Space on keydown; the popover must not activate again.
+              if (event.key === " ") event.preventBaseUIHandler();
+            }}
           />
         }
       >

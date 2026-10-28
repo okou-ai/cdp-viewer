@@ -125,6 +125,13 @@ for (const [transport, colorScheme] of [
       await expect(transportTrigger).toBeFocused();
       await page.keyboard.press("ArrowDown");
       await expect(detailTrigger).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(detail).toBeVisible();
+      await expect(
+        detail.getByRole("slider", { name: "JPEG quality" }),
+      ).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(detailTrigger).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(menu).toBeFocused();
       await menu.click();

@@ -43,9 +43,14 @@ async function openDetail(scope: ReturnType<typeof within> = screen) {
   return within(await scope.findByRole("dialog", { name: "Capture quality" }));
 }
 
-it.each(["mouse", "keyboard"] as const)(
-  "keeps initial menu focus and capture activation in menu order (%s)",
-  async (method) => {
+it.each([
+  ["mouse", "Enter"],
+  ["mouse", "Space"],
+  ["keyboard", "Enter"],
+  ["keyboard", "Space"],
+] as const)(
+  "keeps initial menu focus and capture activation in menu order (%s opening, %s activation)",
+  async (method, activation) => {
     const fake = browser();
     const changed = vi.fn();
     render(
@@ -85,7 +90,7 @@ it.each(["mouse", "keyboard"] as const)(
     await userEvent.keyboard("{ArrowDown}");
     await waitFor(() => expect(capture).toHaveFocus());
     expect(capture).toHaveAttribute("data-highlighted");
-    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard(activation === "Space" ? " " : "{Enter}");
     const detail = within(
       await screen.findByRole("dialog", { name: "Capture quality" }),
     );
