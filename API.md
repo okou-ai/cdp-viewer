@@ -358,9 +358,73 @@ preserve the connection, selection and native input nodes.
 Set instance-specific variables through `style`:
 
 - General: `--cdpv-background`, `--cdpv-foreground`, `--cdpv-muted`,
-  `--cdpv-border`, `--cdpv-accent`, `--cdpv-radius`.
+  `--cdpv-border`, `--cdpv-accent`, `--cdpv-on-accent`, `--cdpv-radius`.
 - Surfaces: `--cdpv-tab-background`, `--cdpv-address-background`,
   `--cdpv-stage-background`.
+- Diagnostics: `--cdpv-error`, `--cdpv-error-background`.
+- Interaction states: `--cdpv-hover`, `--cdpv-focus`,
+  `--cdpv-primary-hover-background`.
+- Selection: `--cdpv-tab-selected-background`,
+  `--cdpv-option-selected-background`.
+- Popups and overlays: `--cdpv-popup-background`, `--cdpv-popup-foreground`,
+  `--cdpv-popup-shadow`, `--cdpv-loading-shadow`.
+- State strength: `--cdpv-disabled-opacity`, `--cdpv-busy-opacity`.
 
 Default height is 28rem; set outer dimensions with `style`, for example
 `style={{ height: "70vh" }}`, or a host `className`.
+
+### Theme contract
+
+Every listed variable is a public paint decision, and the viewer consumes it for
+that decision only; internal DOM and classes stay private. Colors resolve against
+the instance's active light or dark palette, so a single value works in both
+schemes when it is expressed with host-provided colors.
+
+| Variable                            | Controls                                                                             | Default                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `--cdpv-hover`                      | Hover and highlighted wash: tab hover, button hover, menu items, option highlighting | `color-mix(in srgb, var(--cdpv-foreground) 10%, transparent)`           |
+| `--cdpv-focus`                      | Focus ring color for tabs, buttons, options, address and the interactive stage       | `var(--cdpv-accent)`                                                    |
+| `--cdpv-tab-selected-background`    | Selected tab surface and its connecting curves                                       | `var(--cdpv-background)`                                                |
+| `--cdpv-option-selected-background` | Selected option background in the tab list                                           | `color-mix(in srgb, var(--cdpv-accent) 12%, transparent)`               |
+| `--cdpv-popup-background`           | Tab picker, browser menus, capture settings and clipboard recovery surfaces          | `var(--cdpv-background)`                                                |
+| `--cdpv-popup-foreground`           | Text on those popup and overlay surfaces                                             | `var(--cdpv-foreground)`                                                |
+| `--cdpv-primary-hover-background`   | Hovered primary action background                                                    | `color-mix(in srgb, var(--cdpv-accent) 90%, var(--cdpv-foreground))`    |
+| `--cdpv-popup-shadow`               | Elevation for popup and overlay surfaces                                             | Unset: each surface keeps its own elevation                             |
+| `--cdpv-loading-shadow`             | Elevation of the loading placeholder glyph                                           | `0 3px 12px color-mix(in srgb, var(--cdpv-foreground) 5%, transparent)` |
+| `--cdpv-disabled-opacity`           | Disabled control and disabled menu item opacity                                      | Unset: 0.35 for controls and 0.4 for menu items                         |
+| `--cdpv-busy-opacity`               | Opacity of a disabled control that is still reporting busy work                      | `0.8`                                                                   |
+
+Primary actions keep a filled background while hovered: the generic neutral hover
+never applies to them, and the hovered fill defaults to the accent mixed slightly
+toward the foreground so `--cdpv-on-accent` text stays readable. Disabled primary
+actions keep the disabled opacity instead of a hover fill.
+
+Two variables are overrides without a single default, because the viewer's own
+surfaces differ: `--cdpv-popup-shadow` replaces the tab picker, browser menu and
+clipboard elevation together, and `--cdpv-disabled-opacity` applies to both
+disabled controls and disabled menu items while their untouched defaults stay
+distinct. Setting either one intentionally unifies those surfaces.
+
+Hosts own contrast: a host palette that pairs unreadable foreground and
+background colors remains unreadable, because the viewer does not compute or
+reject host colors. Overrides stay per instance, so sibling viewers can carry
+different themes, and changing a theme never reconnects a viewer or replaces its
+selection or native input nodes.
+
+Standalone light and dark defaults remain the library's own palette; nothing here
+imports a host design system. A host maps its semantic tokens onto these
+variables, for example:
+
+```tsx
+<CdpViewer
+  cdpUrl={url}
+  style={{
+    "--cdpv-accent": theme.accent,
+    "--cdpv-hover": theme.hover,
+    "--cdpv-focus": theme.focusRing,
+    "--cdpv-tab-selected-background": theme.surface,
+    "--cdpv-popup-background": theme.overlay,
+    "--cdpv-popup-shadow": theme.overlayShadow,
+  }}
+/>
+```
