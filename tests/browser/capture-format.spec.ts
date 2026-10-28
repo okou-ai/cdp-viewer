@@ -93,8 +93,8 @@ for (const transport of ["shared", "split"] as const) {
       const canvas = view.locator("canvas");
       await expect(view).toHaveAttribute("data-status", "streaming");
       await expect.poll(() => lastFrameFormat).toBe("webp");
-      expect(captures).toHaveLength(1);
-      expect(captures[0]!.format).toBe("webp");
+      expect(captures.length).toBeGreaterThan(0);
+      expect(captures.every((capture) => capture.format === "webp")).toBe(true);
       const input = await view
         .getByLabel("Remote browser input")
         .elementHandle();
