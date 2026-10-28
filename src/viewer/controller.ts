@@ -28,7 +28,12 @@ import type {
   ViewerError,
   WindowSizeSync,
 } from "./types";
-import { captureSettings, capturePreferences, sameCapture } from "./capture";
+import {
+  captureSettings,
+  capturePreferences,
+  sameCapture,
+  sameCaptureSettings,
+} from "./capture";
 import type { CaptureSettings } from "./capture";
 import { Screencast } from "./screencast";
 import { readFavicon } from "./favicon";
@@ -315,13 +320,16 @@ export class ViewerController {
     )
       return;
     const settings = captureSettings(this.capture, this.captureSize);
-    if (this.captureStarted && sameCapture(this.captureStarted, settings)) {
+    if (
+      this.captureStarted &&
+      sameCaptureSettings(this.captureStarted, settings)
+    ) {
       this.cancelCaptureUpdate();
       return;
     }
     const now = performance.now();
     let change = this.captureChange;
-    if (change && sameCapture(change.settings, settings)) {
+    if (change && sameCaptureSettings(change.settings, settings)) {
       if (this.captureUpdate) return;
     } else {
       change = {
@@ -633,7 +641,7 @@ export class ViewerController {
       windowId: this.options.windowId,
       capturePending: () =>
         !this.captureStarted ||
-        !sameCapture(
+        !sameCaptureSettings(
           this.captureStarted,
           captureSettings(this.capture, this.captureSize),
         ),

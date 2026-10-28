@@ -3,7 +3,7 @@ import { CdpFault } from "../cdp/errors";
 import { frameTimeoutMs } from "../display/limits";
 import type { FrameSink } from "../render/canvas";
 import type { Viewport } from "../display/geometry";
-import { sameCapture } from "./capture";
+import { sameCaptureSettings } from "./capture";
 import type { CaptureSettings } from "./capture";
 
 interface ScreencastOwner {
@@ -290,7 +290,7 @@ export class Screencast {
       this.halted ||
       this.busy ||
       this.reserved ||
-      (this.applied && sameCapture(this.applied, this.desired))
+      (this.applied && sameCaptureSettings(this.applied, this.desired))
     )
       return;
     this.busy = true;
@@ -303,7 +303,7 @@ export class Screencast {
         if (
           this.current() &&
           this.applied &&
-          !sameCapture(this.applied, this.desired)
+          !sameCaptureSettings(this.applied, this.desired)
         )
           this.schedule();
       });
@@ -315,7 +315,7 @@ export class Screencast {
       this.current() &&
       !this.halted &&
       !this.reserved &&
-      (!this.applied || !sameCapture(this.applied, this.desired))
+      (!this.applied || !sameCaptureSettings(this.applied, this.desired))
     ) {
       if (!this.stopped) {
         await this.stop();

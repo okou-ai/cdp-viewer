@@ -122,6 +122,7 @@ export function capturePreferences(
   });
 }
 
+/** Compare preferences, including quality retained for a later lossy format. */
 export function sameCapture(
   a: ViewerCaptureOptions,
   b: ViewerCaptureOptions,
@@ -132,4 +133,14 @@ export function sameCapture(
     a.maxWidth === b.maxWidth &&
     a.maxHeight === b.maxHeight
   );
+}
+
+/** Compare normalized settings that affect the native image stream. */
+export function sameCaptureSettings(
+  a: CaptureSettings,
+  b: CaptureSettings,
+): boolean {
+  if (a.format === "png" && b.format === "png")
+    return a.maxWidth === b.maxWidth && a.maxHeight === b.maxHeight;
+  return sameCapture(a, b);
 }

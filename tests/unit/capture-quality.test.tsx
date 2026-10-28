@@ -280,15 +280,29 @@ it("requests controlled format changes while preserving custom bounds and Auto p
   expect(starts()[1]!.params).not.toHaveProperty("quality");
   await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
   expect(changed).toHaveBeenLastCalledWith({ format: "png", quality: 37 });
-  await userEvent.click(webp);
-  expect(changed).toHaveBeenLastCalledWith({ ...capture, format: "webp" });
   view.rerender(
-    <CdpViewer {...props} capture={{ ...capture, format: "webp" }} />,
+    <CdpViewer
+      {...props}
+      capture={{ ...capture, format: "png", quality: 0 }}
+    />,
+  );
+  await userEvent.click(webp);
+  expect(changed).toHaveBeenLastCalledWith({
+    ...capture,
+    format: "webp",
+    quality: 0,
+  });
+  expect(starts()).toHaveLength(2);
+  view.rerender(
+    <CdpViewer
+      {...props}
+      capture={{ ...capture, format: "webp", quality: 0 }}
+    />,
   );
   await waitFor(() => expect(starts()).toHaveLength(3));
   expect(detail.getByRole("slider", { name: "Image quality" })).toBeEnabled();
   expect(detail.getByRole("slider", { name: "Image quality" })).toHaveValue(
-    "37",
+    "0",
   );
   expect(
     detail.queryByText("Lossless", { exact: true }),
@@ -296,7 +310,11 @@ it("requests controlled format changes while preserving custom bounds and Auto p
   expect(
     detail.getByRole("slider", { name: "Image quality" }),
   ).not.toHaveAttribute("aria-valuetext");
-  expect(starts()[2]!.params).toMatchObject({ ...capture, format: "webp" });
+  expect(starts()[2]!.params).toMatchObject({
+    ...capture,
+    format: "webp",
+    quality: 0,
+  });
   expect(fake.sockets).toHaveLength(1);
 });
 

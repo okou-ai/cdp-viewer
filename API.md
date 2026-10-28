@@ -169,7 +169,8 @@ Quality applies to WebP and JPEG, but the same number does not imply equal visua
 quality or byte size across codecs. Set `capture={{ format: "png" }}` for lossless
 PNG. The panel shows **Lossless** instead of numeric quality and disables the
 slider. Quality is omitted from the CDP request, with the configured value retained
-for switching back to WebP/JPEG. PNG can use more
+for switching back to WebP/JPEG. Updating only quality while PNG is selected does
+not restart its image stream. PNG can use more
 bandwidth and encoding work depending on page content, and the same encoded-frame
 limits apply. `ViewerCaptureFormat` names the format union.
 

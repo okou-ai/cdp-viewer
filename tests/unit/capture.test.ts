@@ -195,6 +195,79 @@ it.each(["shared", "split"] as const)(
   },
 );
 
+it.each(["shared", "split"] as const)(
+  "retains PNG quality changes without restarting the %s stream",
+  async (transport) => {
+    const preferences = {
+      format: "png" as const,
+      quality: 37,
+      maxWidth: 1280,
+      maxHeight: 720,
+    };
+    const { browser, controller, model, sink, resetInput } = mount(
+      undefined,
+      preferences,
+      0,
+      undefined,
+      transport,
+    );
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const captures = () =>
+      browser.sockets.flatMap((socket) =>
+        socket.commands.filter(
+          (command) =>
+            command.method === "Page.startScreencast" ||
+            command.method === "Page.stopScreencast",
+        ),
+      );
+    const before = captures();
+    expect(before).toHaveLength(1);
+    const input = controller.input!;
+    const selected = model.getSnapshot().selectedTargetId;
+    const sockets = [...browser.sockets];
+    sink.invalidate.mockClear();
+    resetInput.mockClear();
+    controller.setCapture({ ...preferences, quality: 0 });
+    input.text("PNG input continues");
+    await input.completion(input.owner!);
+    expect(captures()).toEqual(before);
+    expect(sink.invalidate).not.toHaveBeenCalled();
+    expect(resetInput).not.toHaveBeenCalled();
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().selectedTargetId).toBe(selected);
+    expect(browser.sockets).toEqual(sockets);
+    expect(browser.sockets[0]!.commands).toContainEqual(
+      expect.objectContaining({
+        method: "Input.insertText",
+        params: { text: "PNG input continues" },
+      }),
+    );
+    controller.setCapture({ ...preferences, quality: 0, maxWidth: 960 });
+    await vi.waitFor(() => expect(captures()).toHaveLength(3));
+    expect(captures().at(-1)!.params).toMatchObject({
+      format: "png",
+      maxWidth: 960,
+      maxHeight: 720,
+    });
+    expect(captures().at(-1)!.params).not.toHaveProperty("quality");
+    controller.setCapture({
+      ...preferences,
+      format: "jpeg",
+      quality: 0,
+      maxWidth: 960,
+    });
+    await vi.waitFor(() => expect(captures()).toHaveLength(5));
+    expect(captures().at(-1)!.params).toMatchObject({
+      format: "jpeg",
+      quality: 0,
+      maxWidth: 960,
+      maxHeight: 720,
+    });
+  },
+);
+
 it("sizes omitted axes from the physical surface and honors independent fixed bounds", () => {
   const size = { width: 640, height: 480, dpr: 2 };
   expect(captureSettings(capturePreferences(), size)).toEqual({
