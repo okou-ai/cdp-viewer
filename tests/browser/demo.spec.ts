@@ -104,12 +104,17 @@ test("capture quality menu stays synchronized with the demo's external controls"
     await externalFormat.selectOption("png");
     await expect(externalQuality).toBeDisabled();
     await expect(externalQuality).toHaveValue("0");
+    await expect(rail.getByText("Lossless", { exact: true })).toBeVisible();
+    await expect(externalQuality).toHaveAttribute(
+      "aria-valuetext",
+      "Lossless (PNG)",
+    );
     await menu.click();
     await view.getByRole("menuitem", { name: "Capture quality" }).click();
     await expect(
       view
         .getByRole("dialog", { name: "Capture quality" })
-        .getByRole("slider", { name: "Image quality (PNG is lossless)" }),
+        .getByRole("slider", { name: "Image quality" }),
     ).toHaveValue("0");
     await expect(detail.getByRole("radio", { name: "PNG" })).toBeChecked();
     await expect(detail.getByRole("slider")).toBeDisabled();
@@ -117,6 +122,8 @@ test("capture quality menu stays synchronized with the demo's external controls"
     await expect(externalFormat).toHaveValue("webp");
     await expect(externalQuality).toBeEnabled();
     await expect(externalQuality).toHaveValue("0");
+    await expect(rail.getByText("Lossless", { exact: true })).toHaveCount(0);
+    await expect(externalQuality).not.toHaveAttribute("aria-valuetext");
   } finally {
     await backend.close();
   }

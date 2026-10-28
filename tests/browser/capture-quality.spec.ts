@@ -92,6 +92,8 @@ for (const [transport, colorScheme] of [
         name: "Capture quality",
       });
       const detail = view.getByRole("dialog", { name: "Capture quality" });
+      const format = detail.getByRole("radiogroup", { name: "Image format" });
+      const webp = format.getByRole("radio", { name: "WebP" });
       const mainMenu = view.getByRole("menu", {
         name: "Browser menu",
         exact: true,
@@ -113,9 +115,7 @@ for (const [transport, colorScheme] of [
       await expect(detailTrigger).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(detail).toBeVisible();
-      await expect(
-        detail.getByRole("slider", { name: "Image quality" }),
-      ).toBeFocused();
+      await expect(webp).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(detailTrigger).toBeFocused();
       await page.keyboard.press("Escape");
@@ -127,9 +127,7 @@ for (const [transport, colorScheme] of [
       await expect(detailTrigger).toBeFocused();
       await page.keyboard.press("Space");
       await expect(detail).toBeVisible();
-      await expect(
-        detail.getByRole("slider", { name: "Image quality" }),
-      ).toBeFocused();
+      await expect(webp).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(detailTrigger).toBeFocused();
       await page.keyboard.press("Escape");
@@ -184,7 +182,7 @@ for (const [transport, colorScheme] of [
       await expect(detailTrigger).toBeFocused();
       await detailTrigger.click();
       await expect(detail).toBeVisible();
-      await expect(quality).toBeFocused();
+      await expect(webp).toBeFocused();
       await page.keyboard.press("Escape");
       await detailTrigger.focus();
       await page.keyboard.press("Enter");
@@ -202,6 +200,8 @@ for (const [transport, colorScheme] of [
       for (const option of await resolution.getByRole("radio").all())
         await expect(option).toBeVisible();
       await expect(automatic).toBeChecked();
+      await expect(webp).toBeFocused();
+      await page.keyboard.press("Tab");
       await expect(quality).toBeFocused();
       await expect(quality).toHaveValue("70");
       await page.keyboard.press("ArrowRight");
@@ -213,9 +213,6 @@ for (const [transport, colorScheme] of [
       await expect(page.locator("#host-submissions")).toHaveText("0");
       await expect(quality).toBeFocused();
       await expect(quality).toHaveValue("71");
-      await page.keyboard.press("Tab");
-      const format = detail.getByRole("radiogroup", { name: "Image format" });
-      await expect(format.getByRole("radio", { name: "WebP" })).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(automatic).toBeFocused();
       await page.keyboard.press("ArrowDown");
@@ -252,6 +249,31 @@ for (const [transport, colorScheme] of [
       await view.screenshot({
         path: info.outputPath(`capture-quality-${colorScheme}.png`),
       });
+      await format.getByRole("radio", { name: "PNG" }).click();
+      await expect(quality).toBeDisabled();
+      await expect(quality).toHaveAttribute("aria-valuetext", "Lossless (PNG)");
+      await expect(detail.getByText("Lossless", { exact: true })).toBeVisible();
+      await expect.poll(() => captures.at(-1)).toMatchObject({ format: "png" });
+      expect(captures.at(-1)).not.toHaveProperty("quality");
+      await view.screenshot({
+        path: info.outputPath(`capture-quality-png-${colorScheme}.png`),
+      });
+      await page.keyboard.press("Escape");
+      await expect(detailTrigger).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(format.getByRole("radio", { name: "PNG" })).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(selectedPreset).toBeFocused();
+      await webp.click();
+      await expect(quality).toBeEnabled();
+      await expect(quality).toHaveValue("71");
+      await expect(quality).not.toHaveAttribute("aria-valuetext");
+      await expect
+        .poll(() => captures.at(-1))
+        .toMatchObject({
+          format: "webp",
+          quality: 71,
+        });
       await automatic.click();
       await expect(automatic).toBeChecked();
       await expect.poll(() => captures.at(-1)).toEqual(automaticCapture);

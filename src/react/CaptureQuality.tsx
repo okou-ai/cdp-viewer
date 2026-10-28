@@ -98,35 +98,6 @@ export function CaptureQuality() {
               className="cdpv-capture-quality-fields"
             >
               <div className="cdpv-capture-quality-field">
-                <label
-                  htmlFor={`${identity}-quality`}
-                  className="cdpv-capture-quality-label"
-                >
-                  {capture.format === "png"
-                    ? "Image quality (PNG is lossless)"
-                    : "Image quality"}
-                  <output htmlFor={`${identity}-quality`}>
-                    {capture.quality ?? defaultCapture.quality}
-                  </output>
-                </label>
-                <input
-                  id={`${identity}-quality`}
-                  type="range"
-                  disabled={capture.format === "png"}
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={capture.quality ?? defaultCapture.quality}
-                  onKeyDown={(event) => {
-                    // Enter on a range must not submit an enclosing host form.
-                    if (event.key === "Enter") event.preventDefault();
-                  }}
-                  onChange={(event) =>
-                    choose({ ...capture, quality: Number(event.target.value) })
-                  }
-                />
-              </div>
-              <div className="cdpv-capture-quality-field">
                 <span
                   id={`${identity}-format`}
                   className="cdpv-capture-quality-label"
@@ -171,6 +142,38 @@ export function CaptureQuality() {
                     </Radio.Root>
                   ))}
                 </RadioGroup>
+              </div>
+              <div className="cdpv-capture-quality-field">
+                <label
+                  htmlFor={`${identity}-quality`}
+                  className="cdpv-capture-quality-label"
+                >
+                  Image quality
+                  <output htmlFor={`${identity}-quality`}>
+                    {capture.format === "png"
+                      ? "Lossless"
+                      : (capture.quality ?? defaultCapture.quality)}
+                  </output>
+                </label>
+                <input
+                  id={`${identity}-quality`}
+                  type="range"
+                  disabled={capture.format === "png"}
+                  aria-valuetext={
+                    capture.format === "png" ? "Lossless (PNG)" : undefined
+                  }
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={capture.quality ?? defaultCapture.quality}
+                  onKeyDown={(event) => {
+                    // Enter on a range must not submit an enclosing host form.
+                    if (event.key === "Enter") event.preventDefault();
+                  }}
+                  onChange={(event) =>
+                    choose({ ...capture, quality: Number(event.target.value) })
+                  }
+                />
               </div>
               <div className="cdpv-capture-quality-field">
                 <span

@@ -167,8 +167,9 @@ is no automatic fallback. If an endpoint rejects WebP, select JPEG in the menu
 (or update the controlled prop), then use **Retry image** after cleanup completes.
 Quality applies to WebP and JPEG, but the same number does not imply equal visual
 quality or byte size across codecs. Set `capture={{ format: "png" }}` for lossless
-PNG. Its quality slider is disabled and quality is omitted from the CDP request;
-the configured value is retained for switching back to WebP/JPEG. PNG can use more
+PNG. The panel shows **Lossless** instead of numeric quality and disables the
+slider. Quality is omitted from the CDP request, with the configured value retained
+for switching back to WebP/JPEG. PNG can use more
 bandwidth and encoding work depending on page content, and the same encoded-frame
 limits apply. `ViewerCaptureFormat` names the format union.
 
@@ -197,7 +198,7 @@ that diagnostic. See [image recovery](demo/README.md#image-recovery) for stream 
 Custom or independent per-axis host bounds may match no menu resolution preset.
 Editing format or quality preserves them; choosing Auto removes both fixed
 dimensions while retaining format and quality. The settings panel offers WebP,
-JPEG and PNG under **Image format**, followed by the existing resolution choices.
+JPEG and PNG under **Image format**, then image quality and capture resolution.
 
 ### Display adaptation
 

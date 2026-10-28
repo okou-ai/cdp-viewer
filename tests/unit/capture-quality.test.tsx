@@ -96,9 +96,7 @@ it.each([
       await screen.findByRole("dialog", { name: "Capture quality" }),
     );
     await waitFor(() =>
-      expect(
-        detail.getByRole("slider", { name: "Image quality" }),
-      ).toHaveFocus(),
+      expect(detail.getByRole("radio", { name: "WebP" })).toHaveFocus(),
     );
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(capture).toHaveFocus());
@@ -193,8 +191,10 @@ it.each(["shared", "split"] as const)(
     expect(changed).toHaveBeenLastCalledWith({ format: "png", quality: 0 });
     expect(detail.getByRole("radio", { name: "PNG" })).toBeChecked();
     expect(
-      detail.getByRole("slider", { name: "Image quality (PNG is lossless)" }),
+      detail.getByRole("slider", { name: "Image quality" }),
     ).toBeDisabled();
+    expect(detail.getByText("Lossless", { exact: true })).toBeVisible();
+    expect(quality).toHaveAttribute("aria-valuetext", "Lossless (PNG)");
     await waitFor(() =>
       expect(
         fake.sockets
@@ -270,9 +270,8 @@ it("requests controlled format changes while preserving custom bounds and Auto p
   );
   await waitFor(() => expect(starts()).toHaveLength(2));
   expect(png).toBeChecked();
-  expect(
-    detail.getByRole("slider", { name: "Image quality (PNG is lossless)" }),
-  ).toBeDisabled();
+  expect(detail.getByRole("slider", { name: "Image quality" })).toBeDisabled();
+  expect(detail.getByText("Lossless", { exact: true })).toBeVisible();
   expect(starts()[1]!.params).toMatchObject({
     format: "png",
     maxWidth: 1234,
@@ -291,6 +290,12 @@ it("requests controlled format changes while preserving custom bounds and Auto p
   expect(detail.getByRole("slider", { name: "Image quality" })).toHaveValue(
     "37",
   );
+  expect(
+    detail.queryByText("Lossless", { exact: true }),
+  ).not.toBeInTheDocument();
+  expect(
+    detail.getByRole("slider", { name: "Image quality" }),
+  ).not.toHaveAttribute("aria-valuetext");
   expect(starts()[2]!.params).toMatchObject({ ...capture, format: "webp" });
   expect(fake.sockets).toHaveLength(1);
 });

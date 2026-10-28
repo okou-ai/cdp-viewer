@@ -154,30 +154,6 @@ function CaptureSettings({
         <ChevronDown size={14} aria-hidden="true" />
       </summary>
       <div className="demo-group-content">
-        <div className="demo-field demo-range">
-          <label htmlFor={`${identity}-quality`}>
-            {capture.format === "png"
-              ? "Image quality (PNG is lossless)"
-              : "Image quality"}{" "}
-            <output htmlFor={`${identity}-quality`}>
-              {capture.quality ?? 70}
-            </output>
-          </label>
-          <input
-            id={`${identity}-quality`}
-            type="range"
-            disabled={capture.format === "png"}
-            min={0}
-            max={100}
-            step={1}
-            value={capture.quality ?? 70}
-            onChange={(event) =>
-              configure(panel.id, {
-                capture: { ...capture, quality: Number(event.target.value) },
-              })
-            }
-          />
-        </div>
         <div className="demo-field">
           <label htmlFor={`${identity}-format`}>Image format</label>
           <select
@@ -193,6 +169,31 @@ function CaptureSettings({
             <option value="jpeg">JPEG</option>
             <option value="png">PNG (lossless)</option>
           </select>
+        </div>
+        <div className="demo-field demo-range">
+          <label htmlFor={`${identity}-quality`}>
+            Image quality{" "}
+            <output htmlFor={`${identity}-quality`}>
+              {capture.format === "png" ? "Lossless" : (capture.quality ?? 70)}
+            </output>
+          </label>
+          <input
+            id={`${identity}-quality`}
+            type="range"
+            disabled={capture.format === "png"}
+            aria-valuetext={
+              capture.format === "png" ? "Lossless (PNG)" : undefined
+            }
+            min={0}
+            max={100}
+            step={1}
+            value={capture.quality ?? 70}
+            onChange={(event) =>
+              configure(panel.id, {
+                capture: { ...capture, quality: Number(event.target.value) },
+              })
+            }
+          />
         </div>
         <div className="demo-field">
           <label htmlFor={`${identity}-resolution`}>
