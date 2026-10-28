@@ -39,16 +39,24 @@ export function CaptureQuality() {
         setOpen({ open: next, keyboard: details.reason === "escape-key" });
       }}
     >
-      <Popover.Trigger
-        openOnHover
-        delay={100}
-        nativeButton={false}
-        role="menuitem"
-        render={<Menu.Item closeOnClick={false} />}
+      <Menu.Item
+        closeOnClick={false}
         className="cdpv-browser-menu-item"
-        onMouseEnter={(event) => {
-          if (!canHover && !open) event.preventBaseUIHandler();
-        }}
+        render={
+          <Popover.Trigger
+            openOnHover
+            delay={100}
+            nativeButton={false}
+            render={<div />}
+            onMouseEnter={(event) => {
+              if (!canHover && !open) event.preventBaseUIHandler();
+            }}
+            onKeyUp={(event) => {
+              // Menu.Item activates Space on keydown; the popover must not activate again.
+              if (event.key === " ") event.preventBaseUIHandler();
+            }}
+          />
+        }
       >
         <SlidersHorizontal size={16} aria-hidden="true" />
         Capture quality
@@ -57,7 +65,7 @@ export function CaptureQuality() {
           size={16}
           aria-hidden="true"
         />
-      </Popover.Trigger>
+      </Menu.Item>
       <Popover.Portal
         container={container}
         className="cdpv-browser-menu-container"

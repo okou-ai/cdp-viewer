@@ -92,6 +92,51 @@ for (const [transport, colorScheme] of [
         name: "Capture quality",
       });
       const detail = view.getByRole("dialog", { name: "Capture quality" });
+      const mainMenu = view.getByRole("menu", {
+        name: "Browser menu",
+        exact: true,
+      });
+      const transportTrigger = view.getByRole("menuitem", {
+        name: "Transport",
+        exact: true,
+      });
+      await expect(mainMenu).toBeFocused();
+      await expect(mainMenu.locator("[data-highlighted]")).toHaveCount(0);
+      await expect(detailTrigger).toHaveCSS(
+        "background-color",
+        "rgba(0, 0, 0, 0)",
+      );
+      await expect(detail).toHaveCount(0);
+      await page.keyboard.press("ArrowDown");
+      await expect(transportTrigger).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(detailTrigger).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(detail).toBeVisible();
+      await expect(
+        detail.getByRole("slider", { name: "JPEG quality" }),
+      ).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(detailTrigger).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(mainMenu).toHaveCount(0);
+      await expect(menu).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(transportTrigger).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(detailTrigger).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(detail).toBeVisible();
+      await expect(
+        detail.getByRole("slider", { name: "JPEG quality" }),
+      ).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(detailTrigger).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(menu).toBeFocused();
+      await menu.click();
+      await expect(mainMenu).toBeFocused();
+      await expect(mainMenu.locator("[data-highlighted]")).toHaveCount(0);
       await detailTrigger.hover();
       await expect(detail).toBeVisible();
       const quality = detail.getByRole("slider", { name: "JPEG quality" });

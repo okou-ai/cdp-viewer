@@ -43,6 +43,79 @@ async function openDetail(scope: ReturnType<typeof within> = screen) {
   return within(await scope.findByRole("dialog", { name: "Capture quality" }));
 }
 
+it.each([
+  ["mouse", "Enter"],
+  ["mouse", "Space"],
+  ["keyboard", "Enter"],
+  ["keyboard", "Space"],
+] as const)(
+  "keeps initial menu focus and capture activation in menu order (%s opening, %s activation)",
+  async (method, activation) => {
+    const fake = browser();
+    const changed = vi.fn();
+    render(
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        interactive
+        onCaptureChange={changed}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+    );
+    const trigger = screen.getByRole("button", { name: "Browser menu" });
+    if (method === "mouse") await userEvent.click(trigger);
+    else {
+      trigger.focus();
+      await userEvent.keyboard("{Enter}");
+    }
+    const menu = screen.getByRole("menu", {
+      name: "Browser menu",
+    });
+    const transport = within(menu).getByRole("menuitem", {
+      name: "Transport",
+    });
+    const capture = within(menu).getByRole("menuitem", {
+      name: "Capture quality",
+    });
+    if (method === "mouse") {
+      await waitFor(() => expect(menu).toHaveFocus());
+      expect(menu.querySelector("[data-highlighted]")).not.toBeInTheDocument();
+      await userEvent.keyboard("{ArrowDown}");
+    }
+    await waitFor(() => expect(transport).toHaveFocus());
+    expect(
+      screen.queryByRole("dialog", { name: "Capture quality" }),
+    ).not.toBeInTheDocument();
+    await userEvent.keyboard("{ArrowDown}");
+    await waitFor(() => expect(capture).toHaveFocus());
+    expect(capture).toHaveAttribute("data-highlighted");
+    await userEvent.keyboard(activation === "Space" ? " " : "{Enter}");
+    const detail = within(
+      await screen.findByRole("dialog", { name: "Capture quality" }),
+    );
+    await waitFor(() =>
+      expect(
+        detail.getByRole("slider", { name: "JPEG quality" }),
+      ).toHaveFocus(),
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(capture).toHaveFocus());
+    expect(menu).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(
+      screen.queryByRole("menu", { name: "Browser menu" }),
+    ).not.toBeInTheDocument();
+    expect(changed).not.toHaveBeenCalled();
+    expect(
+      fake.sockets
+        .flatMap((socket) => socket.commands)
+        .filter((command) => command.method.startsWith("Input.")),
+    ).toHaveLength(0);
+  },
+);
+
 it.each(["shared", "split"] as const)(
   "applies menu-owned capture quality only to its viewer without reconnecting (%s)",
   async (transport) => {
