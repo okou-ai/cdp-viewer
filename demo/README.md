@@ -49,25 +49,17 @@ events from the endpoint. Choosing it does not provision a browser, change
 authentication or establish provider compatibility; an endpoint without those
 events continues to work as ordinary CDP.
 
-Each viewer owns its connection, selection and cleanup. Two viewers of different
-windows are supported; simultaneous screencasts of the same tab are not
-guaranteed. The remote page remains shared website state regardless of how many
-viewers display it.
+See the [connection contract](../API.md#connection-and-scope) for window
+verification, discovery freshness and concurrent-viewer limits.
 
 ## Explore the props
 
-The preview's **Transport** selector defaults to **Shared**. Interactive panels
-can choose **Split frame / control**, opening two connections to the same endpoint
-with one screencast. Changing transport reconnects that panel and discards unsent
-input. View-only mode always uses one connection. Split can help replies on
-constrained links; it preserves image detail and does not add bandwidth. Check
-provider connection limits, Origin policy and billing before enabling it. Either
-connection failing stops the panel; use **Reconnect** or choose **Shared** explicitly.
-
-**Transport** also appears first in the viewer's three-dot settings menu, above
-Capture quality. The menu and external selector share the panel's controlled
-mode, with a checkmark on its current value. Usage includes transport state and
-the change callback so the same menu works in the copied component.
+The preview's **Transport** selector and the first item in the viewer's three-dot
+menu share the panel's controlled mode: **Shared (default)** or **Split frame /
+control**. The submenu checks its current value; Usage includes the controlled
+prop and callback. Changing modes reconnects that panel. See the
+[transport reference](../API.md#transport) for connection costs, requirements and
+failure behavior.
 
 The preview leads each panel, with its connection bar above and grouped settings
 alongside. Expanding groups leaves the preview height unchanged; overflowing
@@ -118,21 +110,16 @@ display to the new page surface.
 | `windowSizeSync`         | Appearance & layout → Window size sync                | Immediately, without replacing the connection; off by default           |
 | `onWindowSizeSyncChange` | Console / controlled Usage                            | Accepts browser-menu requests and updates the owning panel's mode       |
 
-**Window size sync** and the address-bar menu share the same controlled mode:
-
-- **Do not sync automatically** (`off`, default) stops automatic updates while
-  keeping the last applied remote size and pixel density. It does not restore
-  the window's previous dimensions.
-- **Sync once on opening** (`initial`) fits each selected real window once per
-  connection, using the viewer's page-surface size and client pixel density.
-- **Sync continuously** (`live`) also adapts the remote display when you resize
-  the viewer with its corner or Height/Width controls.
+**Window size sync** and **Fit to this viewer** in the address-bar menu share
+the same controlled mode: **Do not sync automatically** (`off`, default),
+**Sync once on opening** (`initial`) or **Sync continuously** (`live`).
 
 The setting is available before connecting, remains independent in each panel,
 and changes immediately without reconnecting. Menu changes update the right-hand
 control and Usage through `onWindowSizeSyncChange`. Use **Fit page to viewer**
 to apply page size and pixel density once without changing the automatic mode.
-See the [library contract](../README.md#display-adaptation) for sizing limits.
+See the [display adaptation reference](../API.md#display-adaptation) for mode
+semantics, sizing limits and recovery.
 
 The demo initially enables interaction, while the library's default remains
 view-only. Changing control mode creates a fresh viewer generation, using the last
@@ -140,19 +127,14 @@ applied endpoint/window/extensions even when connection fields contain unapplied
 drafts. Pause, theme and styling retain the viewer and its input nodes. Ordinary
 offscreen/document visibility behavior still applies.
 
-**Capture quality** separates JPEG quality (0–100) from maximum capture resolution.
-Hover over its settings row to expand the panel, or use a click, tap or Enter.
-The initial values match the library defaults: quality 70 and **Automatic
-(container and DPR)** resolution. Automatic bounds follow the preview's physical
-pixel demand. All resolutions share limits of 4096 pixels per edge and 3840×2160
-total pixels. Choose a fixed maximum to save bandwidth or retain more detail;
-the remote page keeps its viewport and aspect ratio. Text can soften at smaller
-resolutions, especially when enlarged. Both controls apply live, preserving the
-viewer, selected page and native input, and appear in Usage. Changing local
-preview dimensions updates automatic bounds with bounded, coalesced restarts;
-fixed dimensions retain their selected limits. Window-size synchronization
-separately changes the remote viewport and actual image dimensions. Preferences
-remain in this panel's memory and are cleared on refresh.
+**Capture quality** opens on hover, click, tap or Enter. For keyboard access,
+press Enter on the settings button to focus the first item, then use arrows to
+reach Capture quality and Enter/Space to open it. The panel starts at quality 70
+and **Automatic (container and DPR)** resolution. A slider changes JPEG quality;
+the resolution list offers Auto and fixed presets from 960 × 540 to 3840 × 2160,
+with a checkmark on the matching choice. Both controls apply live and appear in
+Usage. See the [capture reference](../API.md#capture-quality) for image bounds,
+trade-offs and configuration behavior.
 
 Each viewer has its own **Console** at the bottom of its panel, initially
 collapsed. Its header shows that viewer's retained event count and current error.
@@ -218,9 +200,50 @@ empty view; an unscoped viewer can create a new tab. A configured window that no
 longer exists must be replaced by the host, never silently changed to another.
 Removing a viewer never closes tabs. View-only viewers have no create/close actions.
 
+During tab switches, the previous image remains blurred and noninteractive
+behind **Connecting to browser…** until the replacement paints and its input is
+ready. Initial connections use a plain placeholder. Pause, selection loss, fatal
+failure, disconnect and reconnect clear the backdrop; no per-tab images are cached.
+
+### Favicons
+
+Only the selected page's declared icon URL is inspected, after viewing/input are
+ready. Uninspected tabs, missing icons and failed loads show Globe. Navigation
+refreshes the declaration; icon-only mutations are not watched. There is no
+favicon polling, background attachment, guessed `/favicon.ico`, image-byte
+transfer over CDP or viewer-managed persistent cache. URLs stay in viewer memory,
+outside public snapshots, and clear on reconnect.
+
+The host loads icons normally at low priority, subject to its CSP, authentication
+and reachability. Exact Chrome favicon selection is not promised. Failed metadata
+reads are not retried. After a definite session/context rejection, a later selected
+document may be inspected; unsupported commands or uncertain failures stop icon
+discovery until reconnect. Viewing and input continue.
+
+### Image recovery
+
+An image-only failure clears pixels and disables input while retaining usable
+connections and sessions. **Retry live image** becomes available after capture
+and input cleanup are confirmed. It starts one new capture on the same valid
+sessions, retaining native display settings, address and history. It does not
+reload the page, reconnect sockets or replay input. Input/navigation resume after
+a fresh image paints and input initialization is ready; repeated clicks do not
+start overlapping attempts.
+
+Pause, visibility changes and moving offscreen do not automatically retry a
+failed image. If pause released its sessions after confirmed cleanup, retry
+revalidates and reattaches the same target. Cancelling before capture starts
+preserves confirmed cleanup; an uncertain possible start needs reconnect.
+Scope/configuration errors and unsupported capabilities do not offer image retry.
+Target loss still requires explicit selection; recovery does not choose a replacement.
+
+### Connection recovery and notifications
+
 Connection failures/disconnects show a message and **Reconnect viewer** inside
 the canvas area. Reconnect replaces only that viewer's connection and does not
-reload the remote page. Navigation or tab-operation failures keep a live image
+reload the remote page. It also covers cases where image cleanup or a fresh
+capture cannot be confirmed. Neither image retry nor WebSocket reconnect runs
+automatically. Navigation or tab-operation failures keep a live image
 and show one notification over the top of the page without moving it. A new
 notification immediately becomes current and restarts its five-second display
 interval. The previous notification stays still while the new opaque notification
@@ -232,26 +255,9 @@ visible until the connection or selection recovers. There is no debug footer.
 
 ## Interact
 
-Click inside the live page to focus its remote control, then type or use mouse
-and keyboard actions. Press **F8** outside composition to release remote keyboard
-focus to the selected tab. Connection fields, page selection and the address
-bar retain their own local input; typing in them is not sent to the remote page.
-
-Enter a page address and press **Enter** to navigate. Recognizable host addresses
-such as `example.com` or `localhost:3000` receive an `http://` scheme; explicit
-schemes are handled by the remote browser. Plain text does not become a search.
-Editing the address alone does not navigate. The toolbar also provides reload
-and available back/forward actions. Disconnecting or removing a panel discards
-its unsent input without closing the remote browser or tabs.
-
-The demo uses the same native input proxy and ownership rules as the public
-component. Input follows Chromium's current focus, including automatic control
-changes and focused same/cross-origin frames. Plain-text clipboard gestures and
-copy recovery come from the public component, with no separate demo engine.
-The clipboard host/permission requirements still need deployed-Origin validation.
-Genuine OS IME behavior and editor compatibility
-are limited to the recorded evidence in the [interaction guide](interaction.md).
-The component remains read-only by default in other host applications.
+The demo uses the library's public input behavior. See the
+[interaction guide](interaction.md) for remote focus and **F8**, address completion,
+history, clipboard recovery, native composition and the support/evidence matrix.
 
 ## Direct browser connectivity
 

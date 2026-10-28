@@ -3,7 +3,7 @@
 ## Project
 
 `cdp-viewer` is a generic browser-side React library for existing Chrome DevTools
-Protocol browsers. Read `README.md`, `CONTRIBUTING.md` and `docs/README.md`
+Protocol browsers. Read `README.md`, `API.md`, `CONTRIBUTING.md` and `docs/README.md`
 before changing behavior or making compatibility claims.
 
 The current component supports view-only streaming, target selection, optional
@@ -131,6 +131,8 @@ through implementation, behavioral tests and review.
 - Use [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
 - Keep README focused on the library and its usage; do not add issue references,
   internal delivery phases or task-tracking notes.
+- Keep the consumer contract in `API.md`; link to existing guides for demo,
+  interaction, architecture and validation details instead of duplicating them.
 - Keep `docs/` focused on coding principles, architecture and validation methods.
   Put demo instructions and interaction behavior in `demo/`. Keep concrete
   business rules in implementation/tests and dated results in PRs, issues or CI

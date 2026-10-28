@@ -14,9 +14,10 @@ production lint or type errors, add filename privileges, or exempt infrastructur
 Use ccstate for semantic state and stable bindings; React observation and
 commit-lifecycle integration follow one uniform production rule.
 
-See [engineering documentation](docs/README.md) for documentation scope and the
-architecture and validation guides. Demo usage and interaction instructions live
-alongside the demo.
+Keep README focused on getting started and [API.md](API.md) on the consumer
+contract. Demo usage and interaction instructions live alongside the demo;
+[engineering documentation](docs/README.md) owns architecture and validation.
+Link to each topic's owner instead of repeating its explanation.
 
 Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
 
