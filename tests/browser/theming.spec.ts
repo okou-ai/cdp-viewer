@@ -353,7 +353,9 @@ test("light: host tokens paint hover, selection, focus, popups and diagnostics p
       await paint(b, ".cdpv-browser-menu", "color"),
       LIGHT_FOREGROUND,
     );
-    expect(await shadow(b, ".cdpv-browser-menu")).toContain("0.16");
+    expect(await shadow(b, ".cdpv-browser-menu")).toBe(
+      "rgba(0, 0, 0, 0.16) 0px 6px 24px 0px",
+    );
     await page.keyboard.press("Escape");
     await expect(menuB).toHaveCount(0);
 
@@ -391,6 +393,9 @@ test("light: host tokens paint hover, selection, focus, popups and diagnostics p
       [255, 255, 255, 1],
     );
     await b.locator(".cdpv-tab-option:not([data-selected])").first().hover();
+    expect(await shadow(b, ".cdpv-tab-popup")).toBe(
+      "rgba(0, 0, 0, 0.2) 0px 4px 18px 0px",
+    );
     expectPaint(
       await paint(b, ".cdpv-tab-option[data-selected]", "backgroundColor"),
       await reference(b, SELECTED_OPTION_FORMULA),
@@ -529,7 +534,9 @@ test("primary hover keeps a filled readable surface instead of the neutral wash"
     server.origin,
   );
   let holdCreate = false;
+  let holdTargets = true;
   const held: (() => void)[] = [];
+  const heldTargets: (() => void)[] = [];
   try {
     await page.routeWebSocket(backend.endpoint, (socket) => {
       const upstream = socket.connectToServer();
@@ -539,9 +546,12 @@ test("primary hover keeps a filled readable surface instead of the neutral wash"
           method: string;
         };
         if (command.method === "Target.getTargets") {
-          socket.send(
-            JSON.stringify({ id: command.id, result: { targetInfos: [] } }),
-          );
+          const reply = () =>
+            socket.send(
+              JSON.stringify({ id: command.id, result: { targetInfos: [] } }),
+            );
+          if (holdTargets) heldTargets.push(reply);
+          else reply();
           return;
         }
         if (holdCreate && command.method === "Target.createTarget") {
@@ -562,10 +572,19 @@ test("primary hover keeps a filled readable surface instead of the neutral wash"
         "--cdpv-hover": "rgb(255, 0, 255)",
         "--cdpv-primary-hover-background": "rgb(0, 90, 60)",
         "--cdpv-busy-opacity": "0.5",
+        "--cdpv-loading-shadow": "rgb(4, 5, 6) 0px 0px 9px 1px",
       },
     });
     const a = page.locator("#viewer-a .cdpv-root");
     const b = page.locator("#viewer-b .cdpv-root");
+
+    // Target discovery is still in flight, so the connecting glyph is present.
+    const loading = ".cdpv-placeholder[data-loading] > svg";
+    await expect(a.locator(loading)).toBeVisible();
+    expect(await shadow(a, loading)).toBe("rgb(4, 5, 6) 0px 0px 9px 1px");
+    holdTargets = false;
+    for (const release of heldTargets) release();
+
     const primaryA = a.getByRole("button", { name: "Create new tab" });
     const primaryB = b.getByRole("button", { name: "Create new tab" });
     await expect(primaryA).toBeEnabled();
