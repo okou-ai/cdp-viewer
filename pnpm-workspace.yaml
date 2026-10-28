@@ -1,7 +1,0 @@
-# ccstate is maintained by the Okou team and published from e7h4n/ccstate with
-# npm provenance. These exact releases are newer than pnpm's default one-day
-# minimumReleaseAge; okou consumes the same versions, so cdp-viewer must match
-# them to keep a single ccstate copy in the host bundle.
-minimumReleaseAgeExclude:
-  - ccstate-react@6.1.0
-  - ccstate@6.1.0
