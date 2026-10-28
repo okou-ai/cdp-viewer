@@ -192,7 +192,7 @@ it("invalidates decode work while retaining the displayed image during capture u
   renderer.dispose();
 });
 
-it("decodes JPEG bytes with the required native base64 API", async () => {
+it("decodes image bytes without forcing a MIME type using the native base64 API", async () => {
   context();
   const bytes = new Uint8Array([0, 127, 128, 255]);
   const fromBase64 = vi.fn(() => bytes);
@@ -203,6 +203,7 @@ it("decodes JPEG bytes with the required native base64 API", async () => {
   });
   const image = { width: 2, height: 2, close: vi.fn() };
   const decode = vi.fn(async (blob: Blob) => {
+    expect(blob.type).toBe("");
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
     return image;
   });

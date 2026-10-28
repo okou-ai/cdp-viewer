@@ -230,7 +230,7 @@ export class Screencast {
     // Keep the final static state available when native frame credit is exhausted.
     await this.owner.client.request(
       "Page.startScreencast",
-      { format: "jpeg", ...settings, sendLastFrame: true },
+      { ...settings, sendLastFrame: true },
       this.owner.sessionId,
     );
     if (!this.current()) return;

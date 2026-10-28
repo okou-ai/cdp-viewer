@@ -17,7 +17,7 @@ and the [interaction guide](demo/interaction.md) covers input behavior and limit
 | `onTransportChange`                           | Requests a controlled transport change, or reports a menu-owned change              |
 | `windowSizeSync?: WindowSizeSync`             | Display adaptation: `"off"`, `"initial"` or `"live"`; defaults to off               |
 | `onWindowSizeSyncChange`                      | Requests a controlled sync mode change, or reports a menu-owned change              |
-| `capture?: ViewerCaptureOptions`              | JPEG quality and automatic or fixed maximum image dimensions                        |
+| `capture?: ViewerCaptureOptions`              | WebP/JPEG format, image quality and automatic or fixed maximum image dimensions     |
 | `onCaptureChange`                             | Requests a controlled capture change, or reports a menu-owned change                |
 | `extensions?: readonly ViewerExtension[]`     | Optional adapters, reconciled by ID and configuration key                           |
 | `colorScheme?: "light" \| "dark" \| "system"` | Appearance override; omitted inherits the host CSS color-scheme                     |
@@ -26,7 +26,7 @@ and the [interaction guide](demo/interaction.md) covers input behavior and limit
 | `onError`                                     | Fixed diagnostic with optional failed-command context                               |
 
 Root type exports include `CdpViewerProps`, `CdpViewerStyle`,
-`ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`,
+`ViewerCaptureFormat`, `ViewerCaptureOptions`, `ViewerSnapshot`, `ViewerTarget`, `ViewerStatus`,
 `ViewerNavigation`, `ViewerTransport`, `WindowSizeSync` and `ViewerError`.
 Extension types are also available from `cdp-viewer/extensions`.
 
@@ -112,7 +112,10 @@ import "cdp-viewer/style.css";
 
 export function ControlledViewer({ cdpUrl }: { cdpUrl: string }) {
   const [transport, setTransport] = useState<ViewerTransport>("shared");
-  const [capture, setCapture] = useState<ViewerCaptureOptions>({ quality: 70 });
+  const [capture, setCapture] = useState<ViewerCaptureOptions>({
+    format: "webp",
+    quality: 70,
+  });
   const [syncMode, setSyncMode] = useState<WindowSizeSync>("initial");
 
   return (
@@ -147,13 +150,23 @@ changing modes retains capture/display preferences.
 
 ### Capture quality
 
-`ViewerCaptureOptions` has three optional fields:
+`ViewerCaptureOptions` has four optional fields:
 
-| Field       | Accepted value | Default                       |
-| ----------- | -------------- | ----------------------------- |
-| `quality`   | Integer 0–100  | 70                            |
-| `maxWidth`  | Integer 1–4096 | Container width × client DPR  |
-| `maxHeight` | Integer 1–4096 | Container height × client DPR |
+| Field       | Accepted value       | Default                       |
+| ----------- | -------------------- | ----------------------------- |
+| `format`    | `"webp"` or `"jpeg"` | `"webp"`                      |
+| `quality`   | Integer 0–100        | 70                            |
+| `maxWidth`  | Integer 1–4096       | Container width × client DPR  |
+| `maxHeight` | Integer 1–4096       | Container height × client DPR |
+
+WebP is the default image format. Set `capture={{ format: "jpeg" }}` to
+request JPEG explicitly. This also applies when upgrading a host that previously
+omitted the format and received JPEG. The remote endpoint must support the chosen
+`Page.startScreencast` format; support varies by browser/version/provider. There
+is no automatic fallback. If an endpoint rejects WebP, select JPEG in the menu
+(or update the controlled prop), then use **Retry image** after cleanup completes.
+Quality applies to both formats, but the same number does not imply equal visual
+quality or byte size across codecs. `ViewerCaptureFormat` names the format union.
 
 All bounds share a 4096-pixel edge limit and 3840×2160 total-pixel budget.
 Automatic bounds preserve the container aspect ratio. Each fixed dimension
@@ -178,7 +191,9 @@ Invalid initial settings open no connection. An invalid runtime update reports
 that diagnostic. See [image recovery](demo/README.md#image-recovery) for stream failures.
 
 Custom or independent per-axis host bounds may match no menu resolution preset.
-Editing quality preserves them; choosing Auto removes both fixed dimensions.
+Editing format or quality preserves them; choosing Auto removes both fixed
+dimensions while retaining format and quality. The settings panel offers WebP
+and JPEG under **Image format**, followed by the existing resolution choices.
 
 ### Display adaptation
 

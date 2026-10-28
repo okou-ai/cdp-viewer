@@ -147,7 +147,7 @@ it("routes only capture and ACKs through frames while input and navigation stay 
     {
       sessionId: "session-2",
       params: {
-        format: "jpeg",
+        format: "webp",
         quality: 70,
         maxWidth: 1920,
         maxHeight: 1080,

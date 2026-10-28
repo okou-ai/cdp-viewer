@@ -30,7 +30,7 @@ it("retains independent defaults and accepts zero quality and dimension boundari
   });
   expect(
     captureSettings({ quality: 100, maxWidth: 1, maxHeight: 4096 }),
-  ).toEqual({ quality: 100, maxWidth: 1, maxHeight: 4096 });
+  ).toEqual({ format: "webp", quality: 100, maxWidth: 1, maxHeight: 4096 });
 });
 
 it.each([
@@ -52,6 +52,12 @@ it.each([
   null,
   [],
   false,
+  { format: "png" },
+  { format: "avif" },
+  { format: "WEBP" },
+  { format: "" },
+  { format: null },
+  { format: 70 },
   { quality: null },
   { quality: "50" },
   { maxWidth: "1280" },
@@ -98,24 +104,107 @@ function mount(
   return { browser, model, sink, controller, resetInput, rasters };
 }
 
+it.each(["webp", "jpeg"] as const)(
+  "normalizes explicit %s without losing quality or automatic axes",
+  (format) => {
+    expect(captureSettings({ format })).toEqual({ ...defaultCapture, format });
+    expect(capturePreferences({ format, quality: 0, maxHeight: 720 })).toEqual({
+      format,
+      quality: 0,
+      maxHeight: 720,
+    });
+  },
+);
+
+it.each(["shared", "split"] as const)(
+  "switches codecs without replacing %s input, sessions or connections",
+  async (transport) => {
+    const preferences = { quality: 45, maxWidth: 1234 };
+    const { browser, controller, model, sink, resetInput } = mount(
+      undefined,
+      { ...preferences, format: "jpeg" },
+      0,
+      undefined,
+      transport,
+    );
+    await vi.waitFor(() =>
+      expect(model.getSnapshot().status).toBe("streaming"),
+    );
+    const starts = () =>
+      browser.sockets.flatMap((socket) =>
+        socket.commands.filter((c) => c.method === "Page.startScreencast"),
+      );
+    const input = controller.input!;
+    const selected = model.getSnapshot().selectedTargetId;
+    const sockets = [...browser.sockets];
+    expect(starts()).toHaveLength(1);
+    expect(starts()[0]!.params).toMatchObject({
+      ...preferences,
+      format: "jpeg",
+    });
+    sink.reset.mockClear();
+    resetInput.mockClear();
+    controller.setCapture({ ...preferences, format: "webp" });
+    await vi.waitFor(() => expect(starts()).toHaveLength(2));
+    expect(starts()[1]).toMatchObject({
+      sessionId: starts()[0]!.sessionId,
+      params: { ...preferences, format: "webp" },
+    });
+    expect(controller.input).toBe(input);
+    expect(model.getSnapshot().selectedTargetId).toBe(selected);
+    expect(browser.sockets).toEqual(sockets);
+    expect(sink.reset).not.toHaveBeenCalled();
+    expect(resetInput).not.toHaveBeenCalled();
+    input.text("after codec switch");
+    await input.completion(input.owner!);
+    expect(browser.sockets[0]!.commands).toContainEqual(
+      expect.objectContaining({
+        method: "Input.insertText",
+        params: { text: "after codec switch" },
+      }),
+    );
+    controller.setCapture({
+      ...preferences,
+      format: "png",
+    } as unknown as ViewerCaptureOptions);
+    expect(model.getSnapshot().error?.kind).toBe("configuration");
+    expect(starts()).toHaveLength(2);
+    expect(controller.input).toBe(input);
+    controller.setCapture(preferences);
+    expect(model.getSnapshot().error).toBeNull();
+    expect(starts()).toHaveLength(2);
+    controller.setCapture({ ...preferences, format: "jpeg" });
+    await vi.waitFor(() => expect(starts()).toHaveLength(3));
+    expect(starts()[2]!.params).toMatchObject({
+      ...preferences,
+      format: "jpeg",
+    });
+    expect(controller.input).toBe(input);
+  },
+);
+
 it("sizes omitted axes from the physical surface and honors independent fixed bounds", () => {
   const size = { width: 640, height: 480, dpr: 2 };
   expect(captureSettings(capturePreferences(), size)).toEqual({
+    format: "webp",
     quality: 70,
     maxWidth: 1280,
     maxHeight: 960,
   });
   expect(captureSettings(capturePreferences({ quality: 50 }), size)).toEqual({
+    format: "webp",
     quality: 50,
     maxWidth: 1280,
     maxHeight: 960,
   });
   expect(captureSettings(capturePreferences({ maxWidth: 320 }), size)).toEqual({
+    format: "webp",
     quality: 70,
     maxWidth: 320,
     maxHeight: 960,
   });
   expect(captureSettings({ maxHeight: 240 }, size)).toEqual({
+    format: "webp",
     quality: 70,
     maxWidth: 1280,
     maxHeight: 240,
@@ -128,7 +217,11 @@ it.each([
   { maxWidth: 4096, maxHeight: 2025 },
   { maxWidth: 2025, maxHeight: 4096 },
 ])("accepts fixed bounds at the common pixel ceiling: %j", (capture) => {
-  expect(captureSettings(capture)).toEqual({ quality: 70, ...capture });
+  expect(captureSettings(capture)).toEqual({
+    format: "webp",
+    quality: 70,
+    ...capture,
+  });
 });
 
 it.each([
@@ -214,6 +307,7 @@ it.each([
   [{ width: 4000, height: 200, dpr: 2 }, 4096, 204],
 ] as const)("bounds physical pixel demand for %j", (size, width, height) => {
   expect(captureSettings(undefined, size)).toEqual({
+    format: "webp",
     quality: 70,
     maxWidth: width,
     maxHeight: height,
@@ -790,7 +884,6 @@ it.each([{ quality: -1 }, { maxWidth: 4096, maxHeight: 4096 }])(
         (c) => c.method === "Page.startScreencast",
       )?.params,
     ).toEqual({
-      format: "jpeg",
       ...defaultCapture,
       quality: 0,
       sendLastFrame: true,
@@ -910,7 +1003,7 @@ it("uses the latest capture during attachment and applies paused changes on resu
     socket.commands.filter((c) => c.method === "Page.startScreencast").at(-1)
       ?.params,
   ).toEqual({
-    format: "jpeg",
+    format: "webp",
     quality: 70,
     maxWidth: 960,
     maxHeight: 540,

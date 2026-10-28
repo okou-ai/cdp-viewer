@@ -156,7 +156,7 @@ function CaptureSettings({
       <div className="demo-group-content">
         <div className="demo-field demo-range">
           <label htmlFor={`${identity}-quality`}>
-            JPEG quality{" "}
+            Image quality{" "}
             <output htmlFor={`${identity}-quality`}>
               {capture.quality ?? 70}
             </output>
@@ -176,6 +176,21 @@ function CaptureSettings({
           />
         </div>
         <div className="demo-field">
+          <label htmlFor={`${identity}-format`}>Image format</label>
+          <select
+            id={`${identity}-format`}
+            value={capture.format ?? "webp"}
+            onChange={(event) => {
+              const format = event.target.value;
+              if (format === "webp" || format === "jpeg")
+                configure(panel.id, { capture: { ...capture, format } });
+            }}
+          >
+            <option value="webp">WebP (default)</option>
+            <option value="jpeg">JPEG</option>
+          </select>
+        </div>
+        <div className="demo-field">
           <label htmlFor={`${identity}-resolution`}>
             Capture resolution <span>maximum</span>
           </label>
@@ -189,10 +204,14 @@ function CaptureSettings({
             onChange={(event) => {
               if (event.target.value === "default") {
                 configure(panel.id, {
-                  capture:
-                    capture.quality === undefined
+                  capture: {
+                    ...(capture.format === undefined
                       ? {}
-                      : { quality: capture.quality },
+                      : { format: capture.format }),
+                    ...(capture.quality === undefined
+                      ? {}
+                      : { quality: capture.quality }),
+                  },
                 });
                 return;
               }
@@ -220,8 +239,9 @@ function CaptureSettings({
         </div>
         <p className="demo-hint">
           Lower settings use less bandwidth and may soften text. Changes apply
-          live and keep the remote page size. Quality defaults to 70. Automatic
-          resolution follows the preview size and display pixel density.
+          live and keep the remote page size. WebP is the default format;
+          quality defaults to 70. Automatic resolution follows the preview size
+          and display pixel density.
         </p>
       </div>
     </details>

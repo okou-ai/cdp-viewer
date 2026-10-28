@@ -114,7 +114,7 @@ for (const [transport, colorScheme] of [
       await page.keyboard.press("Enter");
       await expect(detail).toBeVisible();
       await expect(
-        detail.getByRole("slider", { name: "JPEG quality" }),
+        detail.getByRole("slider", { name: "Image quality" }),
       ).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(detailTrigger).toBeFocused();
@@ -128,7 +128,7 @@ for (const [transport, colorScheme] of [
       await page.keyboard.press("Space");
       await expect(detail).toBeVisible();
       await expect(
-        detail.getByRole("slider", { name: "JPEG quality" }),
+        detail.getByRole("slider", { name: "Image quality" }),
       ).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(detailTrigger).toBeFocused();
@@ -139,7 +139,7 @@ for (const [transport, colorScheme] of [
       await expect(mainMenu.locator("[data-highlighted]")).toHaveCount(0);
       await detailTrigger.hover();
       await expect(detail).toBeVisible();
-      const quality = detail.getByRole("slider", { name: "JPEG quality" });
+      const quality = detail.getByRole("slider", { name: "Image quality" });
       await expect(quality).not.toBeFocused();
       await expect(quality).toHaveValue("70");
       await quality.hover();
@@ -213,6 +213,9 @@ for (const [transport, colorScheme] of [
       await expect(page.locator("#host-submissions")).toHaveText("0");
       await expect(quality).toBeFocused();
       await expect(quality).toHaveValue("71");
+      await page.keyboard.press("Tab");
+      const format = detail.getByRole("radiogroup", { name: "Image format" });
+      await expect(format.getByRole("radio", { name: "WebP" })).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(automatic).toBeFocused();
       await page.keyboard.press("ArrowDown");
@@ -362,7 +365,7 @@ test.describe("touch capture quality", () => {
       await view.getByRole("menuitem", { name: "Capture quality" }).tap();
       const detail = view.getByRole("dialog", { name: "Capture quality" });
       await expect(detail).toBeVisible();
-      const quality = detail.getByRole("slider", { name: "JPEG quality" });
+      const quality = detail.getByRole("slider", { name: "Image quality" });
       await expect(quality).toHaveValue("70");
       await quality.tap();
       await expect(quality).not.toHaveValue("70");

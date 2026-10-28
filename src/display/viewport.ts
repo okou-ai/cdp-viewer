@@ -88,7 +88,7 @@ function compatible(
   capture: Viewport,
 ): boolean {
   // Allow native DIP rounding, then validate pixels against the frame's actual
-  // metadata and native density. Projected rounding cannot excuse a stale JPEG.
+  // metadata and native density. Projected rounding cannot excuse a stale image.
   return (
     !!frame.viewport &&
     !!frame.device &&
@@ -200,7 +200,7 @@ export class DisplayViewport {
       // its native extent changes under the projected density.
       same(projected, expected.device) ||
       (!!painted && same(painted, expected.device)) ||
-      // A capture ceiling can collapse distinct native sizes to the same JPEG
+      // A capture ceiling can collapse distinct native sizes to the same image
       // dimensions. Raster compatibility alone cannot prove those pixels fresh.
       same(
         captureRaster(previous, expected.nativeDpr, capture),

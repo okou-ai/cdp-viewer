@@ -419,7 +419,7 @@ test("paused capture preferences apply to the first frame after resume", async (
     await expectWidth(view, 960);
     expect(starts).toHaveLength(1);
     expect(starts[0]).toMatchObject({
-      params: { format: "jpeg", quality: 80, maxWidth: 960, maxHeight: 540 },
+      params: { format: "webp", quality: 80, maxWidth: 960, maxHeight: 540 },
     });
   } finally {
     await backend.close();

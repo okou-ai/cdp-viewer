@@ -3,7 +3,17 @@ import { timeout } from "signal-timers";
 import { CdpFault, isRecord } from "./errors";
 
 type Method = keyof ProtocolMapping.Commands;
-type Params<M extends Method> = ProtocolMapping.Commands[M]["paramsType"][0];
+// WebP-capable Chromium endpoints extend the pinned screencast format schema.
+type Params<M extends Method> =
+  | ProtocolMapping.Commands[M]["paramsType"][0]
+  | (M extends "Page.startScreencast"
+      ? Omit<
+          NonNullable<ProtocolMapping.Commands[M]["paramsType"][0]>,
+          "format"
+        > & {
+          format?: "jpeg" | "png" | "webp";
+        }
+      : never);
 type Result<M extends Method> = ProtocolMapping.Commands[M]["returnType"];
 
 export interface CdpEvent {

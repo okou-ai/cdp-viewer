@@ -635,7 +635,11 @@
   flex-direction: column;
   gap: 2px;
 }
-.cdpv-root .cdpv-capture-resolution-option {
+.cdpv-root .cdpv-capture-formats {
+  display: flex;
+  gap: 4px;
+}
+.cdpv-root .cdpv-capture-option {
   width: 100%;
   min-width: 0;
   border: 0;
@@ -644,11 +648,11 @@
   font: inherit;
   text-align: start;
 }
-.cdpv-root .cdpv-capture-resolution-option:hover:not([data-disabled]),
-.cdpv-root .cdpv-capture-resolution-option:focus-visible {
+.cdpv-root .cdpv-capture-option:hover:not([data-disabled]),
+.cdpv-root .cdpv-capture-option:focus-visible {
   background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
 }
-.cdpv-root .cdpv-capture-resolution-option:focus-visible {
+.cdpv-root .cdpv-capture-option:focus-visible {
   outline: 2px solid var(--cdpv-accent);
   outline-offset: -2px;
 }
