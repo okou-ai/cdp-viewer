@@ -1,6 +1,6 @@
 import type { SocketFactory } from "../../src/cdp/client";
 
-/** The fake wire carries observable raster dimensions instead of real JPEG bytes. */
+/** The fake wire carries observable raster dimensions instead of real image bytes. */
 export function fakeRaster(data: string): { width: number; height: number } {
   return JSON.parse(atob(data)) as { width: number; height: number };
 }

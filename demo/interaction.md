@@ -17,7 +17,7 @@ concurrency principles.
 
 Click the displayed page to establish remote focus and focus the local proxy.
 Pointer coordinates follow the contained image and remote CSS visual viewport,
-including page scale and panning; JPEG size and client DPR are not coordinates
+including page scale and panning; image size and client DPR are not coordinates
 to send directly. Initial clicks in the letterbox are ignored. Captured drags
 continue to the image edge; release/cancel/blur releases owned pressed input.
 Mouse is the initial supported pointer type; touch and pen are not advertised.

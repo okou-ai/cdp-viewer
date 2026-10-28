@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -95,9 +96,7 @@ it.each([
       await screen.findByRole("dialog", { name: "Capture quality" }),
     );
     await waitFor(() =>
-      expect(
-        detail.getByRole("slider", { name: "JPEG quality" }),
-      ).toHaveFocus(),
+      expect(detail.getByRole("radio", { name: "WebP" })).toHaveFocus(),
     );
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(capture).toHaveFocus());
@@ -152,16 +151,20 @@ it.each(["shared", "split"] as const)(
     const sockets = [...fake.sockets];
     const input = owner.getByLabelText("Remote browser input");
     const detail = await openDetail(owner);
-    const quality = detail.getByRole("slider", { name: "JPEG quality" });
+    const quality = detail.getByRole("slider", { name: "Image quality" });
     expect(quality).toHaveValue("70");
-    expect(detail.getAllByRole("radio")).toHaveLength(6);
+    expect(detail.getAllByRole("radio")).toHaveLength(9);
+    expect(detail.getByRole("radio", { name: "WebP" })).toBeChecked();
     expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
     expect(detail.queryByRole("combobox")).not.toBeInTheDocument();
+    await userEvent.click(detail.getByRole("radio", { name: "JPEG" }));
+    expect(detail.getByRole("radio", { name: "JPEG" })).toBeChecked();
+    expect(changed).toHaveBeenLastCalledWith({ format: "jpeg" });
     fireEvent.change(quality, { target: { value: "0" } });
     expect(quality).toHaveValue("0");
     await userEvent.click(detail.getByRole("radio", { name: "1280 × 720" }));
     expect(detail.getByRole("radio", { name: "1280 × 720" })).toBeChecked();
-    expect(detail.getAllByRole("radio", { checked: true })).toHaveLength(1);
+    expect(detail.getAllByRole("radio", { checked: true })).toHaveLength(2);
     await waitFor(() =>
       expect(
         fake.sockets
@@ -176,13 +179,39 @@ it.each(["shared", "split"] as const)(
       ).toBe(true),
     );
     expect(changed).toHaveBeenLastCalledWith({
+      format: "jpeg",
       quality: 0,
       maxWidth: 1280,
       maxHeight: 720,
     });
     await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
-    expect(changed).toHaveBeenLastCalledWith({ quality: 0 });
+    expect(changed).toHaveBeenLastCalledWith({ format: "jpeg", quality: 0 });
     expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
+    await userEvent.click(detail.getByRole("radio", { name: "PNG" }));
+    expect(changed).toHaveBeenLastCalledWith({ format: "png", quality: 0 });
+    expect(detail.getByRole("radio", { name: "PNG" })).toBeChecked();
+    expect(
+      detail.getByRole("slider", { name: "Image quality" }),
+    ).toBeDisabled();
+    expect(detail.getByText("Lossless", { exact: true })).toBeVisible();
+    expect(quality).toHaveAttribute("aria-valuetext", "Lossless (PNG)");
+    await waitFor(() =>
+      expect(
+        fake.sockets
+          .flatMap((socket) => socket.commands)
+          .filter((command) => command.method === "Page.startScreencast")
+          .find((command) => command.params?.format === "png")?.params,
+      ).toMatchObject({ format: "png" }),
+    );
+    expect(
+      fake.sockets
+        .flatMap((socket) => socket.commands)
+        .filter((command) => command.method === "Page.startScreencast")
+        .find((command) => command.params?.format === "png")?.params,
+    ).not.toHaveProperty("quality");
+    await userEvent.click(detail.getByRole("radio", { name: "JPEG" }));
+    expect(quality).toBeEnabled();
+    expect(quality).toHaveValue("0");
     expect(owner.getByLabelText("Remote browser input")).toBe(input);
     expect(fake.sockets).toEqual(sockets);
     expect(
@@ -198,9 +227,138 @@ it.each(["shared", "split"] as const)(
     await userEvent.keyboard("{Escape}");
     const siblingDetail = await openDetail(sibling);
     expect(
-      siblingDetail.getByRole("slider", { name: "JPEG quality" }),
+      siblingDetail.getByRole("slider", { name: "Image quality" }),
     ).toHaveValue("70");
     expect(siblingDetail.getByRole("radio", { name: "Auto" })).toBeChecked();
+    expect(siblingDetail.getByRole("radio", { name: "WebP" })).toBeChecked();
+  },
+);
+
+it("requests controlled format changes while preserving custom bounds and Auto preferences", async () => {
+  const fake = browser();
+  const changed = vi.fn<(capture: ViewerCaptureOptions) => void>();
+  const props = {
+    cdpUrl: "wss://fixture.invalid",
+    interactive: true,
+    onCaptureChange: changed,
+  };
+  const capture: ViewerCaptureOptions = {
+    format: "jpeg",
+    quality: 37,
+    maxWidth: 1234,
+    maxHeight: 777,
+  };
+  const view = render(<CdpViewer {...props} capture={capture} />);
+  await waitFor(() =>
+    expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+  );
+  const starts = () =>
+    fake.sockets.flatMap((socket) =>
+      socket.commands.filter((c) => c.method === "Page.startScreencast"),
+    );
+  const detail = await openDetail();
+  const jpeg = detail.getByRole("radio", { name: "JPEG" });
+  const webp = detail.getByRole("radio", { name: "WebP" });
+  expect(jpeg).toBeChecked();
+  const png = detail.getByRole("radio", { name: "PNG" });
+  await userEvent.click(png);
+  expect(changed).toHaveBeenLastCalledWith({ ...capture, format: "png" });
+  expect(jpeg).toBeChecked();
+  expect(starts()).toHaveLength(1);
+  view.rerender(
+    <CdpViewer {...props} capture={{ ...capture, format: "png" }} />,
+  );
+  await waitFor(() => expect(starts()).toHaveLength(2));
+  expect(png).toBeChecked();
+  expect(detail.getByRole("slider", { name: "Image quality" })).toBeDisabled();
+  expect(detail.getByText("Lossless", { exact: true })).toBeVisible();
+  expect(starts()[1]!.params).toMatchObject({
+    format: "png",
+    maxWidth: 1234,
+    maxHeight: 777,
+  });
+  expect(starts()[1]!.params).not.toHaveProperty("quality");
+  await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
+  expect(changed).toHaveBeenLastCalledWith({ format: "png", quality: 37 });
+  view.rerender(
+    <CdpViewer
+      {...props}
+      capture={{ ...capture, format: "png", quality: 0 }}
+    />,
+  );
+  await userEvent.click(webp);
+  expect(changed).toHaveBeenLastCalledWith({
+    ...capture,
+    format: "webp",
+    quality: 0,
+  });
+  expect(starts()).toHaveLength(2);
+  view.rerender(
+    <CdpViewer
+      {...props}
+      capture={{ ...capture, format: "webp", quality: 0 }}
+    />,
+  );
+  await waitFor(() => expect(starts()).toHaveLength(3));
+  expect(detail.getByRole("slider", { name: "Image quality" })).toBeEnabled();
+  expect(detail.getByRole("slider", { name: "Image quality" })).toHaveValue(
+    "0",
+  );
+  expect(
+    detail.queryByText("Lossless", { exact: true }),
+  ).not.toBeInTheDocument();
+  expect(
+    detail.getByRole("slider", { name: "Image quality" }),
+  ).not.toHaveAttribute("aria-valuetext");
+  expect(starts()[2]!.params).toMatchObject({
+    ...capture,
+    format: "webp",
+    quality: 0,
+  });
+  expect(fake.sockets).toHaveLength(1);
+});
+
+it.each(["shared", "split"] as const)(
+  "lets users choose JPEG and explicitly retry a rejected WebP stream (%s)",
+  async (transport) => {
+    const fake = browser();
+    fake.holdMethod = "Page.startScreencast";
+    render(
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        interactive
+        transport={transport}
+      />,
+    );
+    await waitFor(() => expect(fake.heldCommands).toHaveLength(1));
+    const held = fake.heldCommands.shift()!;
+    expect(held.command.params?.format).toBe("webp");
+    fake.holdMethod = null;
+    act(() => held.socket.reject(held.command, -32602));
+    const retry = await screen.findByRole("button", {
+      name: "Retry live image",
+    });
+    await waitFor(() => expect(retry).toBeEnabled());
+    const sockets = [...fake.sockets];
+    const detail = await openDetail();
+    await userEvent.click(detail.getByRole("radio", { name: "JPEG" }));
+    expect(detail.getByRole("radio", { name: "JPEG" })).toBeChecked();
+    const starts = () =>
+      fake.sockets.flatMap((socket) =>
+        socket.commands.filter((c) => c.method === "Page.startScreencast"),
+      );
+    expect(starts()).toHaveLength(1);
+    await userEvent.keyboard("{Escape}{Escape}");
+    await userEvent.click(retry);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
+    );
+    expect(starts()).toHaveLength(2);
+    expect(starts()[1]).toMatchObject({
+      sessionId: held.command.sessionId,
+      params: { format: "jpeg" },
+    });
+    expect(fake.sockets).toEqual(sockets);
   },
 );
 
@@ -220,7 +378,7 @@ it("requests controlled capture changes and waits for the host to apply them", a
   );
   const sockets = [...fake.sockets];
   const detail = await openDetail();
-  const quality = detail.getByRole("slider", { name: "JPEG quality" });
+  const quality = detail.getByRole("slider", { name: "Image quality" });
   const resolution = detail.getByRole("radiogroup", {
     name: "Capture resolution maximum",
   });
@@ -266,13 +424,18 @@ it("checks only exact resolution matches and leaves custom bounds unchecked", as
   );
   const detail = await openDetail();
   expect(detail.getByRole("radio", { name: "1280 × 720" })).toBeChecked();
-  expect(detail.getAllByRole("radio", { checked: true })).toHaveLength(1);
+  const resolution = within(
+    detail.getByRole("radiogroup", {
+      name: "Capture resolution maximum",
+    }),
+  );
+  expect(resolution.getAllByRole("radio", { checked: true })).toHaveLength(1);
   view.rerender(
     <CdpViewer {...props} capture={{ maxWidth: 1280, maxHeight: 721 }} />,
   );
-  expect(detail.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+  expect(resolution.queryAllByRole("radio", { checked: true })).toHaveLength(0);
   view.rerender(<CdpViewer {...props} capture={{ maxWidth: 1280 }} />);
-  expect(detail.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+  expect(resolution.queryAllByRole("radio", { checked: true })).toHaveLength(0);
   view.rerender(<CdpViewer {...props} capture={{ quality: 0 }} />);
   expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
 });
@@ -286,12 +449,12 @@ it("keeps fixed host settings disabled and makes callback changes live without r
     expect(screen.getByLabelText("Remote browser input")).toBeEnabled(),
   );
   const detail = await openDetail();
-  const quality = detail.getByRole("slider", { name: "JPEG quality" });
+  const quality = detail.getByRole("slider", { name: "Image quality" });
   expect(quality).toHaveValue("0");
   expect(quality).toBeDisabled();
   for (const option of detail.getAllByRole("radio"))
     expect(option).toBeDisabled();
-  expect(detail.queryAllByRole("radio", { checked: true })).toHaveLength(0);
+  expect(detail.getByRole("radio", { name: "WebP" })).toBeChecked();
   fireEvent.change(quality, { target: { value: "40" } });
   expect(quality).toHaveValue("0");
   const first = vi.fn();
@@ -312,7 +475,7 @@ it("keeps menu-owned settings through callback updates and applies paused change
   const props = { cdpUrl: "wss://fixture.invalid", interactive: true };
   const view = render(<CdpViewer {...props} paused />);
   const detail = await openDetail();
-  const quality = detail.getByRole("slider", { name: "JPEG quality" });
+  const quality = detail.getByRole("slider", { name: "Image quality" });
   fireEvent.change(quality, { target: { value: "85" } });
   view.rerender(<CdpViewer {...props} onCaptureChange={() => {}} />);
   await waitFor(() =>

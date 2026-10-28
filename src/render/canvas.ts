@@ -35,11 +35,10 @@ interface QueuedFrame {
   accept: ((raster: Viewport) => boolean) | undefined;
 }
 
-async function decodeJpeg(data: string): Promise<DecodedFrame> {
+async function decodeImage(data: string): Promise<DecodedFrame> {
   const bytes = (Uint8Array as BrowserByteArrayConstructor).fromBase64(data);
-  const image = await createImageBitmap(
-    new Blob([bytes], { type: "image/jpeg" }),
-  );
+  // Decode actual bytes: late frames may still use the previous capture format.
+  const image = await createImageBitmap(new Blob([bytes]));
   return {
     source: image,
     width: image.width,
@@ -58,7 +57,7 @@ export class CanvasRenderer implements FrameSink {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly decode: Decode = decodeJpeg,
+    private readonly decode: Decode = decodeImage,
   ) {
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new CdpFault("frame", "Canvas 2D is unavailable.");

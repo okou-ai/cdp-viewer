@@ -8,6 +8,7 @@ export type CaptureSettings = Readonly<Required<ViewerCaptureOptions>>;
 
 /** Bounded startup fallback until a committed surface can be measured. */
 export const defaultCapture: CaptureSettings = Object.freeze({
+  format: "webp",
   quality: 70,
   maxWidth: 1920,
   maxHeight: 1080,
@@ -51,6 +52,13 @@ export function captureSettings(
       "configuration",
       "capture must be an image settings object.",
     );
+  const format =
+    options?.format === undefined ? defaultCapture.format : options.format;
+  if (format !== "webp" && format !== "jpeg" && format !== "png")
+    throw new CdpFault(
+      "configuration",
+      'capture.format must be "webp", "jpeg" or "png".',
+    );
   let bounds = defaultCapture;
   if (size && [size.width, size.height, size.dpr].every(positive)) {
     const scale = Math.min(
@@ -60,7 +68,7 @@ export function captureSettings(
       Math.sqrt(maximumFrameArea / size.width / size.height),
     );
     bounds = {
-      quality: defaultCapture.quality,
+      ...defaultCapture,
       maxWidth: Math.max(1, Math.floor(size.width * scale)),
       maxHeight: Math.max(1, Math.floor(size.height * scale)),
     };
@@ -96,7 +104,7 @@ export function captureSettings(
       "configuration",
       `capture.maxWidth × capture.maxHeight must not exceed ${maximumFrameArea} pixels.`,
     );
-  return Object.freeze({ quality, maxWidth, maxHeight });
+  return Object.freeze({ format, quality, maxWidth, maxHeight });
 }
 
 /** Retain omitted axes so they can follow the latest committed surface. */
@@ -105,6 +113,7 @@ export function capturePreferences(
 ): ViewerCaptureOptions {
   const settings = captureSettings(options);
   return Object.freeze({
+    format: settings.format,
     quality: settings.quality,
     ...(options?.maxWidth === undefined ? {} : { maxWidth: settings.maxWidth }),
     ...(options?.maxHeight === undefined
@@ -113,13 +122,25 @@ export function capturePreferences(
   });
 }
 
+/** Compare preferences, including quality retained for a later lossy format. */
 export function sameCapture(
   a: ViewerCaptureOptions,
   b: ViewerCaptureOptions,
 ): boolean {
   return (
+    a.format === b.format &&
     a.quality === b.quality &&
     a.maxWidth === b.maxWidth &&
     a.maxHeight === b.maxHeight
   );
+}
+
+/** Compare normalized settings that affect the native image stream. */
+export function sameCaptureSettings(
+  a: CaptureSettings,
+  b: CaptureSettings,
+): boolean {
+  if (a.format === "png" && b.format === "png")
+    return a.maxWidth === b.maxWidth && a.maxHeight === b.maxHeight;
+  return sameCapture(a, b);
 }

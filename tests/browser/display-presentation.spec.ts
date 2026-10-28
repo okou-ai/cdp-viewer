@@ -200,7 +200,7 @@ for (const [transport, bounded] of [
         await expect.poll(() => writes).toBe(2);
         await expect.poll(() => held.length).toBeGreaterThan(0);
         await expect.poll(() => starts).toBe(startsBefore + 1);
-        // Chrome can pair target-size metadata with cached JPEG pixels. Keep
+        // Chrome can pair target-size metadata with cached image pixels. Keep
         // the actual old image and timestamp while updating only that metadata.
         old(bounded ? { width: 1854, height: 1110 } : undefined);
         await expect(view.locator(".cdpv-spinning")).toHaveCount(1);

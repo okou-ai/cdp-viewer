@@ -98,18 +98,70 @@ export function CaptureQuality() {
               className="cdpv-capture-quality-fields"
             >
               <div className="cdpv-capture-quality-field">
+                <span
+                  id={`${identity}-format`}
+                  className="cdpv-capture-quality-label"
+                >
+                  Image format
+                </span>
+                <RadioGroup
+                  aria-labelledby={`${identity}-format`}
+                  className="cdpv-capture-formats"
+                  value={capture.format ?? defaultCapture.format}
+                  disabled={!canChange}
+                  onValueChange={(format) => {
+                    if (
+                      format === "webp" ||
+                      format === "jpeg" ||
+                      format === "png"
+                    )
+                      choose({ ...capture, format });
+                  }}
+                >
+                  {[
+                    { value: "webp", label: "WebP" },
+                    { value: "jpeg", label: "JPEG" },
+                    { value: "png", label: "PNG" },
+                  ].map(({ value, label }) => (
+                    <Radio.Root
+                      key={value}
+                      value={value}
+                      nativeButton
+                      render={<button type="button" />}
+                      className="cdpv-browser-menu-item cdpv-capture-option"
+                    >
+                      <span
+                        className="cdpv-browser-menu-check"
+                        aria-hidden="true"
+                      >
+                        <Radio.Indicator>
+                          <Check size={16} />
+                        </Radio.Indicator>
+                      </span>
+                      {label}
+                    </Radio.Root>
+                  ))}
+                </RadioGroup>
+              </div>
+              <div className="cdpv-capture-quality-field">
                 <label
                   htmlFor={`${identity}-quality`}
                   className="cdpv-capture-quality-label"
                 >
-                  JPEG quality
+                  Image quality
                   <output htmlFor={`${identity}-quality`}>
-                    {capture.quality ?? defaultCapture.quality}
+                    {capture.format === "png"
+                      ? "Lossless"
+                      : (capture.quality ?? defaultCapture.quality)}
                   </output>
                 </label>
                 <input
                   id={`${identity}-quality`}
                   type="range"
+                  disabled={capture.format === "png"}
+                  aria-valuetext={
+                    capture.format === "png" ? "Lossless (PNG)" : undefined
+                  }
                   min={0}
                   max={100}
                   step={1}
@@ -137,11 +189,14 @@ export function CaptureQuality() {
                   disabled={!canChange}
                   onValueChange={(value) => {
                     if (value === "automatic") {
-                      choose(
-                        capture.quality === undefined
+                      choose({
+                        ...(capture.format === undefined
                           ? {}
-                          : { quality: capture.quality },
-                      );
+                          : { format: capture.format }),
+                        ...(capture.quality === undefined
+                          ? {}
+                          : { quality: capture.quality }),
+                      });
                       return;
                     }
                     const selected = captureResolutions.find(
@@ -167,7 +222,7 @@ export function CaptureQuality() {
                       value={value}
                       nativeButton
                       render={<button type="button" />}
-                      className="cdpv-browser-menu-item cdpv-capture-resolution-option"
+                      className="cdpv-browser-menu-item cdpv-capture-option"
                     >
                       <span
                         className="cdpv-browser-menu-check"

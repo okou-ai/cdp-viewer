@@ -23,7 +23,7 @@ async function expectColor(
   canvas: Locator,
   expected: [number, number, number],
 ) {
-  // Screencast frames are JPEG, so allow small chroma/rounding differences.
+  // Screencast frames are lossy images, so allow small chroma/rounding differences.
   await expect
     .poll(async () => {
       const value = await pixel(canvas);

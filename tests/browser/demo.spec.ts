@@ -80,28 +80,50 @@ test("capture quality menu stays synchronized with the demo's external controls"
     const externalResolution = rail.getByRole("combobox", {
       name: "Capture resolution maximum",
     });
+    const externalFormat = rail.getByRole("combobox", { name: "Image format" });
+    await expect(externalFormat).toHaveValue("webp");
     const menu = view.getByRole("button", { name: "Browser menu" });
     await menu.click();
     await view.getByRole("menuitem", { name: "Capture quality" }).click();
     const detail = view.getByRole("dialog", { name: "Capture quality" });
-    const quality = detail.getByRole("slider", { name: "JPEG quality" });
+    const quality = detail.getByRole("slider", { name: "Image quality" });
     await expect(quality).toBeEnabled();
     await quality.focus();
     await page.keyboard.press("ArrowRight");
     await expect(externalQuality).toHaveValue("71");
     await detail.getByRole("radio", { name: "1280 × 720" }).click();
     await expect(externalResolution).toHaveValue("1280x720");
+    await detail.getByRole("radio", { name: "JPEG", exact: true }).click();
+    await expect(externalFormat).toHaveValue("jpeg");
+    await externalResolution.selectOption("default");
+    await expect(externalFormat).toHaveValue("jpeg");
     await externalQuality.click();
     await expect(menu).toHaveAttribute("aria-expanded", "false");
     await page.keyboard.press("Home");
     await expect(externalQuality).toHaveValue("0");
+    await externalFormat.selectOption("png");
+    await expect(externalQuality).toBeDisabled();
+    await expect(externalQuality).toHaveValue("0");
+    await expect(rail.getByText("Lossless", { exact: true })).toBeVisible();
+    await expect(externalQuality).toHaveAttribute(
+      "aria-valuetext",
+      "Lossless (PNG)",
+    );
     await menu.click();
     await view.getByRole("menuitem", { name: "Capture quality" }).click();
     await expect(
       view
         .getByRole("dialog", { name: "Capture quality" })
-        .getByRole("slider", { name: "JPEG quality" }),
+        .getByRole("slider", { name: "Image quality" }),
     ).toHaveValue("0");
+    await expect(detail.getByRole("radio", { name: "PNG" })).toBeChecked();
+    await expect(detail.getByRole("slider")).toBeDisabled();
+    await detail.getByRole("radio", { name: "WebP" }).click();
+    await expect(externalFormat).toHaveValue("webp");
+    await expect(externalQuality).toBeEnabled();
+    await expect(externalQuality).toHaveValue("0");
+    await expect(rail.getByText("Lossless", { exact: true })).toHaveCount(0);
+    await expect(externalQuality).not.toHaveAttribute("aria-valuetext");
   } finally {
     await backend.close();
   }
@@ -425,7 +447,7 @@ test("demo exposes independent live capture quality and resolution controls", as
           .evaluate((canvas: HTMLCanvasElement) => canvas.width),
       )
       .toBe(1280);
-    const quality = first.getByRole("slider", { name: /^JPEG quality/ });
+    const quality = first.getByRole("slider", { name: /^Image quality/ });
     await quality.press("Home");
     await expect(quality).toHaveValue("0");
     await first.getByText("Usage", { exact: true }).click();

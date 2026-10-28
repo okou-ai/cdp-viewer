@@ -2462,7 +2462,7 @@ it("retains capture preferences and zoom while a sibling progresses through a cl
   );
   expect(starts).toHaveLength(before + 1);
   expect(starts.at(-1)!.params).toEqual({
-    format: "jpeg",
+    format: "webp",
     quality: 31,
     maxWidth: 650,
     maxHeight: 400,

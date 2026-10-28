@@ -9,6 +9,7 @@ export type {
 export type {
   CdpViewerProps,
   CdpViewerStyle,
+  ViewerCaptureFormat,
   ViewerCaptureOptions,
   ViewerError,
   ViewerNavigation,

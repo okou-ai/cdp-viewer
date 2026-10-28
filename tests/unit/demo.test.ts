@@ -45,14 +45,14 @@ it("updates independent capture preferences without replacing a panel connection
   model.run(model.add$);
   const [initial, sibling] = model.read(model.panels$);
   model.run(model.configure$, 1, {
-    capture: { quality: 50, maxWidth: 1280, maxHeight: 720 },
+    capture: { format: "jpeg", quality: 50, maxWidth: 1280, maxHeight: 720 },
   });
   const current = model.read(model.panels$)[0]!;
   expect(current.connection).toBe(initial!.connection);
   expect(current.generation).toBe(initial!.generation);
   expect(model.read(model.panels$)[1]).toBe(sibling);
   expect(usageCode(current.options, current.connection)).toContain(
-    '({"quality":50,"maxWidth":1280,"maxHeight":720})',
+    '({"format":"jpeg","quality":50,"maxWidth":1280,"maxHeight":720})',
   );
 });
 

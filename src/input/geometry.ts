@@ -2,7 +2,7 @@ import type { Point } from "../display/geometry";
 
 export type { Point } from "../display/geometry";
 
-/** Image-relative position, independent of JPEG resolution and client DPR. */
+/** Image-relative position, independent of capture resolution and client DPR. */
 export function imagePoint(
   canvas: HTMLCanvasElement,
   clientX: number,

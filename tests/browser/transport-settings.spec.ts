@@ -97,7 +97,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       );
       await view.getByRole("menuitem", { name: "Capture quality" }).click();
       const detail = view.getByRole("dialog", { name: "Capture quality" });
-      const quality = detail.getByRole("slider", { name: "JPEG quality" });
+      const quality = detail.getByRole("slider", { name: "Image quality" });
       await quality.focus();
       await page.keyboard.press("ArrowRight");
       await expect(quality).toHaveValue("71");
