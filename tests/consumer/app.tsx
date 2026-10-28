@@ -1,9 +1,12 @@
 import { createStore, state } from "ccstate";
 import { StoreProvider, useGet, useSet } from "ccstate-react";
 import { CdpViewer } from "cdp-viewer";
-import type { CdpViewerProps, ViewerSnapshot } from "cdp-viewer";
+import type {
+  CdpViewerProps,
+  CdpViewerStyle,
+  ViewerSnapshot,
+} from "cdp-viewer";
 import { StrictMode, useEffect, useState } from "react";
-import type { CdpViewerStyle } from "cdp-viewer";
 import { createRoot } from "react-dom/client";
 import type { FixtureSettings } from "./api";
 
