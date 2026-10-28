@@ -9,7 +9,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => server?.close());
 
 for (const transport of ["shared", "split"] as const) {
-  test(`renders real WebP and JPEG and preserves click feedback across ${transport} format changes`, async ({
+  test(`renders real WebP, JPEG and PNG and preserves click feedback across ${transport} format changes`, async ({
     page,
   }, info) => {
     const backend = await launchBackend(
@@ -70,10 +70,14 @@ for (const transport of ["shared", "split"] as const) {
             lastFrameFormat =
               bytes[0] === 0xff && bytes[1] === 0xd8
                 ? "jpeg"
-                : bytes.toString("ascii", 0, 4) === "RIFF" &&
-                    bytes.toString("ascii", 8, 12) === "WEBP"
-                  ? "webp"
-                  : "other";
+                : bytes
+                      .subarray(0, 8)
+                      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+                  ? "png"
+                  : bytes.toString("ascii", 0, 4) === "RIFF" &&
+                      bytes.toString("ascii", 8, 12) === "WEBP"
+                    ? "webp"
+                    : "other";
           }
           socket.send(message);
         });
@@ -103,12 +107,17 @@ for (const transport of ["shared", "split"] as const) {
 
       for (const [format, label, clicks, color] of [
         ["jpeg", "JPEG", 1, [24, 224, 80]],
-        ["webp", "WebP", 2, [232, 32, 48]],
+        ["png", "PNG", 2, [232, 32, 48]],
+        ["webp", "WebP", 3, [24, 224, 80]],
       ] as const) {
         await view.getByRole("button", { name: "Browser menu" }).click();
         await view.getByRole("menuitem", { name: "Capture quality" }).click();
         const detail = view.getByRole("dialog", { name: "Capture quality" });
         await detail.getByRole("radio", { name: label, exact: true }).click();
+        const quality = detail.getByRole("slider");
+        if (format === "png") await expect(quality).toBeDisabled();
+        else await expect(quality).toBeEnabled();
+        await expect(quality).toHaveValue("70");
         await expect.poll(() => captures.at(-1)?.format).toBe(format);
         await expect.poll(() => lastFrameFormat).toBe(format);
         await page.keyboard.press("Escape");
@@ -146,7 +155,13 @@ for (const transport of ["shared", "split"] as const) {
             canvas.evaluate((element: HTMLCanvasElement, expected) => {
               const pixel = element
                 .getContext("2d")!
-                .getImageData(0, 0, 1, 1).data;
+                // Sample clear background away from the top-left counter/button.
+                .getImageData(
+                  Math.floor(element.width / 2),
+                  Math.floor(element.height * 0.8),
+                  1,
+                  1,
+                ).data;
               return Math.max(
                 ...expected.map((value, i) => Math.abs(pixel[i]! - value)),
               );

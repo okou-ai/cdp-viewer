@@ -131,13 +131,15 @@ offscreen/document visibility behavior still applies.
 press Enter on the settings button to focus the first item, then use arrows to
 reach Capture quality and Enter/Space to open it. The panel starts with **WebP**,
 quality 70 and **Automatic (container and DPR)** resolution. A slider changes
-image quality; **Image format** selects WebP or JPEG independently of resolution;
+image quality; **Image format** selects WebP, JPEG or PNG independently of resolution;
 the resolution list offers Auto and fixed presets from 960 × 540 to 3840 × 2160,
 with a checkmark on the matching choice. All controls apply live and appear in
 Usage. See the [capture reference](../API.md#capture-quality) for image bounds,
 trade-offs and configuration behavior. Endpoints must support the selected
 format. If WebP is rejected, select JPEG and use **Retry image**; there is no
-silent format fallback.
+silent format fallback. PNG is lossless: its quality slider is disabled, with the
+previous quality retained for returning to WebP/JPEG. PNG can require more bandwidth
+depending on page content.
 
 Each viewer has its own **Console** at the bottom of its panel, initially
 collapsed. Its header shows that viewer's retained event count and current error.

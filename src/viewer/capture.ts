@@ -54,10 +54,10 @@ export function captureSettings(
     );
   const format =
     options?.format === undefined ? defaultCapture.format : options.format;
-  if (format !== "webp" && format !== "jpeg")
+  if (format !== "webp" && format !== "jpeg" && format !== "png")
     throw new CdpFault(
       "configuration",
-      'capture.format must be "webp" or "jpeg".',
+      'capture.format must be "webp", "jpeg" or "png".',
     );
   let bounds = defaultCapture;
   if (size && [size.width, size.height, size.dpr].every(positive)) {

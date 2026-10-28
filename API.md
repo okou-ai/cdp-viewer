@@ -17,7 +17,7 @@ and the [interaction guide](demo/interaction.md) covers input behavior and limit
 | `onTransportChange`                           | Requests a controlled transport change, or reports a menu-owned change              |
 | `windowSizeSync?: WindowSizeSync`             | Display adaptation: `"off"`, `"initial"` or `"live"`; defaults to off               |
 | `onWindowSizeSyncChange`                      | Requests a controlled sync mode change, or reports a menu-owned change              |
-| `capture?: ViewerCaptureOptions`              | WebP/JPEG format, image quality and automatic or fixed maximum image dimensions     |
+| `capture?: ViewerCaptureOptions`              | WebP/JPEG/PNG format, quality and automatic or fixed maximum image dimensions       |
 | `onCaptureChange`                             | Requests a controlled capture change, or reports a menu-owned change                |
 | `extensions?: readonly ViewerExtension[]`     | Optional adapters, reconciled by ID and configuration key                           |
 | `colorScheme?: "light" \| "dark" \| "system"` | Appearance override; omitted inherits the host CSS color-scheme                     |
@@ -152,12 +152,12 @@ changing modes retains capture/display preferences.
 
 `ViewerCaptureOptions` has four optional fields:
 
-| Field       | Accepted value       | Default                       |
-| ----------- | -------------------- | ----------------------------- |
-| `format`    | `"webp"` or `"jpeg"` | `"webp"`                      |
-| `quality`   | Integer 0–100        | 70                            |
-| `maxWidth`  | Integer 1–4096       | Container width × client DPR  |
-| `maxHeight` | Integer 1–4096       | Container height × client DPR |
+| Field       | Accepted value                | Default                       |
+| ----------- | ----------------------------- | ----------------------------- |
+| `format`    | `"webp"`, `"jpeg"` or `"png"` | `"webp"`                      |
+| `quality`   | Integer 0–100                 | 70                            |
+| `maxWidth`  | Integer 1–4096                | Container width × client DPR  |
+| `maxHeight` | Integer 1–4096                | Container height × client DPR |
 
 WebP is the default image format. Set `capture={{ format: "jpeg" }}` to
 request JPEG explicitly. This also applies when upgrading a host that previously
@@ -165,8 +165,12 @@ omitted the format and received JPEG. The remote endpoint must support the chose
 `Page.startScreencast` format; support varies by browser/version/provider. There
 is no automatic fallback. If an endpoint rejects WebP, select JPEG in the menu
 (or update the controlled prop), then use **Retry image** after cleanup completes.
-Quality applies to both formats, but the same number does not imply equal visual
-quality or byte size across codecs. `ViewerCaptureFormat` names the format union.
+Quality applies to WebP and JPEG, but the same number does not imply equal visual
+quality or byte size across codecs. Set `capture={{ format: "png" }}` for lossless
+PNG. Its quality slider is disabled and quality is omitted from the CDP request;
+the configured value is retained for switching back to WebP/JPEG. PNG can use more
+bandwidth and encoding work depending on page content, and the same encoded-frame
+limits apply. `ViewerCaptureFormat` names the format union.
 
 All bounds share a 4096-pixel edge limit and 3840×2160 total-pixel budget.
 Automatic bounds preserve the container aspect ratio. Each fixed dimension
@@ -192,8 +196,8 @@ that diagnostic. See [image recovery](demo/README.md#image-recovery) for stream 
 
 Custom or independent per-axis host bounds may match no menu resolution preset.
 Editing format or quality preserves them; choosing Auto removes both fixed
-dimensions while retaining format and quality. The settings panel offers WebP
-and JPEG under **Image format**, followed by the existing resolution choices.
+dimensions while retaining format and quality. The settings panel offers WebP,
+JPEG and PNG under **Image format**, followed by the existing resolution choices.
 
 ### Display adaptation
 

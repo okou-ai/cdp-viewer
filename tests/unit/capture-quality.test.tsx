@@ -155,7 +155,7 @@ it.each(["shared", "split"] as const)(
     const detail = await openDetail(owner);
     const quality = detail.getByRole("slider", { name: "Image quality" });
     expect(quality).toHaveValue("70");
-    expect(detail.getAllByRole("radio")).toHaveLength(8);
+    expect(detail.getAllByRole("radio")).toHaveLength(9);
     expect(detail.getByRole("radio", { name: "WebP" })).toBeChecked();
     expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
     expect(detail.queryByRole("combobox")).not.toBeInTheDocument();
@@ -189,6 +189,29 @@ it.each(["shared", "split"] as const)(
     await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
     expect(changed).toHaveBeenLastCalledWith({ format: "jpeg", quality: 0 });
     expect(detail.getByRole("radio", { name: "Auto" })).toBeChecked();
+    await userEvent.click(detail.getByRole("radio", { name: "PNG" }));
+    expect(changed).toHaveBeenLastCalledWith({ format: "png", quality: 0 });
+    expect(detail.getByRole("radio", { name: "PNG" })).toBeChecked();
+    expect(
+      detail.getByRole("slider", { name: "Image quality (PNG is lossless)" }),
+    ).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        fake.sockets
+          .flatMap((socket) => socket.commands)
+          .filter((command) => command.method === "Page.startScreencast")
+          .find((command) => command.params?.format === "png")?.params,
+      ).toMatchObject({ format: "png" }),
+    );
+    expect(
+      fake.sockets
+        .flatMap((socket) => socket.commands)
+        .filter((command) => command.method === "Page.startScreencast")
+        .find((command) => command.params?.format === "png")?.params,
+    ).not.toHaveProperty("quality");
+    await userEvent.click(detail.getByRole("radio", { name: "JPEG" }));
+    expect(quality).toBeEnabled();
+    expect(quality).toHaveValue("0");
     expect(owner.getByLabelText("Remote browser input")).toBe(input);
     expect(fake.sockets).toEqual(sockets);
     expect(
@@ -237,18 +260,38 @@ it("requests controlled format changes while preserving custom bounds and Auto p
   const jpeg = detail.getByRole("radio", { name: "JPEG" });
   const webp = detail.getByRole("radio", { name: "WebP" });
   expect(jpeg).toBeChecked();
-  await userEvent.click(webp);
-  expect(changed).toHaveBeenLastCalledWith({ ...capture, format: "webp" });
+  const png = detail.getByRole("radio", { name: "PNG" });
+  await userEvent.click(png);
+  expect(changed).toHaveBeenLastCalledWith({ ...capture, format: "png" });
   expect(jpeg).toBeChecked();
   expect(starts()).toHaveLength(1);
   view.rerender(
-    <CdpViewer {...props} capture={{ ...capture, format: "webp" }} />,
+    <CdpViewer {...props} capture={{ ...capture, format: "png" }} />,
   );
   await waitFor(() => expect(starts()).toHaveLength(2));
-  expect(webp).toBeChecked();
-  expect(starts()[1]!.params).toMatchObject({ ...capture, format: "webp" });
+  expect(png).toBeChecked();
+  expect(
+    detail.getByRole("slider", { name: "Image quality (PNG is lossless)" }),
+  ).toBeDisabled();
+  expect(starts()[1]!.params).toMatchObject({
+    format: "png",
+    maxWidth: 1234,
+    maxHeight: 777,
+  });
+  expect(starts()[1]!.params).not.toHaveProperty("quality");
   await userEvent.click(detail.getByRole("radio", { name: "Auto" }));
-  expect(changed).toHaveBeenLastCalledWith({ format: "webp", quality: 37 });
+  expect(changed).toHaveBeenLastCalledWith({ format: "png", quality: 37 });
+  await userEvent.click(webp);
+  expect(changed).toHaveBeenLastCalledWith({ ...capture, format: "webp" });
+  view.rerender(
+    <CdpViewer {...props} capture={{ ...capture, format: "webp" }} />,
+  );
+  await waitFor(() => expect(starts()).toHaveLength(3));
+  expect(detail.getByRole("slider", { name: "Image quality" })).toBeEnabled();
+  expect(detail.getByRole("slider", { name: "Image quality" })).toHaveValue(
+    "37",
+  );
+  expect(starts()[2]!.params).toMatchObject({ ...capture, format: "webp" });
   expect(fake.sockets).toHaveLength(1);
 });
 

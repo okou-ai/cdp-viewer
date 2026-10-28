@@ -101,15 +101,22 @@ test("capture quality menu stays synchronized with the demo's external controls"
     await expect(menu).toHaveAttribute("aria-expanded", "false");
     await page.keyboard.press("Home");
     await expect(externalQuality).toHaveValue("0");
-    await externalFormat.selectOption("webp");
+    await externalFormat.selectOption("png");
+    await expect(externalQuality).toBeDisabled();
+    await expect(externalQuality).toHaveValue("0");
     await menu.click();
     await view.getByRole("menuitem", { name: "Capture quality" }).click();
     await expect(
       view
         .getByRole("dialog", { name: "Capture quality" })
-        .getByRole("slider", { name: "Image quality" }),
+        .getByRole("slider", { name: "Image quality (PNG is lossless)" }),
     ).toHaveValue("0");
-    await expect(detail.getByRole("radio", { name: "WebP" })).toBeChecked();
+    await expect(detail.getByRole("radio", { name: "PNG" })).toBeChecked();
+    await expect(detail.getByRole("slider")).toBeDisabled();
+    await detail.getByRole("radio", { name: "WebP" }).click();
+    await expect(externalFormat).toHaveValue("webp");
+    await expect(externalQuality).toBeEnabled();
+    await expect(externalQuality).toHaveValue("0");
   } finally {
     await backend.close();
   }

@@ -156,7 +156,9 @@ function CaptureSettings({
       <div className="demo-group-content">
         <div className="demo-field demo-range">
           <label htmlFor={`${identity}-quality`}>
-            Image quality{" "}
+            {capture.format === "png"
+              ? "Image quality (PNG is lossless)"
+              : "Image quality"}{" "}
             <output htmlFor={`${identity}-quality`}>
               {capture.quality ?? 70}
             </output>
@@ -164,6 +166,7 @@ function CaptureSettings({
           <input
             id={`${identity}-quality`}
             type="range"
+            disabled={capture.format === "png"}
             min={0}
             max={100}
             step={1}
@@ -182,12 +185,13 @@ function CaptureSettings({
             value={capture.format ?? "webp"}
             onChange={(event) => {
               const format = event.target.value;
-              if (format === "webp" || format === "jpeg")
+              if (format === "webp" || format === "jpeg" || format === "png")
                 configure(panel.id, { capture: { ...capture, format } });
             }}
           >
             <option value="webp">WebP (default)</option>
             <option value="jpeg">JPEG</option>
+            <option value="png">PNG (lossless)</option>
           </select>
         </div>
         <div className="demo-field">

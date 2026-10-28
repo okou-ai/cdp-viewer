@@ -102,7 +102,9 @@ export function CaptureQuality() {
                   htmlFor={`${identity}-quality`}
                   className="cdpv-capture-quality-label"
                 >
-                  Image quality
+                  {capture.format === "png"
+                    ? "Image quality (PNG is lossless)"
+                    : "Image quality"}
                   <output htmlFor={`${identity}-quality`}>
                     {capture.quality ?? defaultCapture.quality}
                   </output>
@@ -110,6 +112,7 @@ export function CaptureQuality() {
                 <input
                   id={`${identity}-quality`}
                   type="range"
+                  disabled={capture.format === "png"}
                   min={0}
                   max={100}
                   step={1}
@@ -136,13 +139,18 @@ export function CaptureQuality() {
                   value={capture.format ?? defaultCapture.format}
                   disabled={!canChange}
                   onValueChange={(format) => {
-                    if (format === "webp" || format === "jpeg")
+                    if (
+                      format === "webp" ||
+                      format === "jpeg" ||
+                      format === "png"
+                    )
                       choose({ ...capture, format });
                   }}
                 >
                   {[
                     { value: "webp", label: "WebP" },
                     { value: "jpeg", label: "JPEG" },
+                    { value: "png", label: "PNG" },
                   ].map(({ value, label }) => (
                     <Radio.Root
                       key={value}

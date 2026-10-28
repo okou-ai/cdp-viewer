@@ -227,10 +227,15 @@ export class Screencast {
     this.accepting = true;
     this.native = { kind: "possible", epoch: {} };
     this.owner.starting?.(settings);
+    const { quality, ...image } = settings;
     // Keep the final static state available when native frame credit is exhausted.
     await this.owner.client.request(
       "Page.startScreencast",
-      { ...settings, sendLastFrame: true },
+      {
+        ...image,
+        ...(settings.format === "png" ? {} : { quality }),
+        sendLastFrame: true,
+      },
       this.owner.sessionId,
     );
     if (!this.current()) return;

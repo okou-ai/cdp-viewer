@@ -52,7 +52,6 @@ it.each([
   null,
   [],
   false,
-  { format: "png" },
   { format: "avif" },
   { format: "WEBP" },
   { format: "" },
@@ -104,7 +103,7 @@ function mount(
   return { browser, model, sink, controller, resetInput, rasters };
 }
 
-it.each(["webp", "jpeg"] as const)(
+it.each(["webp", "jpeg", "png"] as const)(
   "normalizes explicit %s without losing quality or automatic axes",
   (format) => {
     expect(captureSettings({ format })).toEqual({ ...defaultCapture, format });
@@ -165,7 +164,7 @@ it.each(["shared", "split"] as const)(
     );
     controller.setCapture({
       ...preferences,
-      format: "png",
+      format: "avif",
     } as unknown as ViewerCaptureOptions);
     expect(model.getSnapshot().error?.kind).toBe("configuration");
     expect(starts()).toHaveLength(2);
@@ -178,6 +177,19 @@ it.each(["shared", "split"] as const)(
     expect(starts()[2]!.params).toMatchObject({
       ...preferences,
       format: "jpeg",
+    });
+    controller.setCapture({ ...preferences, format: "png" });
+    await vi.waitFor(() => expect(starts()).toHaveLength(4));
+    expect(starts()[3]).toMatchObject({
+      sessionId: starts()[0]!.sessionId,
+      params: { format: "png", maxWidth: 1234 },
+    });
+    expect(starts()[3]!.params).not.toHaveProperty("quality");
+    controller.setCapture({ ...preferences, format: "webp" });
+    await vi.waitFor(() => expect(starts()).toHaveLength(5));
+    expect(starts()[4]!.params).toMatchObject({
+      ...preferences,
+      format: "webp",
     });
     expect(controller.input).toBe(input);
   },

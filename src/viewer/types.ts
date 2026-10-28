@@ -50,13 +50,13 @@ export interface ViewerNavigation {
   readonly canGoForward: boolean;
 }
 
-export type ViewerCaptureFormat = "webp" | "jpeg";
+export type ViewerCaptureFormat = "webp" | "jpeg" | "png";
 
 /** All capture bounds share a 3840×2160 total-pixel limit. */
 export interface ViewerCaptureOptions {
   /** Image compression format. Default: "webp". Endpoint support is required. */
   readonly format?: ViewerCaptureFormat;
-  /** Image compression quality, integer 0..100. Default: 70. */
+  /** WebP/JPEG quality, integer 0..100. Default: 70. Retained but unused for PNG. */
   readonly quality?: number;
   /** Fixed maximum image width, integer 1..4096. Omit to follow container/DPR. */
   readonly maxWidth?: number;
