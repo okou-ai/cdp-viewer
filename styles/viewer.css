@@ -719,11 +719,6 @@
   outline: 2px solid var(--cdpv-accent);
   outline-offset: -2px;
 }
-.cdpv-root .cdpv-browser-menu-heading {
-  color: var(--cdpv-muted);
-  padding: 7px 10px;
-  font-size: 12px;
-}
 .cdpv-root .cdpv-browser-menu-item {
   cursor: default;
   border-radius: 4px;

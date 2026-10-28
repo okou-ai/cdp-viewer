@@ -155,11 +155,6 @@ export function BrowserMenu() {
               <Maximize size={16} aria-hidden="true" />
               {display.pending ? "Fitting page…" : "Fit page to viewer"}
             </Menu.Item>
-            {display.pointerBlocked && !display.pending && (
-              <div className="cdpv-browser-menu-heading" role="status">
-                Use Fit page to viewer to resume pointer input
-              </div>
-            )}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

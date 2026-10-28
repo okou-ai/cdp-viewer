@@ -479,7 +479,7 @@ it("keeps a menu-owned mode when the host changes callback identity", async () =
   expect(fake.sockets).toHaveLength(1);
 });
 
-it("keeps display recovery guidance and a usable manual action until pointer input can resume", async () => {
+it("keeps manual display recovery available without helper text", async () => {
   const fake = browser();
   vi.spyOn(
     HTMLCanvasElement.prototype,
@@ -510,8 +510,8 @@ it("keeps display recovery guidance and a usable manual action until pointer inp
   );
   await userEvent.click(menu);
   expect(
-    screen.getByText("Use Fit page to viewer to resume pointer input"),
-  ).toBeVisible();
+    screen.queryByText("Use Fit page to viewer to resume pointer input"),
+  ).not.toBeInTheDocument();
   expect(
     screen.getByRole("menuitem", { name: "Fit page to viewer" }),
   ).toBeEnabled();
@@ -521,10 +521,6 @@ it("keeps display recovery guidance and a usable manual action until pointer inp
     screen.getByRole("menuitem", { name: "Fit page to viewer" }),
   );
   await waitFor(() => expect(menu).toHaveAttribute("title", "Browser menu"));
-  await userEvent.click(menu);
-  expect(
-    screen.queryByText("Use Fit page to viewer to resume pointer input"),
-  ).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
     proxy,
   );
