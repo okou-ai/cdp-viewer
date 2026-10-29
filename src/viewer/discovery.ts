@@ -28,6 +28,7 @@ interface Scan {
 
 interface Selected {
   readonly targetId: string;
+  readonly order: number;
   deadline: AbortController;
   verifiedAt: number;
   pending: boolean;
@@ -80,6 +81,7 @@ export class TargetDiscovery {
     if (targetId && this.options.scoped) {
       const selected: Selected = {
         targetId,
+        order: this.state().sequence,
         pending: false,
         deadline: new AbortController(),
         verifiedAt: performance.now(),
@@ -293,14 +295,7 @@ export class TargetDiscovery {
           pages.slice(offset, offset + 4).map(async (target) => {
             const observation = this.observe(target.id);
             if (!observation) return;
-            try {
-              const member = await this.directory.contains(target.id);
-              if (current())
-                this.commit({ type: "membership", observation, member });
-            } catch (error) {
-              if (current() && currentObservation(this.state(), observation))
-                this.fail(error);
-            }
+            await this.readMembership(observation, current);
           }),
         );
         if (!current()) return;
@@ -349,16 +344,40 @@ export class TargetDiscovery {
       batch.map(async (id) => {
         const observation = this.observe(id);
         if (!observation) return;
-        try {
-          const member = await this.directory.contains(id);
-          if (this.active())
-            this.commit({ type: "membership", observation, member });
-        } catch (error) {
-          if (this.active() && currentObservation(this.state(), observation))
-            this.fail(error);
-        }
+        await this.readMembership(observation, () => this.active());
       }),
     );
+  }
+
+  private async readMembership(
+    observation: TargetObservation,
+    current: () => boolean,
+  ): Promise<void> {
+    const accepts = () =>
+      current() &&
+      currentObservation(this.state(), observation) &&
+      // A new selection performs its own fresh activation/attachment checks.
+      !(
+        this.selected?.targetId === observation.id &&
+        observation.order <= this.selected.order
+      );
+    let member: boolean;
+    try {
+      member = await this.directory.contains(observation.id);
+    } catch (error) {
+      if (!accepts()) return;
+      if (
+        !(error instanceof CdpFault) ||
+        error.kind !== "scope" ||
+        this.model.getSnapshot().selectedTargetId === observation.id
+      ) {
+        this.fail(error);
+        return;
+      }
+      // Unknown background membership revokes only that page's admission.
+      member = false;
+    }
+    if (accepts()) this.commit({ type: "membership", observation, member });
   }
 
   private checkSelected(): void {
