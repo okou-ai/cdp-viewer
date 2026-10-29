@@ -100,6 +100,9 @@ through implementation, behavioral tests and review.
 - `windowId` is optional; zero is present. Unscoped operation must not require
   window APIs. Scoped targets require verified membership, including before
   attachment; a failed lookup must never expose an unfiltered target list.
+  Individual background lookup failures exclude that page without retiring an
+  independently verified selected owner. Keep selected membership failures,
+  unsupported required capabilities and overall discovery deadlines strict.
 - Window filtering is presentation scope. Endpoint access and browser provisioning
   belong to the host; browser-native WebSocket cannot add arbitrary auth headers.
 - During tab replacement, already displayed pixels may remain only as a blurred,

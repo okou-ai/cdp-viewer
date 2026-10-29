@@ -70,7 +70,13 @@ export class TargetDirectory {
     for (let offset = 0; offset < pages.length; offset += 4) {
       const results = await Promise.all(
         pages.slice(offset, offset + 4).map(async (page) => {
-          return (await this.contains(page.id)) ? page : null;
+          try {
+            return (await this.contains(page.id)) ? page : null;
+          } catch (error) {
+            if (error instanceof CdpFault && error.kind === "scope")
+              return null;
+            throw error;
+          }
         }),
       );
       for (const page of results) if (page) members.push(page);

@@ -50,7 +50,9 @@ need `wss://` with trusted TLS and an endpoint that permits their Origin.
 
 Omit `windowId` to discover pages across windows. Supply a safe integer, including
 `0`, to list/select only confirmed window members. Scoped operation requires
-`Browser.getWindowForTarget`; failed or unsupported lookup becomes unavailable,
+`Browser.getWindowForTarget`. A failed non-selected page lookup excludes only
+that page; ordinary fresh verification can restore it. Failed selected-page
+verification or an unsupported required window API makes viewing unavailable,
 never an unscoped fallback. Filtering is presentation scope, not endpoint access
 control or an atomic cross-client handover boundary.
 
@@ -61,9 +63,12 @@ A full round has a ten-second completion deadline; cadence plus completion can
 take up to twenty seconds, and background timer suspension can delay it further.
 Selected membership expires twelve seconds after the verification request starts,
 not after its reply. Selection/activation and completed attachment also verify
-membership. Stable input does not query the window per event. An external move
-can precede detection; mismatch, expiry or lookup failure clears selection/image
-and cancels unsent input. Pausing ends the active check; resume verifies afresh.
+membership and supersede older background observations of that selection.
+Stable input does not query the window per event. An external move can precede
+detection; selected membership mismatch, expiry or lookup failure clears
+selection/image and cancels unsent input. Pausing ends the active check; resume
+verifies afresh. Overall discovery failure or expiry still invalidates the
+inventory and selection.
 
 Discovery has no fixed target-count cap, but is subject to metadata-memory,
 message-size and verification limits. Resource exhaustion reports unavailable;

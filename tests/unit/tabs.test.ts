@@ -94,6 +94,29 @@ it("allows one pending mutation while keeping a later selection authoritative", 
   expect(browser.targets).toHaveLength(2);
 });
 
+it("creates a verified tab despite an unrelated window lookup failure", async () => {
+  const browser = new FakeBrowser();
+  const { controller, model, socket } = await mount(browser, 0);
+  browser.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === "page-b";
+  controller.createTab();
+  await vi.waitFor(() => expect(browser.heldCommands).toHaveLength(1));
+  const failed = browser.heldCommands.shift()!;
+  failed.socket.reject(failed.command, -32000);
+  await vi.waitFor(() => expect(model.read(model.tabAction$)).toBeNull());
+  expect(model.getSnapshot()).toMatchObject({
+    selectedTargetId: "new-1",
+    error: null,
+  });
+  await vi.waitFor(() => expect(model.getSnapshot().status).toBe("streaming"));
+  expect(
+    socket.commands
+      .filter((command) => command.method === "Target.attachToTarget")
+      .map((command) => command.params?.targetId),
+  ).not.toContain("page-b");
+});
+
 it("reports a blocked popup without losing the live selection or retrying", async () => {
   const browser = new FakeBrowser();
   const { controller, model } = await mount(browser);

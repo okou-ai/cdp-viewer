@@ -578,30 +578,36 @@ it("does not republish an unavailable snapshot for unrelated destruction during 
   expect(model.getSnapshot()).toBe(snapshot);
 });
 
-it("verifies new event targets before exposing them and ignores stale completion", async () => {
-  const fake = browser(1);
-  const { model } = mount(fake);
-  await advance();
-  const added = { id: "new-page", title: "New", windowId: 0 };
-  fake.targets.push(added);
-  fake.holdCommand = (command) =>
-    command.method === "Browser.getWindowForTarget" &&
-    command.params?.targetId === added.id;
-  fake.sockets[0]!.emit("Target.targetCreated", { targetInfo: info(added) });
-  await advance();
-  expect(fake.heldCommands).toHaveLength(1);
-  expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
-    "owned-0",
-  ]);
-  fake.targets.pop();
-  fake.sockets[0]!.emit("Target.targetDestroyed", { targetId: added.id });
-  const held = fake.heldCommands.shift()!;
-  held.socket.reply(held.command, { windowId: 0 });
-  await advance();
-  expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
-    "owned-0",
-  ]);
-});
+it.each(["positive", "failure"])(
+  "ignores a retired event target's late %s",
+  async (outcome) => {
+    const fake = browser(1);
+    const { model } = mount(fake);
+    await advance();
+    const added = { id: "new-page", title: "New", windowId: 0 };
+    fake.targets.push(added);
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === added.id;
+    fake.sockets[0]!.emit("Target.targetCreated", { targetInfo: info(added) });
+    await advance();
+    expect(fake.heldCommands).toHaveLength(1);
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+    ]);
+    fake.targets.pop();
+    fake.sockets[0]!.emit("Target.targetDestroyed", { targetId: added.id });
+    const held = fake.heldCommands.shift()!;
+    if (outcome === "positive")
+      held.socket.reply(held.command, { windowId: 0 });
+    else held.socket.reject(held.command, -32000);
+    await advance();
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+    ]);
+    expect(model.getSnapshot().status).toBe("streaming");
+  },
+);
 
 it("adds only the verified window member and removes a page that becomes a worker", async () => {
   const fake = browser(1);
@@ -730,41 +736,232 @@ it("fails closed at the selected request deadline without overlapping that owner
   expect(fake.heldCommands).toHaveLength(1);
 });
 
-it.each(["full", "dirty"])(
-  "invalidates a failed %s lookup before sibling reads settle",
-  async (mode) => {
-    const fake = browser();
-    const { controller, model } = mount(fake);
+it.each(
+  ["full", "dirty"].flatMap((mode) =>
+    [0, 2].map((windowId) => ({ mode, windowId })),
+  ),
+)(
+  "isolates a failed background lookup before sibling reads settle %j",
+  async ({ mode, windowId }) => {
+    const fake = browser(3);
+    fake.targets[1]!.windowId = windowId;
+    const { controller, model, sink } = mount(fake);
     await advance();
-    fake.holdMethod = "Browser.getWindowForTarget";
+    const input = controller.input!;
+    const resets = sink.reset.mock.calls.length;
+    const attaches = count(fake, "Target.attachToTarget");
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      ["owned-1", "owned-2"].includes(String(command.params?.targetId));
     if (mode === "full") await advance(10_000);
     else {
-      fake.sockets[0]!.emit("Target.targetInfoChanged", {
-        targetInfo: info(fake.targets[1]!),
-      });
-      for (let index = 2; index < 5; index++)
+      for (const target of fake.targets.slice(1))
         fake.sockets[0]!.emit("Target.targetInfoChanged", {
-          targetInfo: info(fake.targets[index]!),
+          targetInfo: info(target),
         });
       await advance();
-      const first = fake.heldCommands.shift()!;
-      first.socket.reply(first.command, { windowId: 0 });
-      await advance();
     }
-    const failed = fake.heldCommands.find(
-      (held) =>
-        held.command.params?.targetId ===
-        (mode === "full" ? "owned-1" : "owned-2"),
-    )!;
-    expect(failed).toBeDefined();
+    const failed = fake.heldCommands.shift()!;
+    expect(failed.command.params?.targetId).toBe("owned-1");
     failed.socket.reject(failed.command, -32000);
+    await advance();
+    expect(fake.heldCommands).toHaveLength(1);
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+      targets: [{ id: "owned-0" }, { id: "owned-2" }],
+      error: null,
+    });
+    expect(controller.input).toBe(input);
+    expect(sink.reset).toHaveBeenCalledTimes(resets);
+    expect(count(fake, "Target.attachToTarget")).toBe(attaches);
+    input.text("still selected");
+    await advance();
+    expect(fake.sockets[0]!.commands).toContainEqual(
+      expect.objectContaining({
+        method: "Input.insertText",
+        params: { text: "still selected" },
+        sessionId: "session-1",
+      }),
+    );
+    const sibling = fake.heldCommands.shift()!;
+    sibling.socket.reply(sibling.command, { windowId: 0 });
+    await advance();
+    fake.targets[1]!.windowId = 0;
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: info(fake.targets[1]!),
+    });
+    await advance();
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+      "owned-2",
+    ]);
+    const fresh = fake.heldCommands.shift()!;
+    fresh.socket.reply(fresh.command, { windowId: 0 });
+    await advance();
+    expect(model.getSnapshot().targets.map((target) => target.id)).toEqual([
+      "owned-0",
+      "owned-1",
+      "owned-2",
+    ]);
+    expect(controller.input).toBe(input);
+  },
+);
+
+it.each(["rejected", "invalid", "timeout"])(
+  "starts viewing verified pages when a foreign lookup is %s",
+  async (outcome) => {
+    const fake = browser(2);
+    fake.targets[1]!.windowId = 2;
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === "owned-1";
+    const { controller, model } = mount(fake, {
+      windowId: 0,
+      requestTimeout: 500,
+    });
+    await advance();
+    expect(fake.heldCommands).toHaveLength(1);
+    const held = fake.heldCommands.shift()!;
+    if (outcome === "rejected") held.socket.reject(held.command, -32000);
+    else if (outcome === "invalid")
+      held.socket.reply(held.command, { windowId: "0" });
+    else await advance(500);
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-0",
+      targets: [{ id: "owned-0" }],
+      error: null,
+    });
+    expect(controller.input).not.toBeNull();
+    expect(
+      fake.sockets[0]!.commands.filter(
+        (command) => command.method === "Target.attachToTarget",
+      ).map((command) => command.params?.targetId),
+    ).toEqual(["owned-0"]);
+  },
+);
+
+it.each([false, true])(
+  "still fails on a selected page's reconciliation failure, paused=%s",
+  async (paused) => {
+    const fake = browser(2);
+    const { controller, model } = mount(fake);
+    await advance();
+    if (paused) controller.setPaused(true);
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === "owned-0";
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: info(fake.targets[0]!),
+    });
+    await advance();
+    const held = fake.heldCommands.shift()!;
+    held.socket.reject(held.command, -32000);
     await advance();
     expect(model.getSnapshot()).toMatchObject({
       status: "unavailable",
       selectedTargetId: null,
       targets: [],
+      error: { kind: "scope" },
     });
     expect(controller.input).toBeNull();
+  },
+);
+
+it("does not disguise an unsupported window API as a background-page failure", async () => {
+  const fake = browser(2);
+  const { controller, model } = mount(fake);
+  await advance();
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === "owned-1";
+  fake.sockets[0]!.emit("Target.targetInfoChanged", {
+    targetInfo: info(fake.targets[1]!),
+  });
+  await advance();
+  const held = fake.heldCommands.shift()!;
+  held.socket.reject(held.command, -32601);
+  await advance();
+  expect(model.getSnapshot()).toMatchObject({
+    status: "unavailable",
+    selectedTargetId: null,
+    targets: [],
+    error: { kind: "unsupported-capability" },
+  });
+  expect(controller.input).toBeNull();
+});
+
+it("keeps a sibling viewer whose selected page is independently verified", async () => {
+  const fake = browser(2);
+  fake.targets[1]!.windowId = 2;
+  const first = mount(fake);
+  const second = mount(fake, { windowId: 2 });
+  await advance();
+  const input = first.controller.input;
+  const resets = first.sink.reset.mock.calls.length;
+  fake.holdCommand = (command) =>
+    command.method === "Browser.getWindowForTarget" &&
+    command.params?.targetId === "owned-1";
+  for (const socket of fake.sockets)
+    socket.emit("Target.targetInfoChanged", {
+      targetInfo: info(fake.targets[1]!),
+    });
+  await advance();
+  expect(fake.heldCommands).toHaveLength(2);
+  for (const held of fake.heldCommands.splice(0))
+    held.socket.reject(held.command, -32000);
+  await advance();
+  expect(first.model.getSnapshot()).toMatchObject({
+    status: "streaming",
+    selectedTargetId: "owned-0",
+    targets: [{ id: "owned-0" }],
+    error: null,
+  });
+  expect(first.controller.input).toBe(input);
+  expect(first.sink.reset).toHaveBeenCalledTimes(resets);
+  expect(second.model.getSnapshot()).toMatchObject({
+    status: "unavailable",
+    selectedTargetId: null,
+    targets: [],
+    error: { kind: "scope" },
+  });
+  expect(second.controller.input).toBeNull();
+});
+
+it.each(["failure", "negative"])(
+  "does not let an older background %s revoke a freshly attached selection",
+  async (outcome) => {
+    const fake = browser(2);
+    const { controller, model, sink } = mount(fake);
+    await advance();
+    fake.holdCommand = (command) =>
+      command.method === "Browser.getWindowForTarget" &&
+      command.params?.targetId === "owned-1";
+    fake.sockets[0]!.emit("Target.targetInfoChanged", {
+      targetInfo: info(fake.targets[1]!),
+    });
+    await advance();
+    const held = fake.heldCommands.shift()!;
+    fake.holdCommand = null;
+    controller.select("owned-1");
+    await advance();
+    const input = controller.input;
+    const resets = sink.reset.mock.calls.length;
+    expect(input).not.toBeNull();
+    expect(model.getSnapshot().status).toBe("streaming");
+    if (outcome === "failure") held.socket.reject(held.command, -32000);
+    else held.socket.reply(held.command, { windowId: 2 });
+    await advance();
+    expect(model.getSnapshot()).toMatchObject({
+      status: "streaming",
+      selectedTargetId: "owned-1",
+      targets: [{ id: "owned-0" }, { id: "owned-1" }],
+      error: null,
+    });
+    expect(controller.input).toBe(input);
+    expect(sink.reset).toHaveBeenCalledTimes(resets);
   },
 );
 
