@@ -23,9 +23,7 @@ export function CdpViewer(props: CdpViewerProps) {
   return (
     <viewerScope.Provider>
       <ViewerRuntime {...props}>
-        <LucideProvider>
-          <ViewerSurface {...props} />
-        </LucideProvider>
+        <ViewerSurface {...props} />
       </ViewerRuntime>
     </viewerScope.Provider>
   );
@@ -72,99 +70,103 @@ function ViewerSurface({
       }}
     >
       <div className="cdpv-toolbar">
-        <Tabs.List
-          id={selectId}
-          ref={tabs}
-          className="cdpv-tabs"
-          aria-label="Browser tabs"
-          activateOnFocus={false}
-        >
-          {tabLayout.items.map(({ target, width }) => {
-            const title = tabTitle(target.title, labels);
-            return (
-              <div
-                className="cdpv-tab-item"
-                key={target.id}
-                style={{ width }}
-                data-selected={
-                  target.id === snapshot.selectedTargetId ? "" : undefined
-                }
-              >
-                <Tabs.Tab
-                  type="button"
-                  className="cdpv-tab"
-                  value={target.id}
-                  title={title}
-                  aria-label={title}
-                  disabled={controls.tabsDisabled}
-                  data-target-id={target.id}
-                >
-                  <Favicon targetId={target.id} />
-                  <span className="cdpv-tab-title">{title}</span>
-                </Tabs.Tab>
-                {interactive && (
-                  <Button
-                    type="button"
-                    className="cdpv-close"
-                    aria-label={`Close ${title}`}
-                    title={`Close ${title}`}
-                    data-close-target={target.id}
-                    aria-busy={
-                      pending?.type === "close" &&
-                      pending.targetId === target.id
-                    }
-                    disabled={!controls.canMutateTabs}
-                    onClick={() => closeTab(target.id)}
-                  >
-                    {pending?.type === "close" &&
-                    pending.targetId === target.id ? (
-                      <LoaderCircle
-                        className="cdpv-spinning"
-                        size={14}
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <X size={14} aria-hidden="true" />
-                    )}
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </Tabs.List>
-        {tabLayout.overflow && <AllTabs labels={labels} />}
-        {interactive && (
-          <Button
-            type="button"
-            className="cdpv-button cdpv-new-tab"
-            aria-label="New tab"
-            aria-busy={pending?.type === "create"}
-            title="New tab"
-            disabled={!controls.canCreate}
-            onClick={() => createTab()}
+        <LucideProvider>
+          <Tabs.List
+            id={selectId}
+            ref={tabs}
+            className="cdpv-tabs"
+            aria-label="Browser tabs"
+            activateOnFocus={false}
           >
-            {pending?.type === "create" ? (
-              <LoaderCircle
-                className="cdpv-spinning"
-                size={18}
-                aria-hidden="true"
-              />
-            ) : (
-              <Plus size={18} aria-hidden="true" />
-            )}
-          </Button>
-        )}
+            {tabLayout.items.map(({ target, width }) => {
+              const title = tabTitle(target.title, labels);
+              return (
+                <div
+                  className="cdpv-tab-item"
+                  key={target.id}
+                  style={{ width }}
+                  data-selected={
+                    target.id === snapshot.selectedTargetId ? "" : undefined
+                  }
+                >
+                  <Tabs.Tab
+                    type="button"
+                    className="cdpv-tab"
+                    value={target.id}
+                    title={title}
+                    aria-label={title}
+                    disabled={controls.tabsDisabled}
+                    data-target-id={target.id}
+                  >
+                    <Favicon targetId={target.id} />
+                    <span className="cdpv-tab-title">{title}</span>
+                  </Tabs.Tab>
+                  {interactive && (
+                    <Button
+                      type="button"
+                      className="cdpv-close"
+                      aria-label={`Close ${title}`}
+                      title={`Close ${title}`}
+                      data-close-target={target.id}
+                      aria-busy={
+                        pending?.type === "close" &&
+                        pending.targetId === target.id
+                      }
+                      disabled={!controls.canMutateTabs}
+                      onClick={() => closeTab(target.id)}
+                    >
+                      {pending?.type === "close" &&
+                      pending.targetId === target.id ? (
+                        <LoaderCircle
+                          className="cdpv-spinning"
+                          size={14}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <X size={14} aria-hidden="true" />
+                      )}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </Tabs.List>
+          {tabLayout.overflow && <AllTabs labels={labels} />}
+          {interactive && (
+            <Button
+              type="button"
+              className="cdpv-button cdpv-new-tab"
+              aria-label="New tab"
+              aria-busy={pending?.type === "create"}
+              title="New tab"
+              disabled={!controls.canCreate}
+              onClick={() => createTab()}
+            >
+              {pending?.type === "create" ? (
+                <LoaderCircle
+                  className="cdpv-spinning"
+                  size={18}
+                  aria-hidden="true"
+                />
+              ) : (
+                <Plus size={18} aria-hidden="true" />
+              )}
+            </Button>
+          )}
+        </LucideProvider>
         {toolbarEnd !== undefined && (
           <div className="cdpv-toolbar-end">{toolbarEnd}</div>
         )}
       </div>
       {interactive && (
-        <NavigationToolbar
-          navigation={snapshot.navigation ?? null}
-          disabled={!controls.streaming}
-          showSettingsMenu={showSettingsMenu}
-          placeholder={labels?.addressPlaceholder ?? "Enter a URL"}
-        />
+        <LucideProvider>
+          <NavigationToolbar
+            navigation={snapshot.navigation ?? null}
+            disabled={!controls.streaming}
+            showSettingsMenu={showSettingsMenu}
+            placeholder={labels?.addressPlaceholder ?? "Enter a URL"}
+          />
+        </LucideProvider>
       )}
       <Tabs.Panel
         tabIndex={-1}
@@ -174,130 +176,136 @@ function ViewerSurface({
         data-loading-preview={controls.loadingPreview ? "" : undefined}
         aria-busy={snapshot.status === "connecting"}
       >
-        <canvas
-          ref={canvas}
-          role="img"
-          aria-label="Live browser view"
-          aria-hidden={!controls.streaming}
-        >
-          Your browser needs Canvas 2D to show the remote page.
-        </canvas>
-        {notification && (
-          <div className="cdpv-notification-viewport">
-            {notification.previous && (
+        <LucideProvider>
+          <canvas
+            ref={canvas}
+            role="img"
+            aria-label="Live browser view"
+            aria-hidden={!controls.streaming}
+          >
+            Your browser needs Canvas 2D to show the remote page.
+          </canvas>
+          {notification && (
+            <div className="cdpv-notification-viewport">
+              {notification.previous && (
+                <div
+                  key={notification.previous.id}
+                  className="cdpv-error cdpv-error-previous"
+                  aria-hidden="true"
+                >
+                  <CircleAlert size={16} aria-hidden="true" />
+                  <span>{notification.previous.error.message}</span>
+                </div>
+              )}
               <div
-                key={notification.previous.id}
-                className="cdpv-error cdpv-error-previous"
-                aria-hidden="true"
+                key={notification.id}
+                ref={notice}
+                className="cdpv-error cdpv-error-current"
+                role="alert"
+                data-notification-id={notification.id}
+                data-phase={notification.exiting ? "exiting" : "visible"}
+                data-entrance={notification.entrance}
+                data-replacing={notification.previous ? "" : undefined}
               >
                 <CircleAlert size={16} aria-hidden="true" />
-                <span>{notification.previous.error.message}</span>
+                <span>{notification.error.message}</span>
               </div>
-            )}
-            <div
-              key={notification.id}
-              ref={notice}
-              className="cdpv-error cdpv-error-current"
-              role="alert"
-              data-notification-id={notification.id}
-              data-phase={notification.exiting ? "exiting" : "visible"}
-              data-entrance={notification.entrance}
-              data-replacing={notification.previous ? "" : undefined}
-            >
-              <CircleAlert size={16} aria-hidden="true" />
-              <span>{notification.error.message}</span>
             </div>
-          </div>
-        )}
-        {interactive && (
-          <textarea
-            ref={proxy}
-            id={`${selectId}-input`}
-            className="cdpv-input-proxy"
-            aria-label="Remote browser input"
-            disabled={!controls.streaming}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            rows={1}
-            wrap="off"
-          />
-        )}
+          )}
+          {interactive && (
+            <textarea
+              ref={proxy}
+              id={`${selectId}-input`}
+              className="cdpv-input-proxy"
+              aria-label="Remote browser input"
+              disabled={!controls.streaming}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              rows={1}
+              wrap="off"
+            />
+          )}
+          {!controls.streaming && (
+            <div
+              className="cdpv-placeholder"
+              data-loading={snapshot.status === "connecting" ? "" : undefined}
+              data-preview={controls.loadingPreview ? "" : undefined}
+            >
+              {controls.recovery ? (
+                <CircleAlert size={28} aria-hidden="true" />
+              ) : (
+                <Monitor size={28} aria-hidden="true" />
+              )}
+              <strong>{controls.placeholderTitle}</strong>
+              {snapshot.error && (
+                <span className="cdpv-placeholder-message" role="alert">
+                  {snapshot.error.message}
+                </span>
+              )}
+              {controls.emptyScoped && (
+                <span className="cdpv-placeholder-message">
+                  Open a page in this window, or reconnect after updating the
+                  window scope.
+                </span>
+              )}
+              {controls.showRecovery && (
+                <div className="cdpv-recovery-actions">
+                  {controls.showImageRetry && (
+                    <Button
+                      type="button"
+                      className="cdpv-button cdpv-primary"
+                      disabled={!controls.canRetryImage}
+                      onClick={() => retryImage()}
+                    >
+                      <RotateCw size={16} aria-hidden="true" />
+                      {controls.retryingImage
+                        ? "Retrying live image…"
+                        : "Retry live image"}
+                    </Button>
+                  )}
+                  {controls.showEmptyCreate && (
+                    <Button
+                      type="button"
+                      className="cdpv-button cdpv-primary"
+                      disabled={!controls.canCreate}
+                      onClick={() => createTab()}
+                    >
+                      <Plus size={16} aria-hidden="true" />
+                      {pending?.type === "create"
+                        ? "Creating tab…"
+                        : "Create new tab"}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    className="cdpv-button cdpv-action"
+                    onClick={() => reconnect()}
+                  >
+                    <RotateCw size={16} aria-hidden="true" />
+                    Reconnect viewer
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </LucideProvider>
         {interactive &&
           blankPage !== undefined &&
           controls.streaming &&
           snapshot.navigation?.url === "about:blank" && (
             <div className="cdpv-blank-page">{blankPage}</div>
           )}
-        {!controls.streaming && (
-          <div
-            className="cdpv-placeholder"
-            data-loading={snapshot.status === "connecting" ? "" : undefined}
-            data-preview={controls.loadingPreview ? "" : undefined}
-          >
-            {controls.recovery ? (
-              <CircleAlert size={28} aria-hidden="true" />
-            ) : (
-              <Monitor size={28} aria-hidden="true" />
-            )}
-            <strong>{controls.placeholderTitle}</strong>
-            {snapshot.error && (
-              <span className="cdpv-placeholder-message" role="alert">
-                {snapshot.error.message}
-              </span>
-            )}
-            {controls.emptyScoped && (
-              <span className="cdpv-placeholder-message">
-                Open a page in this window, or reconnect after updating the
-                window scope.
-              </span>
-            )}
-            {controls.showRecovery && (
-              <div className="cdpv-recovery-actions">
-                {controls.showImageRetry && (
-                  <Button
-                    type="button"
-                    className="cdpv-button cdpv-primary"
-                    disabled={!controls.canRetryImage}
-                    onClick={() => retryImage()}
-                  >
-                    <RotateCw size={16} aria-hidden="true" />
-                    {controls.retryingImage
-                      ? "Retrying live image…"
-                      : "Retry live image"}
-                  </Button>
-                )}
-                {controls.showEmptyCreate && (
-                  <Button
-                    type="button"
-                    className="cdpv-button cdpv-primary"
-                    disabled={!controls.canCreate}
-                    onClick={() => createTab()}
-                  >
-                    <Plus size={16} aria-hidden="true" />
-                    {pending?.type === "create"
-                      ? "Creating tab…"
-                      : "Create new tab"}
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  className="cdpv-button cdpv-action"
-                  onClick={() => reconnect()}
-                >
-                  <RotateCw size={16} aria-hidden="true" />
-                  Reconnect viewer
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
         {stageOverlay !== undefined && (
           <div className="cdpv-stage-overlay">{stageOverlay}</div>
         )}
       </Tabs.Panel>
-      {interactive && <ClipboardRecovery />}
+      {interactive && (
+        <LucideProvider>
+          <ClipboardRecovery />
+        </LucideProvider>
+      )}
       <div className="cdpv-sr-only" role="status" aria-live="polite">
         {pending?.type === "create"
           ? "Creating tab"

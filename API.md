@@ -59,6 +59,8 @@ over the page stage; its wrapper ignores pointer input, and interactive host
 children opt in with `pointer-events: auto`.
 Host controls and canvases retain their own styles; viewer normalization and
 disabled/busy theme variables apply to the viewer's elements.
+Host slot icons retain the host's icon provider defaults; viewer icons keep
+their own defaults.
 
 Changes to toolbar content or tab presentation update the local layout without
 reconnecting. Host content in the stage keeps its own pointer, wheel, focus and

@@ -88,6 +88,9 @@ provider must not replace that state. Set UI dependency defaults locally when a
 shared dependency provider could otherwise change the viewer unexpectedly. Keep
 React and React DOM as host-provided peers; do not create another root just to
 reset context.
+When resetting shared UI defaults for the viewer, preserve the host's original
+defaults for its slot content. A viewer-local icon provider must not restyle
+host-owned icons.
 
 Use instance references for DOM work. Allocate connections, listeners and timers
 only in their committed lifetime, remove matching registrations, and release

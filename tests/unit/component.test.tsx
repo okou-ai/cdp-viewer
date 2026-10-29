@@ -1154,7 +1154,12 @@ it.each([{ isComposing: true }, { keyCode: 229 }])(
 );
 
 it("owns icon defaults without changing a shared host provider", async () => {
-  browser();
+  const fake = browser();
+  fake.targets = [{ id: "page-a", windowId: 0, title: "about:blank" }];
+  fake.navigationHistory = {
+    currentIndex: 0,
+    entries: [{ id: 1, url: "about:blank", title: "about:blank" }],
+  };
   const { container } = render(
     <LucideProvider
       color="#cc1122"
@@ -1162,8 +1167,16 @@ it("owns icon defaults without changing a shared host provider", async () => {
       strokeWidth={5}
       className="host-icons"
     >
-      <Plus data-testid="host-icon" />
-      <CdpViewer cdpUrl="wss://fixture.invalid" interactive />
+      <Plus data-testid="host-icon" data-host-icon="" />
+      <CdpViewer
+        cdpUrl="wss://fixture.invalid"
+        interactive
+        toolbarEnd={<Plus data-testid="host-icon-toolbar" data-host-icon="" />}
+        stageOverlay={
+          <Plus data-testid="host-icon-overlay" data-host-icon="" />
+        }
+        blankPage={<Plus data-testid="host-icon-blank" data-host-icon="" />}
+      />
     </LucideProvider>,
   );
   await waitFor(() =>
@@ -1171,10 +1184,22 @@ it("owns icon defaults without changing a shared host provider", async () => {
       document.querySelector('[data-status="streaming"]'),
     ).toBeInTheDocument(),
   );
-  expect(screen.getByTestId("host-icon")).toHaveAttribute("stroke", "#cc1122");
-  expect(screen.getByTestId("host-icon")).toHaveAttribute("width", "40");
-  expect(screen.getByTestId("host-icon")).toHaveAttribute("stroke-width", "5");
-  const icons = container.querySelectorAll(".cdpv-root svg");
+  await screen.findByTestId("host-icon-blank");
+  for (const name of [
+    "host-icon",
+    "host-icon-toolbar",
+    "host-icon-overlay",
+    "host-icon-blank",
+  ]) {
+    const icon = screen.getByTestId(name);
+    expect(icon).toHaveAttribute("stroke", "#cc1122");
+    expect(icon).toHaveAttribute("width", "40");
+    expect(icon).toHaveAttribute("stroke-width", "5");
+    expect(icon).toHaveClass("host-icons");
+  }
+  const icons = container.querySelectorAll(
+    ".cdpv-root svg:not([data-host-icon])",
+  );
   expect(icons.length).toBeGreaterThan(0);
   for (const icon of icons) {
     expect(icon).toHaveAttribute("stroke", "currentColor");
