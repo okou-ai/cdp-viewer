@@ -296,6 +296,13 @@ test("tab presentation preserves independent host shapes and live focus tokens",
     await expect(address).toBeFocused();
     await expect(address).toHaveCSS("border-radius", "4px");
     await expect(back).toHaveCSS("border-radius", "6px");
+    expect(
+      await view
+        .getByRole("button", { name: "New tab", exact: true })
+        .evaluate(
+          (element) => getComputedStyle(element, "::before").borderRadius,
+        ),
+    ).toBe("6px");
     expect((await view.locator(".cdpv-navigation").boundingBox())?.height).toBe(
       navigation?.height,
     );

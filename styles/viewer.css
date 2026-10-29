@@ -419,8 +419,8 @@
   z-index: -1;
   width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
   height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  border-radius: inherit;
   pointer-events: none;
-  border-radius: 50%;
   margin: auto;
   position: absolute;
   inset: 0;

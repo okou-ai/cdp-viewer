@@ -372,7 +372,7 @@
   width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
   height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
   margin: auto;
-  border-radius: 50%;
+  border-radius: inherit;
   pointer-events: none;
 }
 
