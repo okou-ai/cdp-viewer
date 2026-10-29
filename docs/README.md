@@ -12,6 +12,8 @@ Consumer props, configuration, extensions and theming live in the
   geometry authority, causal presentation and bounded recovery.
 - [Host integration boundaries](host-integration.md): forms, scoped styles,
   stacking, event cooperation and independent component ownership.
+- [Theme design and ownership](theme-design.md): generic library defaults,
+  host semantic mapping and live theme changes.
 - [Validation strategy](validation.md): test boundaries, deterministic checks and
   evidence requirements.
 - [Adjacent executor assessment](executor-assessment.md): matched interaction

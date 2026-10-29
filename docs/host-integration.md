@@ -30,6 +30,10 @@ host components. Internal selectors and DOM structure are not customization APIs
 do not use global SVG/control sizing to theme unrelated components. Do not add
 `!important`, a global reset or escalating specificity to compete with the host.
 
+Keep theme mapping in the host adapter and retain generic defaults in the
+library. Follow [theme design and ownership](theme-design.md) for semantic roles,
+live palette changes and the boundary between host controls and remote pixels.
+
 Establish a local stacking context at the root. Internal z-index values should
 order viewer controls without competing with host dialogs or overlays. The host
 owns placement and stacking of the viewer as a whole. Keep future floating UI

@@ -1,7 +1,11 @@
 import { createStore, state } from "ccstate";
 import { StoreProvider, useGet, useSet } from "ccstate-react";
 import { CdpViewer } from "cdp-viewer";
-import type { CdpViewerProps, ViewerSnapshot } from "cdp-viewer";
+import type {
+  CdpViewerProps,
+  CdpViewerStyle,
+  ViewerSnapshot,
+} from "cdp-viewer";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { FixtureSettings } from "./api";
@@ -62,9 +66,12 @@ function App() {
         ...(settings.windowSizeSync === undefined
           ? {}
           : { windowSizeSync: settings.windowSizeSync }),
-        style: { "--cdpv-radius": "3px" },
       }
     : null;
+  const theme = (value: CdpViewerStyle | undefined): CdpViewerStyle => ({
+    "--cdpv-radius": "3px",
+    ...value,
+  });
   const HostContainer = settings?.hostForm ? "form" : "div";
   return (
     <StoreProvider value={hostStore}>
@@ -104,6 +111,7 @@ function App() {
                 <div id="viewer-a">
                   <CdpViewer
                     {...props}
+                    style={theme(settings.styleA)}
                     {...(settings.captureA === undefined
                       ? {}
                       : { capture: settings.captureA })}
@@ -121,6 +129,7 @@ function App() {
                 <div id="viewer-b">
                   <CdpViewer
                     {...props}
+                    style={theme(settings.styleB)}
                     {...(settings.captureB === undefined
                       ? {}
                       : { capture: settings.captureB })}

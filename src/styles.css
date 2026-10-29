@@ -16,6 +16,27 @@
   --cdpv-on-accent: #ffffff;
   --cdpv-error: #8a3500;
   --cdpv-error-background: #fff4e5;
+  /* Public state decisions keep one default per token. Popup elevation and
+     disabled strength differ between their surfaces, so those tokens are
+     overrides whose per-surface defaults stay at their own rules. */
+  --cdpv-hover: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  --cdpv-focus: var(--cdpv-accent);
+  --cdpv-tab-selected-background: var(--cdpv-background);
+  --cdpv-option-selected-background: color-mix(
+    in srgb,
+    var(--cdpv-accent) 12%,
+    transparent
+  );
+  --cdpv-popup-background: var(--cdpv-background);
+  --cdpv-popup-foreground: var(--cdpv-foreground);
+  --cdpv-primary-hover-background: color-mix(
+    in srgb,
+    var(--cdpv-accent) 90%,
+    var(--cdpv-foreground)
+  );
+  --cdpv-busy-opacity: 0.8;
+  --cdpv-loading-shadow: 0 3px 12px
+    color-mix(in srgb, var(--cdpv-foreground) 5%, transparent);
   --cdpv-radius: 10px;
   display: flex;
   flex-direction: column;
@@ -130,7 +151,7 @@
 .cdpv-root .cdpv-tab-item[data-selected] {
   z-index: 1;
   color: var(--cdpv-foreground);
-  background: var(--cdpv-background);
+  background: var(--cdpv-tab-selected-background);
 }
 .cdpv-root .cdpv-tab-item::before,
 .cdpv-root .cdpv-tab-item::after {
@@ -146,7 +167,7 @@
 }
 .cdpv-root
   .cdpv-tab-item:not([data-selected]):has(.cdpv-tab:enabled):hover::before {
-  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  background: var(--cdpv-hover);
 }
 .cdpv-root .cdpv-tab-item[data-selected]::before,
 .cdpv-root .cdpv-tab-item[data-selected]::after {
@@ -156,7 +177,7 @@
   background: radial-gradient(
     circle at var(--cdpv-curve-origin) 0,
     transparent calc(var(--cdpv-tab-corner) - 0.5px),
-    var(--cdpv-background) calc(var(--cdpv-tab-corner) + 0.5px)
+    var(--cdpv-tab-selected-background) calc(var(--cdpv-tab-corner) + 0.5px)
   );
 }
 .cdpv-root .cdpv-tab-item[data-selected]::before {
@@ -250,7 +271,7 @@
   height: 100%;
 }
 .cdpv-root .cdpv-tab-picker-trigger[data-popup-open] {
-  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  background: var(--cdpv-hover);
 }
 .cdpv-root .cdpv-tab-positioner {
   z-index: 3;
@@ -262,11 +283,11 @@
   max-height: min(360px, var(--available-height));
   padding: 4px;
   overflow: hidden;
-  color: var(--cdpv-foreground);
-  background: var(--cdpv-background);
+  color: var(--cdpv-popup-foreground);
+  background: var(--cdpv-popup-background);
   border: 1px solid var(--cdpv-border);
   border-radius: 12px;
-  box-shadow: 0 4px 18px #0003;
+  box-shadow: var(--cdpv-popup-shadow, 0 4px 18px #0003);
   font: inherit;
 }
 .cdpv-root .cdpv-tab-popup-heading {
@@ -304,13 +325,13 @@
   color: var(--cdpv-accent);
 }
 .cdpv-root .cdpv-tab-option[data-selected] {
-  background: color-mix(in srgb, var(--cdpv-accent) 12%, transparent);
+  background: var(--cdpv-option-selected-background);
 }
 .cdpv-root .cdpv-tab-option[data-highlighted] {
-  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  background: var(--cdpv-hover);
 }
 .cdpv-root .cdpv-tab-option:focus-visible {
-  outline: 2px solid var(--cdpv-accent);
+  outline: 2px solid var(--cdpv-focus);
   outline-offset: -2px;
 }
 
@@ -370,22 +391,33 @@
   flex: none;
 }
 
-.cdpv-root :is(.cdpv-close, .cdpv-button):hover:not(:disabled, .cdpv-new-tab),
+.cdpv-root
+  :is(.cdpv-close, .cdpv-button):hover:not(
+    :disabled,
+    .cdpv-new-tab,
+    .cdpv-primary
+  ),
 .cdpv-root .cdpv-new-tab:hover:not(:disabled)::before {
-  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  background: var(--cdpv-hover);
+}
+.cdpv-root .cdpv-primary:hover:not(:disabled) {
+  /* Primary actions keep an intentional filled surface instead of the neutral
+     hover wash, so their on-accent foreground stays readable. */
+  background: var(--cdpv-primary-hover-background);
+  color: var(--cdpv-on-accent);
 }
 .cdpv-root
   :is(.cdpv-tab, .cdpv-close, .cdpv-button, .cdpv-address):focus-visible {
-  outline: 2px solid var(--cdpv-accent);
+  outline: 2px solid var(--cdpv-focus);
   outline-offset: -2px;
 }
 
 .cdpv-root button:disabled {
-  opacity: 0.35;
+  opacity: var(--cdpv-disabled-opacity, 0.35);
   cursor: default;
 }
 .cdpv-root button[aria-busy="true"]:disabled {
-  opacity: 0.8;
+  opacity: var(--cdpv-busy-opacity);
 }
 .cdpv-root .cdpv-stage {
   position: relative;
@@ -434,8 +466,7 @@
   border: 1px solid var(--cdpv-border);
   border-radius: 16px;
   background: var(--cdpv-background);
-  box-shadow: 0 3px 12px
-    color-mix(in srgb, var(--cdpv-foreground) 5%, transparent);
+  box-shadow: var(--cdpv-loading-shadow);
 }
 .cdpv-root .cdpv-placeholder[data-loading] strong {
   font-size: 14px;
@@ -583,11 +614,11 @@
   padding: 5px;
   border: 1px solid var(--cdpv-border);
   border-radius: 8px;
-  background: var(--cdpv-background);
-  color: var(--cdpv-foreground);
+  background: var(--cdpv-popup-background);
+  color: var(--cdpv-popup-foreground);
   font: inherit;
   font-size: 13px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 16%);
+  box-shadow: var(--cdpv-popup-shadow, 0 6px 24px rgb(0 0 0 / 16%));
 }
 .cdpv-root .cdpv-browser-submenu {
   width: min(240px, var(--available-width));
@@ -650,10 +681,10 @@
 }
 .cdpv-root .cdpv-capture-option:hover:not([data-disabled]),
 .cdpv-root .cdpv-capture-option:focus-visible {
-  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  background: var(--cdpv-hover);
 }
 .cdpv-root .cdpv-capture-option:focus-visible {
-  outline: 2px solid var(--cdpv-accent);
+  outline: 2px solid var(--cdpv-focus);
   outline-offset: -2px;
 }
 .cdpv-root .cdpv-browser-menu-item {
@@ -666,10 +697,10 @@
   outline: none;
 }
 .cdpv-root .cdpv-browser-menu-item[data-highlighted] {
-  background: color-mix(in srgb, var(--cdpv-foreground) 10%, transparent);
+  background: var(--cdpv-hover);
 }
 .cdpv-root .cdpv-browser-menu-item[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--cdpv-disabled-opacity, 0.4);
 }
 .cdpv-root .cdpv-browser-menu-item > svg,
 .cdpv-root .cdpv-browser-menu-check {
@@ -730,7 +761,7 @@
   user-select: none;
 }
 .cdpv-root .cdpv-interactive:focus-within {
-  outline: 2px solid var(--cdpv-accent);
+  outline: 2px solid var(--cdpv-focus);
   outline-offset: -2px;
 }
 .cdpv-root .cdpv-clipboard {
@@ -742,8 +773,9 @@
   padding: 12px;
   border: 1px solid var(--cdpv-border);
   border-radius: var(--cdpv-radius);
-  background: var(--cdpv-background);
-  box-shadow: 0 3px 16px #0003;
+  background: var(--cdpv-popup-background);
+  color: var(--cdpv-popup-foreground);
+  box-shadow: var(--cdpv-popup-shadow, 0 3px 16px #0003);
 }
 .cdpv-root .cdpv-clipboard p {
   margin: 0 0 8px;
