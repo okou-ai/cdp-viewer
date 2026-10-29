@@ -413,18 +413,28 @@ selection or native input nodes.
 
 Standalone light and dark defaults remain the library's own palette; nothing here
 imports a host design system. A host maps its semantic tokens onto these
-variables, for example:
+variables. Use live host CSS variables, or update `style` values when the host
+theme changes. Inheriting `color-scheme` selects light/dark defaults; it does not
+discover arbitrary host colors. See [theme design and ownership](https://github.com/okou-ai/cdp-viewer/blob/main/docs/theme-design.md)
+for the integration principles. For example:
 
 ```tsx
 <CdpViewer
   cdpUrl={url}
   style={{
-    "--cdpv-accent": theme.accent,
-    "--cdpv-hover": theme.hover,
-    "--cdpv-focus": theme.focusRing,
-    "--cdpv-tab-selected-background": theme.surface,
-    "--cdpv-popup-background": theme.overlay,
-    "--cdpv-popup-shadow": theme.overlayShadow,
+    "--cdpv-background": "var(--host-surface)",
+    "--cdpv-foreground": "var(--host-text)",
+    "--cdpv-accent": "var(--host-primary)",
+    "--cdpv-on-accent": "var(--host-on-primary)",
+    "--cdpv-hover": "var(--host-hover)",
+    "--cdpv-focus": "var(--host-focus-ring)",
+    "--cdpv-tab-selected-background": "var(--host-selected-surface)",
+    "--cdpv-popup-background": "var(--host-popover)",
+    "--cdpv-popup-shadow": "var(--host-popover-shadow)",
   }}
 />
 ```
+
+The example assumes these semantic variables are defined by the host. Map the
+remaining roles as appropriate for that host; the library has no dependency on
+their names or on a host state provider.

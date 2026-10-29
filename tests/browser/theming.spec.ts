@@ -526,6 +526,142 @@ test("dark: sibling instances keep independent palettes and host tokens", async 
   }
 });
 
+test("live host CSS themes repaint open controls without replacing the connection or input", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const first = await openWindow(backend, server.origin + "/fixture/editor");
+    const second = await openWindow(backend, server.origin + "/fixture/blue");
+    let sockets = 0;
+    let attachments = 0;
+    await page.routeWebSocket(backend.endpoint, (socket) => {
+      sockets++;
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        const command = JSON.parse(String(message)) as { method: string };
+        if (command.method === "Target.attachToTarget") attachments++;
+        upstream.send(message);
+      });
+    });
+    const { a, b } = await host(page, {
+      cdpUrl: backend.endpoint,
+      interactive: true,
+      windowA: first.windowId,
+      windowB: second.windowId,
+      styleA: {
+        "--cdpv-background": "var(--host-surface)",
+        "--cdpv-foreground": "var(--host-text)",
+        "--cdpv-accent": "var(--host-primary)",
+        "--cdpv-focus": "var(--host-ring)",
+        "--cdpv-hover": "var(--host-hover)",
+        "--cdpv-popup-background": "var(--host-popover)",
+      },
+    });
+    await page.addStyleTag({
+      content: `
+        #host-shell {
+          color-scheme: light;
+          --host-surface: rgb(255, 250, 245);
+          --host-text: rgb(40, 30, 20);
+          --host-popover: rgb(250, 240, 230);
+          --host-primary: rgb(0, 100, 80);
+          --host-ring: rgb(0, 120, 90);
+          --host-hover: rgb(230, 220, 210);
+        }
+        #host-shell[data-theme="dark"] {
+          color-scheme: dark;
+          --host-surface: rgb(20, 25, 30);
+          --host-text: rgb(240, 245, 250);
+          --host-popover: rgb(35, 40, 45);
+          --host-primary: rgb(120, 210, 190);
+          --host-ring: rgb(130, 220, 200);
+          --host-hover: rgb(55, 60, 65);
+        }
+        #host-shell[data-accent="purple"] {
+          --host-primary: rgb(200, 180, 250);
+          --host-ring: rgb(210, 190, 255);
+        }
+      `,
+    });
+    const canvas = await a.locator("canvas").elementHandle();
+    const input = a.getByRole("textbox", { name: "Remote browser input" });
+    const inputNode = await input.elementHandle();
+    const selected = a.getByRole("tab", { selected: true });
+    const targetId = await selected.getAttribute("data-target-id");
+    const original = { sockets, attachments };
+    const menuTrigger = a.getByRole("button", { name: "Browser menu" });
+    await menuTrigger.click();
+    const menu = a.getByRole("menu", { name: "Browser menu", exact: true });
+    await expect(menu).toBeVisible();
+    await expect(a).toHaveCSS("background-color", "rgb(255, 250, 245)");
+    await expect(menu).toHaveCSS("background-color", "rgb(250, 240, 230)");
+    await expect(menu).toHaveCSS("color", "rgb(40, 30, 20)");
+    await expect(b).toHaveCSS("background-color", "rgb(255, 255, 255)");
+
+    await page.locator("#host-shell").evaluate((shell) => {
+      shell.setAttribute("data-theme", "dark");
+    });
+    await expect(menu).toBeVisible();
+    await expect(a).toHaveCSS("background-color", "rgb(20, 25, 30)");
+    await expect(menu).toHaveCSS("background-color", "rgb(35, 40, 45)");
+    await expect(menu).toHaveCSS("color", "rgb(240, 245, 250)");
+    // The unmapped sibling inherits dark mode, but retains the library palette.
+    await expect(b).toHaveCSS("background-color", "rgb(53, 54, 58)");
+    const row = menu.getByRole("menuitem").last();
+    await row.hover();
+    await expect(row).toHaveCSS("background-color", "rgb(55, 60, 65)");
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    expect(await focusControl(page, a, ".cdpv-address")).toMatchObject({
+      visible: true,
+      color: "rgb(130, 220, 200)",
+    });
+    await page.locator("#host-shell").evaluate((shell) => {
+      shell.setAttribute("data-accent", "purple");
+    });
+    await expect(a.locator(".cdpv-address")).toBeFocused();
+    await expect(a.locator(".cdpv-address")).toHaveCSS(
+      "outline-color",
+      "rgb(210, 190, 255)",
+    );
+    expectPaint(await reference(b, "var(--cdpv-accent)"), [138, 180, 248, 1]);
+
+    // Theme changes preserve the selected session, nodes and working input.
+    await expect(selected).toHaveAttribute("data-target-id", targetId!);
+    expect(
+      await a.locator("canvas").evaluate((node, old) => node === old, canvas),
+    ).toBe(true);
+    expect(await input.evaluate((node, old) => node === old, inputNode)).toBe(
+      true,
+    );
+    await first.remote.locator("#plain").focus();
+    await input.focus();
+    await page.keyboard.insertText("host theme retained input");
+    await expect(first.remote.locator("#plain")).toHaveValue(
+      "host theme retained input",
+    );
+    await page.locator("#host-shell").evaluate((shell) => {
+      shell.removeAttribute("data-theme");
+    });
+    await expect(a).toHaveCSS("background-color", "rgb(255, 250, 245)");
+    await expect(input).toBeFocused();
+    await page.keyboard.insertText(" after switching back");
+    await expect(first.remote.locator("#plain")).toHaveValue(
+      "host theme retained input after switching back",
+    );
+    await expect(a).toHaveAttribute("data-status", "streaming");
+    expect({ sockets, attachments }).toEqual(original);
+    await canvas?.dispose();
+    await inputNode?.dispose();
+  } finally {
+    await backend.close();
+  }
+});
+
 test("primary hover keeps a filled readable surface instead of the neutral wash", async ({
   page,
 }, info) => {
