@@ -588,7 +588,7 @@
   color: inherit;
   background: var(--cdpv-address-background);
   border: 1px solid transparent;
-  border-radius: 18px;
+  border-radius: var(--cdpv-address-radius, 18px);
   font: inherit;
   font-size: 13px;
 }
@@ -756,13 +756,13 @@
   pointer-events: none;
   font: 16px/20px sans-serif;
 }
-.cdpv-root .cdpv-interactive {
+.cdpv-root .cdpv-interactive > canvas {
   touch-action: none;
   user-select: none;
 }
-.cdpv-root .cdpv-interactive:focus-within {
-  outline: 2px solid var(--cdpv-focus);
-  outline-offset: -2px;
+.cdpv-root .cdpv-interactive:has(> .cdpv-input-proxy:focus) {
+  outline: var(--cdpv-stage-focus-width, 2px) solid var(--cdpv-focus);
+  outline-offset: calc(-1 * var(--cdpv-stage-focus-width, 2px));
 }
 .cdpv-root .cdpv-clipboard {
   position: absolute;
@@ -814,9 +814,6 @@
 }
 
 /* Floating tabs: pill tabs on one toolbar surface, without the attached curves. */
-.cdpv-root[data-tab-style="floating"] {
-  --cdpv-control-radius: 8px;
-}
 .cdpv-root[data-tab-style="floating"] .cdpv-toolbar {
   --cdpv-tab-height: 32px;
   --cdpv-tab-radius: 10px;
@@ -862,29 +859,4 @@
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
   background: var(--cdpv-hover);
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-navigation {
-  align-items: center;
-  gap: 2px;
-  padding: 6px 8px;
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-address {
-  margin-inline: 6px 2px;
-  padding: 0 14px;
-  border-radius: 999px;
-  transition:
-    background-color 120ms,
-    border-color 120ms,
-    box-shadow 120ms;
-}
-/* Page focus stays visible without reading as a status frame. */
-.cdpv-root[data-tab-style="floating"] .cdpv-interactive:focus-within {
-  outline-width: 1px;
-  outline-offset: -1px;
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
-  outline: none;
-  background: var(--cdpv-background);
-  border-color: var(--cdpv-focus);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cdpv-focus) 10%, transparent);
 }

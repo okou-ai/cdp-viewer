@@ -72,6 +72,11 @@ toolbar or host-field input to CDP. Focus belongs to the active local control or
 the explicitly focused remote proxy; releasing remote focus must restore an
 owned local control rather than selecting a node with a document-wide query.
 
+Keep remote gesture and text-selection suppression on the remote surface, not
+an ancestor of host slots. Host content must retain native selection and touch
+scrolling. Remote-page focus indicators follow the native input proxy rather
+than focus anywhere in the stage; local host controls keep their own focus UI.
+
 ## State, context and resources
 
 Each viewer owns its private Store/context and mutable runtime resources. A host

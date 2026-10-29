@@ -182,6 +182,7 @@ function App() {
                             height: "100%",
                           }}
                         >
+                          <p>Start page content</p>
                           <label>
                             Start page input{" "}
                             <input aria-label="Start page input" />

@@ -50,6 +50,8 @@ do not perform the check or acquire browser resources.
 
 `tabStyle="floating"` draws pill tabs on one toolbar surface, without the
 attached tab curves. Omit it or use `"attached"` for the default presentation.
+This changes the tab strip only. Toolbar button shape, address shape and remote
+focus width follow the same theme variables in either presentation.
 
 Use `toolbarEnd` for host actions such as closing or popping out a panel. The
 tab layout reserves the slot's natural width. `stageOverlay` places host content
@@ -58,7 +60,10 @@ children opt in with `pointer-events: auto`.
 
 Changes to toolbar content or tab presentation update the local layout without
 reconnecting. Host content in the stage keeps its own pointer, wheel, focus and
-browser-default behavior; only the remote surface forwards input.
+browser-default behavior, including text selection and touch scrolling. The page
+focus frame appears only while the remote input proxy has focus; focusing a host
+control does not mark the remote page as focused. Only the remote surface
+forwards input.
 
 In interactive mode, `blankPage` covers the canvas only while the selected page
 is streaming at `about:blank`. It does not replace unavailable or connecting
@@ -398,6 +403,8 @@ Set instance-specific variables through `style`:
 - Popups and overlays: `--cdpv-popup-background`, `--cdpv-popup-foreground`,
   `--cdpv-popup-shadow`, `--cdpv-loading-shadow`.
 - State strength: `--cdpv-disabled-opacity`, `--cdpv-busy-opacity`.
+- Shape: `--cdpv-control-radius`, `--cdpv-address-radius`,
+  `--cdpv-stage-focus-width`.
 
 Default height is 28rem; set outer dimensions with `style`, for example
 `style={{ height: "70vh" }}`, or a host `className`.
@@ -422,7 +429,9 @@ schemes when it is expressed with host-provided colors.
 | `--cdpv-loading-shadow`             | Elevation of the loading placeholder glyph                                           | `0 3px 12px color-mix(in srgb, var(--cdpv-foreground) 5%, transparent)` |
 | `--cdpv-disabled-opacity`           | Disabled control and disabled menu item opacity                                      | Unset: 0.35 for controls and 0.4 for menu items                         |
 | `--cdpv-busy-opacity`               | Opacity of a disabled control that is still reporting busy work                      | `0.8`                                                                   |
-| `--cdpv-control-radius`             | Toolbar button radius                                                                | Unset: `50%`; floating tabs set `8px`                                   |
+| `--cdpv-control-radius`             | Toolbar button radius in either tab presentation                                     | `50%`                                                                   |
+| `--cdpv-address-radius`             | Address field radius in either tab presentation                                      | `18px`                                                                  |
+| `--cdpv-stage-focus-width`          | Focus frame width while the remote input proxy has focus                             | `2px`                                                                   |
 
 Primary actions keep a filled background while hovered: the generic neutral hover
 never applies to them, and the hovered fill defaults to the accent mixed slightly

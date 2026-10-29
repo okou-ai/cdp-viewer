@@ -44,6 +44,11 @@ background or accent. Keep the variable inventory and fallback values in
 second palette specification. Hosts own contrast for their overrides, including
 translucent state layers over their actual surfaces.
 
+Tab presentation determines the tab strip's structure. Keep address/control
+shape and remote-focus treatment independent so a host can use its own shared
+controls' geometry with either tab presentation. A selected tab still needs a
+distinguishable surface under the host mapping.
+
 ## Following a live host theme
 
 Light/dark selection and palette mapping are separate. Omitting `colorScheme`

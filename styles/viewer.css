@@ -637,9 +637,9 @@
   height: 32px;
   color: inherit;
   background: var(--cdpv-address-background);
+  border-radius: var(--cdpv-address-radius, 18px);
   font: inherit;
   border: 1px solid #0000;
-  border-radius: 18px;
   flex: 1;
   padding: 6px 13px;
   font-size: 13px;
@@ -808,14 +808,14 @@
   top: 0;
   left: 0;
 }
-.cdpv-root .cdpv-interactive {
+.cdpv-root .cdpv-interactive > canvas {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
 }
-.cdpv-root .cdpv-interactive:focus-within {
-  outline: 2px solid var(--cdpv-focus);
-  outline-offset: -2px;
+.cdpv-root .cdpv-interactive:has(> .cdpv-input-proxy:focus) {
+  outline: var(--cdpv-stage-focus-width, 2px) solid var(--cdpv-focus);
+  outline-offset: calc(-1 * var(--cdpv-stage-focus-width, 2px));
 }
 .cdpv-root .cdpv-clipboard {
   z-index: 1;
@@ -862,9 +862,6 @@
   pointer-events: none;
   position: absolute;
   inset: 0;
-}
-.cdpv-root[data-tab-style="floating"] {
-  --cdpv-control-radius: 8px;
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-toolbar {
   --cdpv-tab-height: 32px;
@@ -914,34 +911,5 @@
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
   background: var(--cdpv-hover);
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-navigation {
-  align-items: center;
-  gap: 2px;
-  padding: 6px 8px;
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-address {
-  border-radius: 999px;
-  margin-inline: 6px 2px;
-  padding: 0 14px;
-  transition:
-    background-color 0.12s,
-    border-color 0.12s,
-    box-shadow 0.12s;
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-interactive:focus-within {
-  outline-offset: -1px;
-  outline-width: 1px;
-}
-.cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
-  background: var(--cdpv-background);
-  border-color: var(--cdpv-focus);
-  box-shadow: 0 0 0 3px var(--cdpv-focus);
-  outline: none;
-}
-@supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cdpv-focus) 10%, transparent);
-  }
 }
 /*$vite$:1*/

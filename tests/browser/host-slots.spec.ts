@@ -194,7 +194,7 @@ for (const tabStyleA of ["attached", "floating"] as const) {
   });
 }
 
-test("floating address focus uses the live host focus token", async ({
+test("tab presentation preserves independent host shapes and live focus tokens", async ({
   page,
 }, info) => {
   const backend = await launchBackend(
@@ -208,17 +208,51 @@ test("floating address focus uses the live host focus token", async ({
         width: "500px",
         "--cdpv-accent": "rgb(0, 90, 180)",
         "--cdpv-focus": "rgb(210, 30, 100)",
+        "--cdpv-control-radius": "6px",
+        "--cdpv-address-radius": "4px",
+        "--cdpv-stage-focus-width": "1px",
       },
     });
     const address = view.getByRole("textbox", { name: "Remote page address" });
+    const back = view.getByRole("button", { name: "Back remote page" });
+    const stage = view.locator(".cdpv-stage");
+    const input = view.getByRole("textbox", { name: "Remote browser input" });
+    const navigation = await view.locator(".cdpv-navigation").boundingBox();
+    await input.focus();
+    await expect(stage).toHaveCSS("outline-width", "1px");
+    await expect(stage).toHaveCSS("outline-color", "rgb(210, 30, 100)");
+    await page.keyboard.press("Tab");
     await address.focus();
-    await expect(address).toHaveCSS("border-color", "rgb(210, 30, 100)");
+    await expect(stage).toHaveCSS("outline-style", "none");
+    await expect(address).toHaveCSS("outline-color", "rgb(210, 30, 100)");
+    await expect(address).toHaveCSS("outline-width", "2px");
+    await expect(address).toHaveCSS("border-radius", "4px");
+    await expect(back).toHaveCSS("border-radius", "6px");
     await page.evaluate((value) => window.configureViewers!(value), {
       ...settings,
-      styleA: { ...settings.styleA, "--cdpv-focus": "rgb(0, 110, 70)" },
+      tabStyleA: "attached",
+    } satisfies FixtureSettings);
+    await expect(view).toHaveAttribute("data-tab-style", "attached");
+    await expect(address).toBeFocused();
+    await expect(address).toHaveCSS("border-radius", "4px");
+    await expect(back).toHaveCSS("border-radius", "6px");
+    expect((await view.locator(".cdpv-navigation").boundingBox())?.height).toBe(
+      navigation?.height,
+    );
+    await page.evaluate((value) => window.configureViewers!(value), {
+      ...settings,
+      styleA: {
+        ...settings.styleA,
+        "--cdpv-focus": "rgb(0, 110, 70)",
+        "--cdpv-address-radius": "12px",
+      },
     });
     await expect(address).toBeFocused();
-    await expect(address).toHaveCSS("border-color", "rgb(0, 110, 70)");
+    await expect(address).toHaveCSS("outline-color", "rgb(0, 110, 70)");
+    await expect(address).toHaveCSS("border-radius", "12px");
+    await input.focus();
+    await expect(stage).toHaveCSS("outline-width", "1px");
+    await expect(stage).toHaveCSS("outline-color", "rgb(0, 110, 70)");
   } finally {
     await backend.close();
   }
@@ -254,6 +288,15 @@ test("blank-page and overlay slots keep host actions local and let remote input 
     const startInput = view.getByRole("textbox", { name: "Start page input" });
     await startInput.fill("local draft");
     await expect(startInput).toHaveValue("local draft");
+    const stage = view.locator(".cdpv-stage");
+    await expect(startInput).toBeFocused();
+    await expect(stage).toHaveCSS("outline-style", "none");
+    await view.getByText("Start page content", { exact: true }).click({
+      clickCount: 3,
+    });
+    expect(await page.evaluate(() => getSelection()?.toString())).toContain(
+      "Start page content",
+    );
     await view.getByRole("button", { name: "Start page action" }).click();
     await expect(page.locator("#host-slot-actions")).toHaveText("1");
     await expect(page.locator("#host-submissions")).toHaveText("0");
@@ -275,17 +318,25 @@ test("blank-page and overlay slots keep host actions local and let remote input 
     await overlayAction.click();
     await expect(page.locator("#host-slot-actions")).toHaveText("2");
     await expect(overlayAction).toBeFocused();
+    await expect(stage).toHaveCSS("outline-style", "none");
     const overlayInput = view.getByRole("textbox", {
       name: "Host overlay input",
     });
     await overlayInput.click();
     await page.keyboard.type("local draft");
     await expect(overlayInput).toHaveValue("local draft");
+    await expect(stage).toHaveCSS("outline-style", "none");
     await expect(remote.locator("#plain")).toHaveValue(
       "remote input through overlay",
     );
     await expect(page.locator("#host-submissions")).toHaveText("0");
     const pane = view.getByTestId("host-overlay-scroll");
+    await view.getByText("Host scroll area", { exact: true }).click({
+      clickCount: 3,
+    });
+    expect(await page.evaluate(() => getSelection()?.toString())).toContain(
+      "Host scroll area",
+    );
     const remoteScroll = await remote.evaluate(() => scrollY);
     await pane.hover();
     await page.mouse.wheel(0, 80);
@@ -308,6 +359,55 @@ test("blank-page and overlay slots keep host actions local and let remote input 
       "false",
     );
     await page.keyboard.press("Escape");
+    await pane.evaluate((element) => {
+      element.scrollTop = 0;
+      getSelection()?.removeAllRanges();
+    });
+    await expect
+      .poll(() => pane.evaluate((element) => element.scrollTop))
+      .toBe(0);
+    const bounds = await pane.boundingBox();
+    if (!bounds) throw new Error("Host scroll area has no bounds");
+    const touch = await page.context().newCDPSession(page);
+    try {
+      await touch.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+      for (let step = 0; step <= 4; step++) {
+        await touch.send("Input.dispatchTouchEvent", {
+          type: step === 0 ? "touchStart" : "touchMove",
+          touchPoints: [
+            {
+              id: 1,
+              x: bounds.x + bounds.width / 2,
+              y:
+                bounds.y +
+                bounds.height -
+                8 -
+                ((bounds.height - 16) * step) / 4,
+            },
+          ],
+        });
+        // Native touch scrolling consumes successive input samples on frames.
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            ),
+        );
+      }
+      await touch.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      await expect
+        .poll(() => pane.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+      expect(await remote.evaluate(() => scrollY)).toBe(remoteScroll);
+    } finally {
+      await touch.send("Emulation.setTouchEmulationEnabled", {
+        enabled: false,
+      });
+      await touch.detach();
+    }
   } finally {
     await backend.close();
   }
