@@ -86,9 +86,10 @@
   color-scheme: light dark;
 }
 
-.cdpv-root *,
-.cdpv-root *::before,
-.cdpv-root *::after {
+/* Normalize the library's class namespace without resetting host slot content. */
+.cdpv-root :where([class^="cdpv-"], [class*=" cdpv-"]),
+.cdpv-root :where([class^="cdpv-"], [class*=" cdpv-"])::before,
+.cdpv-root :where([class^="cdpv-"], [class*=" cdpv-"])::after {
   box-sizing: border-box;
 }
 
@@ -412,11 +413,12 @@
   outline-offset: -2px;
 }
 
-.cdpv-root button:disabled {
+.cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):disabled {
   opacity: var(--cdpv-disabled-opacity, 0.35);
   cursor: default;
 }
-.cdpv-root button[aria-busy="true"]:disabled {
+.cdpv-root
+  :is(.cdpv-tab, .cdpv-close, .cdpv-button)[aria-busy="true"]:disabled {
   opacity: var(--cdpv-busy-opacity);
 }
 .cdpv-root .cdpv-stage {
@@ -427,7 +429,8 @@
   background: var(--cdpv-stage-background);
   outline: none;
 }
-.cdpv-root canvas {
+.cdpv-root .cdpv-stage > canvas {
+  box-sizing: border-box;
   display: block;
   width: 100%;
   height: 100%;
@@ -436,7 +439,7 @@
 .cdpv-root .cdpv-stage[data-loading-preview] {
   overflow: clip;
 }
-.cdpv-root .cdpv-stage[data-loading-preview] canvas {
+.cdpv-root .cdpv-stage[data-loading-preview] > canvas {
   filter: blur(8px);
 }
 .cdpv-root .cdpv-placeholder {

@@ -33,6 +33,8 @@ do not use global SVG/control sizing to theme unrelated components. Do not add
 Keep theme mapping in the host adapter and retain generic defaults in the
 library. Follow [theme design and ownership](theme-design.md) for semantic roles,
 live palette changes and the boundary between host controls and remote pixels.
+Limit normalization and element/state rules to library-owned elements. Host slot
+content retains its own box model, canvas geometry and disabled/busy styling.
 
 Establish a local stacking context at the root. Internal z-index values should
 order viewer controls without competing with host dialogs or overlays. The host

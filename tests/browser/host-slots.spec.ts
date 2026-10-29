@@ -254,6 +254,65 @@ for (const tabStyleA of ["attached", "floating"] as const) {
   });
 }
 
+test("host slot controls and canvases retain their own appearance", async ({
+  page,
+}, info) => {
+  const backend = await launchBackend(
+    info.outputPath("backend"),
+    server.origin,
+  );
+  try {
+    const { view } = await openHost(
+      page,
+      backend,
+      {
+        hostAppearance: true,
+        styleA: { width: "500px", "--cdpv-disabled-opacity": 0.2 },
+      },
+      1,
+      true,
+    );
+    const appearance = (probe: Locator) =>
+      probe.evaluate((element) => {
+        const style = (selector: string) =>
+          getComputedStyle(element.querySelector(selector)!);
+        return {
+          disabledOpacity: style("button").opacity,
+          busyOpacity: style('[aria-busy="true"]').opacity,
+          canvasWidth: style("canvas").width,
+          canvasHeight: style("canvas").height,
+          canvasDisplay: style("canvas").display,
+          boxSizing: style(".host-appearance-box").boxSizing,
+        };
+      });
+    const expected = {
+      disabledOpacity: "0.6",
+      busyOpacity: "0.6",
+      canvasWidth: "60px",
+      canvasHeight: "24px",
+      canvasDisplay: "inline-block",
+      boxSizing: "content-box",
+    };
+    expect(
+      await appearance(page.getByTestId("host-appearance-outside")),
+    ).toEqual(expected);
+    for (const name of ["toolbar", "blank", "overlay"]) {
+      expect(
+        await appearance(view.getByTestId(`host-appearance-${name}`)),
+      ).toEqual(expected);
+    }
+    await expect(
+      view.getByRole("button", { name: "Back remote page" }),
+    ).toHaveCSS("opacity", "0.2");
+    await expect(view.locator(".cdpv-stage > canvas")).toHaveCSS(
+      "display",
+      "block",
+    );
+  } finally {
+    await backend.close();
+  }
+});
+
 test("tab presentation preserves independent host shapes and live focus tokens", async ({
   page,
 }, info) => {

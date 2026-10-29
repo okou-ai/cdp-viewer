@@ -25,6 +25,7 @@ export interface FixtureSettings {
   toolbarLabel?: string;
   hostOverlay?: boolean;
   hostBlankPage?: boolean;
+  hostAppearance?: boolean;
   labelsA?: ViewerLabels;
   captureA?: ViewerCaptureOptions;
   captureB?: ViewerCaptureOptions;

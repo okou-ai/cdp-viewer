@@ -42,6 +42,34 @@ function HostToolbarAction({ label }: { label: string }) {
   );
 }
 
+function HostAppearanceProbe({ name }: { name: string }) {
+  return (
+    <div
+      data-testid={`host-appearance-${name}`}
+      style={{ width: 120, height: 96, pointerEvents: "auto" }}
+    >
+      <button type="button" disabled className="host-appearance-control">
+        Host disabled
+      </button>
+      <button
+        type="button"
+        disabled
+        aria-busy="true"
+        className="host-appearance-control"
+      >
+        Host busy
+      </button>
+      <canvas
+        aria-label="Host chart"
+        className="host-appearance-canvas"
+        width={60}
+        height={24}
+      />
+      <div className="host-appearance-box">Host box</div>
+    </div>
+  );
+}
+
 function App() {
   const [settings, setSettings] = useState<FixtureSettings | null>(null);
   const [first, setFirst] = useState(true);
@@ -107,6 +135,16 @@ function App() {
           </>
         )}
         <HostCounter />
+        {settings?.hostAppearance && (
+          <>
+            <style>{`@layer host {
+              .host-appearance-control:disabled { opacity: .6; }
+              .host-appearance-canvas { width: 60px; height: 24px; display: inline-block; object-fit: fill; }
+              .host-appearance-box { box-sizing: content-box; width: 40px; height: 16px; padding: 3px; border: 2px solid; }
+            }`}</style>
+            <HostAppearanceProbe name="outside" />
+          </>
+        )}
         <label>
           Host input <input aria-label="Host input" />
         </label>
@@ -136,12 +174,16 @@ function App() {
                       ? {}
                       : { labels: settings.labelsA })}
                     toolbarEnd={
-                      settings.toolbarLabel === undefined ? undefined : (
+                      settings.hostAppearance ? (
+                        <HostAppearanceProbe name="toolbar" />
+                      ) : settings.toolbarLabel === undefined ? undefined : (
                         <HostToolbarAction label={settings.toolbarLabel} />
                       )
                     }
                     stageOverlay={
-                      settings.hostOverlay ? (
+                      settings.hostAppearance ? (
+                        <HostAppearanceProbe name="overlay" />
+                      ) : settings.hostOverlay ? (
                         <div
                           style={{
                             position: "absolute",
@@ -174,7 +216,9 @@ function App() {
                       ) : undefined
                     }
                     blankPage={
-                      settings.hostBlankPage ? (
+                      settings.hostAppearance ? (
+                        <HostAppearanceProbe name="blank" />
+                      ) : settings.hostBlankPage ? (
                         <div
                           style={{
                             display: "grid",
