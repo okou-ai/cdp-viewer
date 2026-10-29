@@ -66,12 +66,18 @@ export class NativeInput {
     window.addEventListener("mouseup", this.mouseUp, { signal });
     stage.addEventListener("pointermove", this.pointerMove, { signal });
     stage.addEventListener("pointerup", this.pointerUp, { signal });
-    stage.addEventListener("pointercancel", this.cancel, { signal });
+    stage.addEventListener(
+      "pointercancel",
+      (event) => {
+        if (this.isSurfaceEvent(event)) this.cancel();
+      },
+      { signal },
+    );
     stage.addEventListener("lostpointercapture", this.lostCapture, { signal });
-    stage.addEventListener("contextmenu", (e) => e.preventDefault(), {
+    stage.addEventListener("contextmenu", this.suppressSurfaceDefault, {
       signal,
     });
-    stage.addEventListener("auxclick", (e) => e.preventDefault(), { signal });
+    stage.addEventListener("auxclick", this.suppressSurfaceDefault, { signal });
     stage.addEventListener("wheel", this.wheel, { signal, passive: false });
     proxy.addEventListener(
       "focus",
@@ -175,11 +181,25 @@ export class NativeInput {
     this.reset("blur");
   };
 
-  private readonly lostCapture = () => {
-    if (this.pointerId !== null) this.cancel();
+  private readonly lostCapture = (event: PointerEvent) => {
+    if (this.isSurfaceEvent(event) && this.pointerId !== null) this.cancel();
+  };
+
+  /** Host slot descendants keep their own pointer, wheel and browser defaults. */
+  private isSurfaceEvent(event: Event): boolean {
+    return (
+      event.target === this.canvas ||
+      event.target === this.proxy ||
+      event.target === this.canvas.parentElement
+    );
+  }
+
+  private readonly suppressSurfaceDefault = (event: Event) => {
+    if (this.isSurfaceEvent(event)) event.preventDefault();
   };
 
   private readonly pointerDown = (event: PointerEvent) => {
+    if (!this.isSurfaceEvent(event)) return;
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     if (!point || event.pointerType !== "mouse") return;
     const composing = this.composition.composing;
@@ -223,6 +243,7 @@ export class NativeInput {
   };
 
   private readonly pointerMove = (event: PointerEvent) => {
+    if (!this.isSurfaceEvent(event)) return;
     if (event.pointerType !== "mouse") return;
     const held = this.ownedButtons(event.buttons);
     this.ingress.continuous(
@@ -288,6 +309,7 @@ export class NativeInput {
   };
 
   private readonly wheel = (event: WheelEvent) => {
+    if (!this.isSurfaceEvent(event)) return;
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     if (!point || !this.ingress.current()) return;
     event.preventDefault();

@@ -4,11 +4,18 @@ import type { TabSpace } from "../viewer/tab-layout";
 export function observeTabStrip(
   list: HTMLDivElement,
   resized: (space: TabSpace) => void,
-): () => void {
+): { refresh: () => void; close: () => void } {
   const row = list.parentElement!;
   let active = true;
+  let end: Element | null = null;
   const measure = () => {
     if (!active) return;
+    const previousEnd = end;
+    end = row.querySelector(".cdpv-toolbar-end");
+    if (previousEnd !== end) {
+      if (previousEnd) observer.unobserve(previousEnd);
+      if (end) observer.observe(end);
+    }
     const width = row.getBoundingClientRect().width;
     // A hidden host has no usable geometry; observe it until it becomes visible.
     if (!width) return;
@@ -19,7 +26,6 @@ export function observeTabStrip(
     const action = parseFloat(style.getPropertyValue("--cdpv-tab-action"));
     const create = row.querySelector(".cdpv-new-tab");
     // Host controls share the row and keep their natural width.
-    const end = row.querySelector(".cdpv-toolbar-end");
     resized({
       width:
         width -
@@ -34,8 +40,11 @@ export function observeTabStrip(
   const observer = new ResizeObserver(measure);
   observer.observe(row);
   measure();
-  return () => {
-    active = false;
-    observer.disconnect();
+  return {
+    refresh: measure,
+    close: () => {
+      active = false;
+      observer.disconnect();
+    },
   };
 }

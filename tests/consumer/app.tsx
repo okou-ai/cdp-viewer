@@ -27,11 +27,27 @@ function HostCounter() {
   );
 }
 
+function HostToolbarAction({ label }: { label: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={expanded}
+      style={{ whiteSpace: "nowrap" }}
+      onClick={() => setExpanded((value) => !value)}
+    >
+      {expanded ? `${label} with additional sharing options` : label}
+    </button>
+  );
+}
+
 function App() {
   const [settings, setSettings] = useState<FixtureSettings | null>(null);
   const [first, setFirst] = useState(true);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [submissions, setSubmissions] = useState(0);
+  const [slotActions, setSlotActions] = useState(0);
   useEffect(() => {
     let active = true;
     const configure = async (value: FixtureSettings) => {
@@ -101,6 +117,7 @@ function App() {
           Unprefixed host utility
         </div>
         <output id="statuses">{JSON.stringify(statuses)}</output>
+        <output id="host-slot-actions">{slotActions}</output>
         <div
           id="panels"
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
@@ -112,6 +129,72 @@ function App() {
                   <CdpViewer
                     {...props}
                     style={theme(settings.styleA)}
+                    {...(settings.tabStyleA === undefined
+                      ? {}
+                      : { tabStyle: settings.tabStyleA })}
+                    {...(settings.labelsA === undefined
+                      ? {}
+                      : { labels: settings.labelsA })}
+                    toolbarEnd={
+                      settings.toolbarLabel === undefined ? undefined : (
+                        <HostToolbarAction label={settings.toolbarLabel} />
+                      )
+                    }
+                    stageOverlay={
+                      settings.hostOverlay ? (
+                        <div
+                          style={{
+                            position: "absolute",
+                            right: 8,
+                            top: "50%",
+                            width: 180,
+                            pointerEvents: "auto",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setSlotActions((count) => count + 1)}
+                          >
+                            Host overlay action
+                          </button>
+                          <label>
+                            Host overlay input{" "}
+                            <input
+                              aria-label="Host overlay input"
+                              style={{ width: "100%" }}
+                            />
+                          </label>
+                          <div
+                            data-testid="host-overlay-scroll"
+                            style={{ width: 180, height: 80, overflow: "auto" }}
+                          >
+                            <div style={{ height: 300 }}>Host scroll area</div>
+                          </div>
+                        </div>
+                      ) : undefined
+                    }
+                    blankPage={
+                      settings.hostBlankPage ? (
+                        <div
+                          style={{
+                            display: "grid",
+                            placeContent: "center",
+                            height: "100%",
+                          }}
+                        >
+                          <label>
+                            Start page input{" "}
+                            <input aria-label="Start page input" />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setSlotActions((count) => count + 1)}
+                          >
+                            Start page action
+                          </button>
+                        </div>
+                      ) : undefined
+                    }
                     {...(settings.captureA === undefined
                       ? {}
                       : { capture: settings.captureA })}

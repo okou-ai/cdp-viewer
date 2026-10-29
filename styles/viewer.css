@@ -890,7 +890,7 @@
   border-radius: var(--cdpv-tab-radius);
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected] {
-  background: var(--cdpv-tab-selected-background, var(--cdpv-background));
+  background: var(--cdpv-tab-selected-background);
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]:before,
 .cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]:after,
@@ -913,15 +913,7 @@
   margin: 0 6px 0 0;
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
-  background: var(--cdpv-hover, var(--cdpv-foreground));
-}
-@supports (color: color-mix(in lab, red, red)) {
-  .cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
-    background: var(
-      --cdpv-hover,
-      color-mix(in srgb, var(--cdpv-foreground) 10%, transparent)
-    );
-  }
+  background: var(--cdpv-hover);
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-navigation {
   align-items: center;
@@ -943,14 +935,13 @@
 }
 .cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
   background: var(--cdpv-background);
-  border-color: var(--cdpv-accent);
-  box-shadow: 0 0 0 3px var(--cdpv-accent);
+  border-color: var(--cdpv-focus);
+  box-shadow: 0 0 0 3px var(--cdpv-focus);
   outline: none;
 }
 @supports (color: color-mix(in lab, red, red)) {
   .cdpv-root[data-tab-style="floating"] .cdpv-address:focus {
-    box-shadow: 0 0 0 3px
-      color-mix(in srgb, var(--cdpv-accent) 10%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cdpv-focus) 10%, transparent);
   }
 }
 /*$vite$:1*/

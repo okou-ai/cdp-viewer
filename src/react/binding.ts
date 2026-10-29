@@ -64,7 +64,7 @@ export class ViewerBinding {
   private inViewport = true;
   private stopConnection: (() => void) | undefined;
   private stopFocus: (() => void) | undefined;
-  private stopTabs: (() => void) | undefined;
+  private tabStrip: ReturnType<typeof observeTabStrip> | undefined;
   private stopTimer: (() => void) | undefined;
   private stopAnimation: (() => void) | undefined;
 
@@ -129,9 +129,9 @@ export class ViewerBinding {
       old.model !== model ||
       (old.interactive ?? false) !== interactive
     ) {
-      this.stopTabs?.();
+      this.tabStrip?.close();
       const tabs = this.elements.tabs.current;
-      this.stopTabs = tabs
+      this.tabStrip = tabs
         ? observeTabStrip(tabs, (space) => model.run(model.resizeTabs$, space))
         : undefined;
       this.native?.dispose();
@@ -146,6 +146,11 @@ export class ViewerBinding {
           (value) => model.run(model.setClipboard$, value),
         );
     }
+    if (
+      old &&
+      (old.tabStyle !== state.tabStyle || old.toolbarEnd !== state.toolbarEnd)
+    )
+      this.tabStrip?.refresh();
     if (!old || old.tabLayout !== tabLayout) this.focus.restoreLayout();
     if (
       !old ||
@@ -309,13 +314,13 @@ export class ViewerBinding {
   close(): void {
     this.stopConnection?.();
     this.stopFocus?.();
-    this.stopTabs?.();
+    this.tabStrip?.close();
     this.stopTimer?.();
     this.stopAnimation?.();
     this.native?.dispose();
     this.stopConnection = undefined;
     this.stopFocus = undefined;
-    this.stopTabs = undefined;
+    this.tabStrip = undefined;
     this.stopTimer = undefined;
     this.stopAnimation = undefined;
     this.native = null;

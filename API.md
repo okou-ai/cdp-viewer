@@ -56,6 +56,10 @@ tab layout reserves the slot's natural width. `stageOverlay` places host content
 over the page stage; its wrapper ignores pointer input, and interactive host
 children opt in with `pointer-events: auto`.
 
+Changes to toolbar content or tab presentation update the local layout without
+reconnecting. Host content in the stage keeps its own pointer, wheel, focus and
+browser-default behavior; only the remote surface forwards input.
+
 In interactive mode, `blankPage` covers the canvas only while the selected page
 is streaming at `about:blank`. It does not replace unavailable or connecting
 states. `labels.addressPlaceholder` replaces the default `"Enter a URL"` text;
