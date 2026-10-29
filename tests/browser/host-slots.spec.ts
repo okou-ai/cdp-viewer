@@ -192,6 +192,66 @@ for (const tabStyleA of ["attached", "floating"] as const) {
       await backend.close();
     }
   });
+
+  test(`${tabStyleA}: the tab picker stays above interactive host stage content`, async ({
+    page,
+  }, info) => {
+    const backend = await launchBackend(
+      info.outputPath("backend"),
+      server.origin,
+    );
+    try {
+      const { view, settings } = await openHost(
+        page,
+        backend,
+        {
+          tabStyleA,
+          toolbarLabel: "Host controls",
+          hostOverlay: true,
+          styleA: { width: "500px", height: "440px" },
+        },
+        7,
+      );
+      await page.evaluate((value) => window.configureViewers!(value), {
+        ...settings,
+        styleA: { width: "300px", height: "440px" },
+      } satisfies FixtureSettings);
+      await view.getByRole("combobox", { name: "All tabs" }).click();
+      await expect(view.getByRole("option")).toHaveCount(7);
+      const overlap = await view.evaluate((root) => {
+        const host = root.querySelector(".cdpv-stage-overlay button")!;
+        const hostRect = host.getBoundingClientRect();
+        for (const option of root.querySelectorAll("[role=option]")) {
+          const rect = option.getBoundingClientRect();
+          const left = Math.max(rect.left, hostRect.left);
+          const right = Math.min(rect.right, hostRect.right);
+          const top = Math.max(rect.top, hostRect.top);
+          const bottom = Math.min(rect.bottom, hostRect.bottom);
+          if (left >= right || top >= bottom) continue;
+          const x = (left + right) / 2;
+          const y = (top + bottom) / 2;
+          return {
+            x,
+            y,
+            targetId: option.getAttribute("data-tab-option"),
+            popupOnTop: option.contains(document.elementFromPoint(x, y)),
+          };
+        }
+        return null;
+      });
+      if (!overlap) throw new Error("Host control does not overlap the popup");
+      expect(overlap.popupOnTop).toBe(true);
+      await page.mouse.click(overlap.x, overlap.y);
+      await expect(view.getByRole("tab", { selected: true })).toHaveAttribute(
+        "data-target-id",
+        overlap.targetId!,
+      );
+      await expect(view.getByRole("option")).toHaveCount(0);
+      await expect(page.locator("#host-slot-actions")).toHaveText("0");
+    } finally {
+      await backend.close();
+    }
+  });
 }
 
 test("tab presentation preserves independent host shapes and live focus tokens", async ({

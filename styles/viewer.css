@@ -465,6 +465,7 @@
   opacity: var(--cdpv-busy-opacity);
 }
 .cdpv-root .cdpv-stage {
+  isolation: isolate;
   background: var(--cdpv-stage-background);
   outline: none;
   flex: 1;

@@ -38,6 +38,8 @@ Establish a local stacking context at the root. Internal z-index values should
 order viewer controls without competing with host dialogs or overlays. The host
 owns placement and stacking of the viewer as a whole. Keep future floating UI
 inside that ownership boundary, or define an explicit portal container contract.
+Keep page-stage layers in their own stacking context so host stage content
+cannot cover toolbar popups or intercept their pointer input.
 
 ## Input events and host shortcuts
 

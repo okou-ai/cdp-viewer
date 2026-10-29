@@ -421,6 +421,7 @@
 }
 .cdpv-root .cdpv-stage {
   position: relative;
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   background: var(--cdpv-stage-background);
