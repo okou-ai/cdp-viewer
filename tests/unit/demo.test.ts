@@ -361,6 +361,7 @@ it("generates valid JSX from applied options without endpoints or draft metadata
     customAccent: true,
     accent: "#123456",
     framed: true,
+    floatingTabs: true,
     windowSizeSync: "live",
     showSettingsMenu: false,
   });
@@ -370,6 +371,7 @@ it("generates valid JSX from applied options without endpoints or draft metadata
   expect(code).toContain("showSettingsMenu={false}");
   expect(code).toContain("[browserUse()]");
   expect(code).toContain("demo-viewer-framed");
+  expect(code).toContain('tabStyle="floating"');
   expect(code).toContain('colorScheme="dark"');
   expect(code).toContain('"--cdpv-accent": "#123456"');
   expect(code).toContain('useState<WindowSizeSync>("live")');

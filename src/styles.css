@@ -86,9 +86,10 @@
   color-scheme: light dark;
 }
 
-.cdpv-root *,
-.cdpv-root *::before,
-.cdpv-root *::after {
+/* Normalize the library's class namespace without resetting host slot content. */
+.cdpv-root :where([class^="cdpv-"], [class*=" cdpv-"]),
+.cdpv-root :where([class^="cdpv-"], [class*=" cdpv-"])::before,
+.cdpv-root :where([class^="cdpv-"], [class*=" cdpv-"])::after {
   box-sizing: border-box;
 }
 
@@ -120,6 +121,17 @@
   padding-inline: var(--cdpv-tab-corner);
   margin-left: calc(-1 * var(--cdpv-tab-corner));
   overflow: clip;
+}
+
+/* The private controls flex into the space left by host actions. Its own resize
+   drives tab measurement, without querying or observing host slot descendants. */
+.cdpv-root .cdpv-toolbar-controls {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  gap: inherit;
 }
 .cdpv-root .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
   /* Share the decorative gutter with the button without moving the tab bodies. */
@@ -372,7 +384,7 @@
   width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
   height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
   margin: auto;
-  border-radius: 50%;
+  border-radius: inherit;
   pointer-events: none;
 }
 
@@ -386,7 +398,7 @@
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 50%;
+  border-radius: var(--cdpv-control-radius, 50%);
   cursor: pointer;
   flex: none;
 }
@@ -412,21 +424,29 @@
   outline-offset: -2px;
 }
 
-.cdpv-root button:disabled {
+.cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):disabled {
   opacity: var(--cdpv-disabled-opacity, 0.35);
   cursor: default;
 }
-.cdpv-root button[aria-busy="true"]:disabled {
+.cdpv-root
+  :is(.cdpv-tab, .cdpv-close, .cdpv-button)[aria-busy="true"]:disabled {
   opacity: var(--cdpv-busy-opacity);
 }
 .cdpv-root .cdpv-stage {
   position: relative;
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   background: var(--cdpv-stage-background);
   outline: none;
 }
-.cdpv-root canvas {
+.cdpv-root .cdpv-remote-surface {
+  position: absolute;
+  inset: 0;
+  outline: none;
+}
+.cdpv-root .cdpv-remote-surface > canvas {
+  box-sizing: border-box;
   display: block;
   width: 100%;
   height: 100%;
@@ -435,7 +455,7 @@
 .cdpv-root .cdpv-stage[data-loading-preview] {
   overflow: clip;
 }
-.cdpv-root .cdpv-stage[data-loading-preview] canvas {
+.cdpv-root .cdpv-stage[data-loading-preview] > .cdpv-remote-surface > canvas {
   filter: blur(8px);
 }
 .cdpv-root .cdpv-placeholder {
@@ -588,7 +608,7 @@
   color: inherit;
   background: var(--cdpv-address-background);
   border: 1px solid transparent;
-  border-radius: 18px;
+  border-radius: var(--cdpv-address-radius, 18px);
   font: inherit;
   font-size: 13px;
 }
@@ -756,13 +776,13 @@
   pointer-events: none;
   font: 16px/20px sans-serif;
 }
-.cdpv-root .cdpv-interactive {
+.cdpv-root .cdpv-interactive > canvas {
   touch-action: none;
   user-select: none;
 }
-.cdpv-root .cdpv-interactive:focus-within {
-  outline: 2px solid var(--cdpv-focus);
-  outline-offset: -2px;
+.cdpv-root .cdpv-interactive:has(> .cdpv-input-proxy:focus) {
+  outline: var(--cdpv-stage-focus-width, 2px) solid var(--cdpv-focus);
+  outline-offset: calc(-1 * var(--cdpv-stage-focus-width, 2px));
 }
 .cdpv-root .cdpv-clipboard {
   position: absolute;
@@ -790,4 +810,73 @@
   border: 1px solid var(--cdpv-border);
   resize: vertical;
   user-select: text;
+}
+
+/* Host slots. The overlay ignores pointer input; hosts opt their own controls in. */
+.cdpv-root .cdpv-toolbar-end {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+.cdpv-root .cdpv-blank-page {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--cdpv-background);
+}
+.cdpv-root .cdpv-stage-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Floating tabs: pill tabs on one toolbar surface, without the attached curves. */
+.cdpv-root[data-tab-style="floating"] .cdpv-toolbar {
+  --cdpv-tab-height: 32px;
+  --cdpv-tab-radius: 10px;
+  min-height: 44px;
+  padding: 0 6px 0 8px;
+  gap: 4px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tabs,
+.cdpv-root[data-tab-style="floating"]
+  .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
+  align-self: center;
+  gap: 4px;
+  margin: 0;
+  padding-inline: 0;
+  mask: none;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item {
+  height: var(--cdpv-tab-height);
+  border-radius: var(--cdpv-tab-radius);
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected] {
+  background: var(--cdpv-tab-selected-background);
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]::before,
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]::after,
+.cdpv-root[data-tab-style="floating"] .cdpv-new-tab::before {
+  content: none;
+}
+.cdpv-root[data-tab-style="floating"]
+  .cdpv-tab-item:not([data-selected])::before {
+  inset: 0;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab {
+  height: 100%;
+  padding: 0 6px 0 10px;
+  font-size: 13px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-close {
+  width: 20px;
+  height: 20px;
+  margin: 0 6px 0 0;
+  border-radius: 6px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
+  background: var(--cdpv-hover);
 }

@@ -393,6 +393,20 @@ function AppearanceSettings({
             }
           />
         </label>
+        <label className="demo-toggle" htmlFor={`${identity}-floating-tabs`}>
+          <span>
+            Floating tabs
+            <code>tabStyle</code>
+          </span>
+          <input
+            id={`${identity}-floating-tabs`}
+            type="checkbox"
+            checked={options.floatingTabs}
+            onChange={(event) =>
+              configure(panel.id, { floatingTabs: event.target.checked })
+            }
+          />
+        </label>
         <p className="demo-hint">
           Size and colors use <code>style</code>; the frame uses demo-defined
           CSS. Remote sizing follows Window size sync.

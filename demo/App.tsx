@@ -239,6 +239,7 @@ function ConnectionPanel({ panel }: { panel: Panel }) {
                 extensions={connection.extensions}
                 interactive={options.interactive}
                 showSettingsMenu={options.showSettingsMenu}
+                tabStyle={options.floatingTabs ? "floating" : "attached"}
                 transport={options.transport}
                 onTransportChange={(transport) => configure(id, { transport })}
                 paused={options.paused}

@@ -48,6 +48,9 @@ Add `interactive` to enable remote control. Pass a real browser-owned `windowId`
 to show one window; omit it to list pages across windows. For concurrent windows
 of the same browser, use the same `cdpUrl` with a different `windowId` per viewer.
 
+For composed toolbars, page overlays and floating tabs, see
+[host presentation](https://github.com/okou-ai/cdp-viewer/blob/main/API.md#host-presentation).
+
 ## Requirements and limits
 
 - Supply a resolved **browser-level** `ws://` or `wss://` endpoint. The host owns

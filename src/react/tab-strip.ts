@@ -2,10 +2,10 @@ import type { TabSpace } from "../viewer/tab-layout";
 
 /** The committed toolbar owns its geometry subscription, independently of CDP. */
 export function observeTabStrip(
+  row: HTMLDivElement,
   list: HTMLDivElement,
   resized: (space: TabSpace) => void,
-): () => void {
-  const row = list.parentElement!;
+): { refresh: () => void; close: () => void } {
   let active = true;
   const measure = () => {
     if (!active) return;
@@ -18,6 +18,7 @@ export function observeTabStrip(
     const gap = parseFloat(style.columnGap);
     const action = parseFloat(style.getPropertyValue("--cdpv-tab-action"));
     const create = row.querySelector(".cdpv-new-tab");
+    // Flex layout reserves host actions outside this private controls subtree.
     resized({
       width:
         width -
@@ -31,8 +32,11 @@ export function observeTabStrip(
   const observer = new ResizeObserver(measure);
   observer.observe(row);
   measure();
-  return () => {
-    active = false;
-    observer.disconnect();
+  return {
+    refresh: measure,
+    close: () => {
+      active = false;
+      observer.disconnect();
+    },
   };
 }

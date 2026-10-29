@@ -33,11 +33,15 @@ do not use global SVG/control sizing to theme unrelated components. Do not add
 Keep theme mapping in the host adapter and retain generic defaults in the
 library. Follow [theme design and ownership](theme-design.md) for semantic roles,
 live palette changes and the boundary between host controls and remote pixels.
+Limit normalization and element/state rules to library-owned elements. Host slot
+content retains its own box model, canvas geometry and disabled/busy styling.
 
 Establish a local stacking context at the root. Internal z-index values should
 order viewer controls without competing with host dialogs or overlays. The host
 owns placement and stacking of the viewer as a whole. Keep future floating UI
 inside that ownership boundary, or define an explicit portal container contract.
+Keep page-stage layers in their own stacking context so host stage content
+cannot cover toolbar popups or intercept their pointer input.
 
 ## Input events and host shortcuts
 
@@ -72,6 +76,18 @@ toolbar or host-field input to CDP. Focus belongs to the active local control or
 the explicitly focused remote proxy; releasing remote focus must restore an
 owned local control rather than selecting a node with a document-wide query.
 
+Keep remote gesture and text-selection suppression on the remote surface, not
+an ancestor of host slots. Host content must retain native selection and touch
+scrolling. Remote-page focus indicators follow the native input proxy rather
+than focus anywhere in the stage; local host controls keep their own focus UI.
+
+Make layout and behavior ownership distinct in the component tree. Keep host
+content outside private UI-default providers and outside the DOM subtree that
+admits remote input. Bind input listeners and pointer capture to that explicit
+surface, not to a shared layout ancestor inferred from the canvas parent.
+Let layout reserve host action space; observe the resulting private toolbar
+geometry rather than querying host descendants or measuring their controls.
+
 ## State, context and resources
 
 Each viewer owns its private Store/context and mutable runtime resources. A host
@@ -79,6 +95,9 @@ provider must not replace that state. Set UI dependency defaults locally when a
 shared dependency provider could otherwise change the viewer unexpectedly. Keep
 React and React DOM as host-provided peers; do not create another root just to
 reset context.
+When resetting shared UI defaults for the viewer, preserve the host's original
+defaults for its slot content. A viewer-local icon provider must not restyle
+host-owned icons.
 
 Use instance references for DOM work. Allocate connections, listeners and timers
 only in their committed lifetime, remove matching registrations, and release

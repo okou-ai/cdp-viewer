@@ -2,6 +2,8 @@ import type {
   CdpViewerProps,
   CdpViewerStyle,
   ViewerCaptureOptions,
+  ViewerLabels,
+  ViewerTabStyle,
   WindowSizeSync,
 } from "cdp-viewer";
 
@@ -19,6 +21,12 @@ export interface FixtureSettings {
   colorSchemeB?: "light" | "dark" | "system";
   styleA?: CdpViewerStyle;
   styleB?: CdpViewerStyle;
+  tabStyleA?: ViewerTabStyle;
+  toolbarLabel?: string;
+  hostOverlay?: boolean;
+  hostBlankPage?: boolean;
+  hostAppearance?: boolean;
+  labelsA?: ViewerLabels;
   captureA?: ViewerCaptureOptions;
   captureB?: ViewerCaptureOptions;
 }

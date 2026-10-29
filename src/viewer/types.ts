@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { ViewerExtension } from "../extensions/types";
 
 export type ViewerStatus =
@@ -90,6 +90,16 @@ export interface CdpViewerProps {
   readonly extensions?: readonly ViewerExtension[];
   /** Omit to inherit the host's CSS color-scheme. System follows OS preference. */
   readonly colorScheme?: "light" | "dark" | "system";
+  /** Tab presentation. Default: "attached"; "floating" draws pill tabs on one surface. */
+  readonly tabStyle?: ViewerTabStyle;
+  /** Host controls placed at the end of the tab row, such as panel actions. */
+  readonly toolbarEnd?: ReactNode;
+  /** Host content layered over the page stage; only its own elements take pointer input. */
+  readonly stageOverlay?: ReactNode;
+  /** Interactive only: host content shown over a streaming about:blank page. */
+  readonly blankPage?: ReactNode;
+  /** Visible copy overrides; omitted entries keep the English defaults. */
+  readonly labels?: ViewerLabels;
   readonly className?: string;
   readonly style?: CdpViewerStyle;
   readonly onStatusChange?: (snapshot: ViewerSnapshot) => void;
@@ -97,6 +107,15 @@ export interface CdpViewerProps {
 }
 
 export type ViewerTransport = "shared" | "split";
+
+export type ViewerTabStyle = "attached" | "floating";
+
+export interface ViewerLabels {
+  /** Address field placeholder. Default: "Enter a URL". */
+  readonly addressPlaceholder?: string;
+  /** Tab title shown for an about:blank page. Default: "New tab". */
+  readonly blankTabTitle?: string;
+}
 
 export type WindowSizeSync = "off" | "initial" | "live";
 

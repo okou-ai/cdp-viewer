@@ -1,10 +1,12 @@
 import { Select } from "@base-ui/react/select";
 import { Check, ChevronDown } from "lucide-react";
+import type { ViewerLabels } from "../viewer/types";
 import { Favicon } from "./Favicon";
 import { viewerScope } from "./context";
+import { tabTitle } from "./labels";
 
 /** The popup stays in the viewer tree to inherit its theme and clipping bounds. */
-export function AllTabs() {
+export function AllTabs({ labels }: { labels: ViewerLabels | undefined }) {
   const model = viewerScope.useModel();
   const snapshot = viewerScope.useValue(model.snapshot$);
   const controls = viewerScope.useValue(model.controls$);
@@ -44,14 +46,14 @@ export function AllTabs() {
                 <Select.Item
                   key={target.id}
                   value={target.id}
-                  label={target.title}
-                  title={target.title}
+                  label={tabTitle(target.title, labels)}
+                  title={tabTitle(target.title, labels)}
                   data-tab-option={target.id}
                   className="cdpv-tab-option"
                 >
                   <Favicon targetId={target.id} />
                   <Select.ItemText className="cdpv-tab-option-title">
-                    {target.title}
+                    {tabTitle(target.title, labels)}
                   </Select.ItemText>
                   <Select.ItemIndicator className="cdpv-tab-option-check">
                     <Check size={16} aria-hidden="true" />

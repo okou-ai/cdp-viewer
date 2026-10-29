@@ -121,9 +121,9 @@
     --lightningcss-dark: initial;
   }
 }
-.cdpv-root *,
-.cdpv-root :before,
-.cdpv-root :after {
+.cdpv-root :where([class^="cdpv-"], [class*="\ cdpv-"]),
+.cdpv-root :where([class^="cdpv-"], [class*="\ cdpv-"]):before,
+.cdpv-root :where([class^="cdpv-"], [class*="\ cdpv-"]):after {
   box-sizing: border-box;
 }
 .cdpv-root .cdpv-toolbar {
@@ -151,6 +151,14 @@
   flex: 0 auto;
   display: flex;
   overflow: clip;
+}
+.cdpv-root .cdpv-toolbar-controls {
+  align-self: stretch;
+  align-items: center;
+  gap: inherit;
+  flex: 1;
+  min-width: 0;
+  display: flex;
 }
 .cdpv-root .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
   margin-right: calc(-1 * var(--cdpv-tab-corner));
@@ -419,8 +427,8 @@
   z-index: -1;
   width: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
   height: calc(var(--cdpv-tab-height) - var(--cdpv-tab-inset));
+  border-radius: inherit;
   pointer-events: none;
-  border-radius: 50%;
   margin: auto;
   position: absolute;
   inset: 0;
@@ -429,10 +437,10 @@
   min-width: 32px;
   min-height: 32px;
   color: inherit;
+  border-radius: var(--cdpv-control-radius, 50%);
   cursor: pointer;
   background: 0 0;
   border: 1px solid #0000;
-  border-radius: 50%;
   flex: none;
   justify-content: center;
   align-items: center;
@@ -457,21 +465,29 @@
   outline: 2px solid var(--cdpv-focus);
   outline-offset: -2px;
 }
-.cdpv-root button:disabled {
+.cdpv-root :is(.cdpv-tab, .cdpv-close, .cdpv-button):disabled {
   opacity: var(--cdpv-disabled-opacity, 0.35);
   cursor: default;
 }
-.cdpv-root button[aria-busy="true"]:disabled {
+.cdpv-root
+  :is(.cdpv-tab, .cdpv-close, .cdpv-button)[aria-busy="true"]:disabled {
   opacity: var(--cdpv-busy-opacity);
 }
 .cdpv-root .cdpv-stage {
+  isolation: isolate;
   background: var(--cdpv-stage-background);
   outline: none;
   flex: 1;
   min-height: 0;
   position: relative;
 }
-.cdpv-root canvas {
+.cdpv-root .cdpv-remote-surface {
+  outline: none;
+  position: absolute;
+  inset: 0;
+}
+.cdpv-root .cdpv-remote-surface > canvas {
+  box-sizing: border-box;
   object-fit: contain;
   width: 100%;
   height: 100%;
@@ -480,7 +496,7 @@
 .cdpv-root .cdpv-stage[data-loading-preview] {
   overflow: clip;
 }
-.cdpv-root .cdpv-stage[data-loading-preview] canvas {
+.cdpv-root .cdpv-stage[data-loading-preview] > .cdpv-remote-surface > canvas {
   filter: blur(8px);
 }
 .cdpv-root .cdpv-placeholder {
@@ -637,9 +653,9 @@
   height: 32px;
   color: inherit;
   background: var(--cdpv-address-background);
+  border-radius: var(--cdpv-address-radius, 18px);
   font: inherit;
   border: 1px solid #0000;
-  border-radius: 18px;
   flex: 1;
   padding: 6px 13px;
   font-size: 13px;
@@ -808,14 +824,14 @@
   top: 0;
   left: 0;
 }
-.cdpv-root .cdpv-interactive {
+.cdpv-root .cdpv-interactive > canvas {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
 }
-.cdpv-root .cdpv-interactive:focus-within {
-  outline: 2px solid var(--cdpv-focus);
-  outline-offset: -2px;
+.cdpv-root .cdpv-interactive:has(> .cdpv-input-proxy:focus) {
+  outline: var(--cdpv-stage-focus-width, 2px) solid var(--cdpv-focus);
+  outline-offset: calc(-1 * var(--cdpv-stage-focus-width, 2px));
 }
 .cdpv-root .cdpv-clipboard {
   z-index: 1;
@@ -843,5 +859,73 @@
   user-select: text;
   margin-bottom: 8px;
   display: block;
+}
+.cdpv-root .cdpv-toolbar-end {
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  display: flex;
+}
+.cdpv-root .cdpv-blank-page {
+  background: var(--cdpv-background);
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+.cdpv-root .cdpv-stage-overlay {
+  z-index: 2;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-toolbar {
+  --cdpv-tab-height: 32px;
+  --cdpv-tab-radius: 10px;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 6px 0 8px;
+}
+:is(
+  .cdpv-root[data-tab-style="floating"] .cdpv-tabs,
+  .cdpv-root[data-tab-style="floating"]
+    .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker))
+) {
+  align-self: center;
+  gap: 4px;
+  margin: 0;
+  padding-inline: 0;
+  -webkit-mask: none;
+  mask: none;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item {
+  height: var(--cdpv-tab-height);
+  border-radius: var(--cdpv-tab-radius);
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected] {
+  background: var(--cdpv-tab-selected-background);
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]:before,
+.cdpv-root[data-tab-style="floating"] .cdpv-tab-item[data-selected]:after,
+.cdpv-root[data-tab-style="floating"] .cdpv-new-tab:before {
+  content: none;
+}
+.cdpv-root[data-tab-style="floating"]
+  .cdpv-tab-item:not([data-selected]):before {
+  inset: 0;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-tab {
+  height: 100%;
+  padding: 0 6px 0 10px;
+  font-size: 13px;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-close {
+  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  margin: 0 6px 0 0;
+}
+.cdpv-root[data-tab-style="floating"] .cdpv-new-tab:hover:not(:disabled) {
+  background: var(--cdpv-hover);
 }
 /*$vite$:1*/
