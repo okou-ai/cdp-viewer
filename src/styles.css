@@ -122,6 +122,17 @@
   margin-left: calc(-1 * var(--cdpv-tab-corner));
   overflow: clip;
 }
+
+/* The private controls flex into the space left by host actions. Its own resize
+   drives tab measurement, without querying or observing host slot descendants. */
+.cdpv-root .cdpv-toolbar-controls {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  gap: inherit;
+}
 .cdpv-root .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
   /* Share the decorative gutter with the button without moving the tab bodies. */
   margin-right: calc(-1 * var(--cdpv-tab-corner));
@@ -429,7 +440,12 @@
   background: var(--cdpv-stage-background);
   outline: none;
 }
-.cdpv-root .cdpv-stage > canvas {
+.cdpv-root .cdpv-remote-surface {
+  position: absolute;
+  inset: 0;
+  outline: none;
+}
+.cdpv-root .cdpv-remote-surface > canvas {
   box-sizing: border-box;
   display: block;
   width: 100%;
@@ -439,7 +455,7 @@
 .cdpv-root .cdpv-stage[data-loading-preview] {
   overflow: clip;
 }
-.cdpv-root .cdpv-stage[data-loading-preview] > canvas {
+.cdpv-root .cdpv-stage[data-loading-preview] > .cdpv-remote-surface > canvas {
   filter: blur(8px);
 }
 .cdpv-root .cdpv-placeholder {

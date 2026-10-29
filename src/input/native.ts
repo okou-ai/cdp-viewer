@@ -34,6 +34,7 @@ export class NativeInput {
   private readonly clipboard: NativeClipboard;
 
   constructor(
+    private readonly surface: HTMLElement,
     private readonly canvas: HTMLCanvasElement,
     private readonly proxy: HTMLTextAreaElement,
     input: () => NativeInputPort | null,
@@ -59,26 +60,22 @@ export class NativeInput {
       clipboardChanged,
       signal,
     );
-    const stage = canvas.parentElement;
-    if (!stage) throw new Error("Input requires an owned stage.");
-    stage.addEventListener("pointerdown", this.pointerDown, { signal });
-    stage.addEventListener("mousedown", this.mouseDown, { signal });
+    surface.addEventListener("pointerdown", this.pointerDown, { signal });
+    surface.addEventListener("mousedown", this.mouseDown, { signal });
     window.addEventListener("mouseup", this.mouseUp, { signal });
-    stage.addEventListener("pointermove", this.pointerMove, { signal });
-    stage.addEventListener("pointerup", this.pointerUp, { signal });
-    stage.addEventListener(
-      "pointercancel",
-      (event) => {
-        if (this.isSurfaceEvent(event)) this.cancel();
-      },
-      { signal },
-    );
-    stage.addEventListener("lostpointercapture", this.lostCapture, { signal });
-    stage.addEventListener("contextmenu", this.suppressSurfaceDefault, {
+    surface.addEventListener("pointermove", this.pointerMove, { signal });
+    surface.addEventListener("pointerup", this.pointerUp, { signal });
+    surface.addEventListener("pointercancel", this.cancel, { signal });
+    surface.addEventListener("lostpointercapture", this.lostCapture, {
       signal,
     });
-    stage.addEventListener("auxclick", this.suppressSurfaceDefault, { signal });
-    stage.addEventListener("wheel", this.wheel, { signal, passive: false });
+    surface.addEventListener("contextmenu", this.suppressSurfaceDefault, {
+      signal,
+    });
+    surface.addEventListener("auxclick", this.suppressSurfaceDefault, {
+      signal,
+    });
+    surface.addEventListener("wheel", this.wheel, { signal, passive: false });
     proxy.addEventListener(
       "focus",
       () => {
@@ -134,11 +131,8 @@ export class NativeInput {
       this.pointerId = null;
       this.pointerInput = null;
       this.pressedButtons.clear();
-      if (
-        pointer !== null &&
-        this.canvas.parentElement?.hasPointerCapture(pointer)
-      ) {
-        this.canvas.parentElement.releasePointerCapture(pointer);
+      if (pointer !== null && this.surface.hasPointerCapture(pointer)) {
+        this.surface.releasePointerCapture(pointer);
       }
       // Same-tab cleanup invalidates old input without ending local focus.
       if (
@@ -181,25 +175,15 @@ export class NativeInput {
     this.reset("blur");
   };
 
-  private readonly lostCapture = (event: PointerEvent) => {
-    if (this.isSurfaceEvent(event) && this.pointerId !== null) this.cancel();
+  private readonly lostCapture = () => {
+    if (this.pointerId !== null) this.cancel();
   };
 
-  /** Host slot descendants keep their own pointer, wheel and browser defaults. */
-  private isSurfaceEvent(event: Event): boolean {
-    return (
-      event.target === this.canvas ||
-      event.target === this.proxy ||
-      event.target === this.canvas.parentElement
-    );
-  }
-
   private readonly suppressSurfaceDefault = (event: Event) => {
-    if (this.isSurfaceEvent(event)) event.preventDefault();
+    event.preventDefault();
   };
 
   private readonly pointerDown = (event: PointerEvent) => {
-    if (!this.isSurfaceEvent(event)) return;
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     if (!point || event.pointerType !== "mouse") return;
     const composing = this.composition.composing;
@@ -221,7 +205,7 @@ export class NativeInput {
     this.pointerInput = input;
     this.proxy.focus({ preventScroll: true });
     if (!input.owner) return;
-    this.canvas.parentElement?.setPointerCapture(event.pointerId);
+    this.surface.setPointerCapture(event.pointerId);
   };
 
   private readonly mouseDown = (event: MouseEvent) => {
@@ -243,7 +227,6 @@ export class NativeInput {
   };
 
   private readonly pointerMove = (event: PointerEvent) => {
-    if (!this.isSurfaceEvent(event)) return;
     if (event.pointerType !== "mouse") return;
     const held = this.ownedButtons(event.buttons);
     this.ingress.continuous(
@@ -279,8 +262,8 @@ export class NativeInput {
     if (event.pointerId !== this.pointerId) return;
     this.ingress.boundary(undefined, this.pointerInput);
     this.pointerId = null;
-    if (this.canvas.parentElement?.hasPointerCapture(event.pointerId)) {
-      this.canvas.parentElement.releasePointerCapture(event.pointerId);
+    if (this.surface.hasPointerCapture(event.pointerId)) {
+      this.surface.releasePointerCapture(event.pointerId);
     }
   };
 
@@ -309,7 +292,6 @@ export class NativeInput {
   };
 
   private readonly wheel = (event: WheelEvent) => {
-    if (!this.isSurfaceEvent(event)) return;
     const point = imagePoint(this.canvas, event.clientX, event.clientY);
     if (!point || !this.ingress.current()) return;
     event.preventDefault();

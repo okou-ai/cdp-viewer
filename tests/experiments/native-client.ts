@@ -45,11 +45,12 @@ window.installNativeExperiment = ({
 }) => {
   const canvas = document.querySelector<HTMLCanvasElement>("#viewer-a canvas");
   if (!canvas?.parentElement) throw new Error("Owned viewer canvas is missing");
+  const surface = canvas.parentElement;
   const proxy = document.createElement("textarea");
   proxy.setAttribute("aria-label", "Native executor input");
   proxy.style.cssText =
     "position:absolute;width:1px;height:1px;opacity:0;resize:none";
-  canvas.parentElement.append(proxy);
+  surface.append(proxy);
   const socket = new WebSocket(endpoint);
   const composition = ownership !== undefined;
   let generation = ownership?.generation ?? null;
@@ -274,6 +275,7 @@ window.installNativeExperiment = ({
     },
   };
   native = new NativeInput(
+    surface,
     canvas,
     proxy,
     () => (stopped ? null : port),

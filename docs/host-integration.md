@@ -81,6 +81,13 @@ an ancestor of host slots. Host content must retain native selection and touch
 scrolling. Remote-page focus indicators follow the native input proxy rather
 than focus anywhere in the stage; local host controls keep their own focus UI.
 
+Make layout and behavior ownership distinct in the component tree. Keep host
+content outside private UI-default providers and outside the DOM subtree that
+admits remote input. Bind input listeners and pointer capture to that explicit
+surface, not to a shared layout ancestor inferred from the canvas parent.
+Let layout reserve host action space; observe the resulting private toolbar
+geometry rather than querying host descendants or measuring their controls.
+
 ## State, context and resources
 
 Each viewer owns its private Store/context and mutable runtime resources. A host

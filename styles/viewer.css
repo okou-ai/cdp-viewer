@@ -152,6 +152,14 @@
   display: flex;
   overflow: clip;
 }
+.cdpv-root .cdpv-toolbar-controls {
+  align-self: stretch;
+  align-items: center;
+  gap: inherit;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
 .cdpv-root .cdpv-tabs:has(+ :is(.cdpv-new-tab, .cdpv-tab-picker)) {
   margin-right: calc(-1 * var(--cdpv-tab-corner));
   -webkit-mask:
@@ -473,7 +481,12 @@
   min-height: 0;
   position: relative;
 }
-.cdpv-root .cdpv-stage > canvas {
+.cdpv-root .cdpv-remote-surface {
+  outline: none;
+  position: absolute;
+  inset: 0;
+}
+.cdpv-root .cdpv-remote-surface > canvas {
   box-sizing: border-box;
   object-fit: contain;
   width: 100%;
@@ -483,7 +496,7 @@
 .cdpv-root .cdpv-stage[data-loading-preview] {
   overflow: clip;
 }
-.cdpv-root .cdpv-stage[data-loading-preview] > canvas {
+.cdpv-root .cdpv-stage[data-loading-preview] > .cdpv-remote-surface > canvas {
   filter: blur(8px);
 }
 .cdpv-root .cdpv-placeholder {

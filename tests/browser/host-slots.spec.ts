@@ -138,6 +138,7 @@ for (const tabStyleA of ["attached", "floating"] as const) {
       await hostAction.click();
       await expect(hostAction).toHaveAttribute("aria-pressed", "true");
       await expect(allTabs).toBeVisible();
+      await expect(hostAction).toBeFocused();
       await allTabs.click();
       await expect(view.getByRole("option")).toHaveCount(7);
       await page.keyboard.press("Escape");
@@ -304,10 +305,9 @@ test("host slot controls and canvases retain their own appearance", async ({
     await expect(
       view.getByRole("button", { name: "Back remote page" }),
     ).toHaveCSS("opacity", "0.2");
-    await expect(view.locator(".cdpv-stage > canvas")).toHaveCSS(
-      "display",
-      "block",
-    );
+    await expect(
+      view.getByRole("img", { name: "Live browser view" }),
+    ).toHaveCSS("display", "block");
   } finally {
     await backend.close();
   }
@@ -334,7 +334,7 @@ test("tab presentation preserves independent host shapes and live focus tokens",
     });
     const address = view.getByRole("textbox", { name: "Remote page address" });
     const back = view.getByRole("button", { name: "Back remote page" });
-    const stage = view.locator(".cdpv-stage");
+    const stage = view.locator(".cdpv-remote-surface");
     const input = view.getByRole("textbox", { name: "Remote browser input" });
     const navigation = await view.locator(".cdpv-navigation").boundingBox();
     await input.focus();
@@ -414,7 +414,7 @@ test("blank-page and overlay slots keep host actions local and let remote input 
     const startInput = view.getByRole("textbox", { name: "Start page input" });
     await startInput.fill("local draft");
     await expect(startInput).toHaveValue("local draft");
-    const stage = view.locator(".cdpv-stage");
+    const stage = view.locator(".cdpv-remote-surface");
     await expect(startInput).toBeFocused();
     await expect(stage).toHaveCSS("outline-style", "none");
     await view.getByText("Start page content", { exact: true }).click({

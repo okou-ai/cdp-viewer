@@ -1160,9 +1160,9 @@ it("owns icon defaults without changing a shared host provider", async () => {
     currentIndex: 0,
     entries: [{ id: 1, url: "about:blank", title: "about:blank" }],
   };
-  const { container } = render(
+  const content = (color: string) => (
     <LucideProvider
-      color="#cc1122"
+      color={color}
       size={40}
       strokeWidth={5}
       className="host-icons"
@@ -1177,8 +1177,10 @@ it("owns icon defaults without changing a shared host provider", async () => {
         }
         blankPage={<Plus data-testid="host-icon-blank" data-host-icon="" />}
       />
-    </LucideProvider>,
+    </LucideProvider>
   );
+  const view = render(content("#cc1122"));
+  const { container } = view;
   await waitFor(() =>
     expect(
       document.querySelector('[data-status="streaming"]'),
@@ -1206,6 +1208,25 @@ it("owns icon defaults without changing a shared host provider", async () => {
     expect(icon).toHaveAttribute("stroke-width", "2");
     expect(icon).not.toHaveClass("host-icons");
   }
+  const canvas = screen.getByRole("img", { name: "Live browser view" });
+  const input = screen.getByRole("textbox", { name: "Remote browser input" });
+  view.rerender(content("#3377aa"));
+  for (const name of [
+    "host-icon",
+    "host-icon-toolbar",
+    "host-icon-overlay",
+    "host-icon-blank",
+  ])
+    expect(screen.getByTestId(name)).toHaveAttribute("stroke", "#3377aa");
+  for (const icon of container.querySelectorAll(
+    ".cdpv-root svg:not([data-host-icon])",
+  ))
+    expect(icon).toHaveAttribute("stroke", "currentColor");
+  expect(screen.getByRole("img", { name: "Live browser view" })).toBe(canvas);
+  expect(screen.getByRole("textbox", { name: "Remote browser input" })).toBe(
+    input,
+  );
+  expect(fake.sockets).toHaveLength(1);
 });
 
 it("owns tab measurement per viewer and keeps hidden tabs accessible without reconnecting", async () => {
@@ -1225,7 +1246,7 @@ it("owns tab measurement per viewer and keeps hidden tabs accessible without rec
       readonly disconnect = vi.fn();
       constructor(private readonly callback: ResizeObserverCallback) {}
       observe(target: Element) {
-        if (target.classList.contains("cdpv-toolbar"))
+        if (target.classList.contains("cdpv-toolbar-controls"))
           observations.push({
             measure: () => this.callback([], this),
             disconnect: this.disconnect,
@@ -1261,7 +1282,7 @@ it("owns tab measurement per viewer and keeps hidden tabs accessible without rec
     document.querySelectorAll<HTMLElement>(".cdpv-root"),
   );
   const rows = viewers.map((root) =>
-    root.querySelector<HTMLElement>(".cdpv-toolbar")!,
+    root.querySelector<HTMLElement>(".cdpv-toolbar-controls")!,
   );
   const canvas = viewers[0]!.querySelector("canvas");
   const proxy = within(viewers[0]!).getByLabelText("Remote browser input");

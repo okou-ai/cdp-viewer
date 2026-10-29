@@ -8,6 +8,7 @@ export class ToolbarFocus {
   private toolbarFocus: HTMLElement | null = null;
 
   constructor(
+    private readonly toolbar: RefObject<HTMLDivElement | null>,
     private readonly tabs: RefObject<HTMLDivElement | null>,
     private readonly address: RefObject<HTMLInputElement | null>,
   ) {}
@@ -59,15 +60,15 @@ export class ToolbarFocus {
     (
       this.selected() ??
       list?.querySelector<HTMLElement>('[role="tab"]') ??
-      list?.parentElement?.querySelector<HTMLElement>(
+      this.toolbar.current?.querySelector<HTMLElement>(
         ".cdpv-tab-picker-trigger",
       ) ??
-      list?.parentElement?.querySelector<HTMLElement>(".cdpv-new-tab")
+      this.toolbar.current?.querySelector<HTMLElement>(".cdpv-new-tab")
     )?.focus({ preventScroll: true });
   }
 
   listen(): () => void {
-    const row = this.tabs.current?.parentElement;
+    const row = this.toolbar.current;
     const focused = (event: FocusEvent) => {
       this.toolbarFocus =
         event.target instanceof HTMLElement && row?.contains(event.target)

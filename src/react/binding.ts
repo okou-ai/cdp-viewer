@@ -18,6 +18,8 @@ import { observeTabStrip } from "./tab-strip";
 import { observeDisplay } from "./display";
 
 export interface Elements {
+  toolbar: RefObject<HTMLDivElement | null>;
+  surface: RefObject<HTMLDivElement | null>;
   canvas: RefObject<HTMLCanvasElement | null>;
   proxy: RefObject<HTMLTextAreaElement | null>;
   address: RefObject<HTMLInputElement | null>;
@@ -46,6 +48,8 @@ function effectivePaused(explicit: boolean, inViewport: boolean): boolean {
 /** DOM resources belong to this committed instance, never to a render or global. */
 export class ViewerBinding {
   readonly elements: Elements = {
+    toolbar: { current: null },
+    surface: { current: null },
     canvas: { current: null },
     proxy: { current: null },
     address: { current: null },
@@ -55,6 +59,7 @@ export class ViewerBinding {
     browserMenu: { current: null },
   };
   private readonly focus = new ToolbarFocus(
+    this.elements.toolbar,
     this.elements.tabs,
     this.elements.address,
   );
@@ -130,15 +135,20 @@ export class ViewerBinding {
       (old.interactive ?? false) !== interactive
     ) {
       this.tabStrip?.close();
+      const toolbar = this.elements.toolbar.current;
       const tabs = this.elements.tabs.current;
-      this.tabStrip = tabs
-        ? observeTabStrip(tabs, (space) => model.run(model.resizeTabs$, space))
-        : undefined;
+      this.tabStrip =
+        toolbar && tabs
+          ? observeTabStrip(toolbar, tabs, (space) =>
+              model.run(model.resizeTabs$, space),
+            )
+          : undefined;
       this.native?.dispose();
       this.native = null;
-      const { canvas, proxy } = this.elements;
-      if (interactive && canvas.current && proxy.current)
+      const { surface, canvas, proxy } = this.elements;
+      if (interactive && surface.current && canvas.current && proxy.current)
         this.native = new NativeInput(
+          surface.current,
           canvas.current,
           proxy.current,
           () => this.controller?.input ?? null,
@@ -146,11 +156,7 @@ export class ViewerBinding {
           (value) => model.run(model.setClipboard$, value),
         );
     }
-    if (
-      old &&
-      (old.tabStyle !== state.tabStyle || old.toolbarEnd !== state.toolbarEnd)
-    )
-      this.tabStrip?.refresh();
+    if (old && old.tabStyle !== state.tabStyle) this.tabStrip?.refresh();
     if (!old || old.tabLayout !== tabLayout) this.focus.restoreLayout();
     if (
       !old ||

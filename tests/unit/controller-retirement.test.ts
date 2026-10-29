@@ -347,6 +347,7 @@ it("keeps late retirement callbacks from resetting the current native compositio
   stage.append(canvas, proxy);
   document.body.append(stage);
   adapter = new NativeInput(
+    stage,
     canvas,
     proxy,
     () => controller.input,

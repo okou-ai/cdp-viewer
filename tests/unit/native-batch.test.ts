@@ -77,7 +77,7 @@ function surface(input: NativeInputPort) {
   stage.hasPointerCapture = vi.fn(() => false);
   stage.append(canvas, proxy);
   document.body.append(stage);
-  const adapter = new NativeInput(canvas, proxy, () => current, vi.fn());
+  const adapter = new NativeInput(stage, canvas, proxy, () => current, vi.fn());
   cleanup.push(() => adapter.dispose());
   proxy.focus();
   return {
