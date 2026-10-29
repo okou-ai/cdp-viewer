@@ -676,7 +676,9 @@ test("same-tab search navigation and reload retain keyboard focus without anothe
       view.getByRole("textbox", { name: "Remote page address" }),
     ).toHaveValue(destination);
     await expect(proxy).toBeFocused();
-    await expect(view.getByRole("tabpanel")).toHaveCSS("outline-width", "2px");
+    const surface = view.locator(".cdpv-remote-surface");
+    await expect(surface).toHaveCSS("outline-width", "2px");
+    await expect(surface).toHaveCSS("outline-style", "solid");
     await page.keyboard.press("Tab");
     await expect(remote.locator("#plain")).toBeFocused();
     await page.keyboard.insertText("after search");
